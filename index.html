@@ -19,19 +19,8 @@
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;}
 .container{max-width:860px;margin:0 auto;padding:0 12px 48px;}
 .header{display:flex;align-items:center;gap:12px;padding:20px 0 18px;}
-.trophy-icon {
-  width: 50px; /* Você pode aumentar aqui se achar pequeno */
-  height: 50px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.trophy-icon img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain; /* Impede que a imagem fique esticada */
-}
+.trophy-icon { width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.trophy-icon img { width: 100%; height: 100%; object-fit: contain; }
 .header-title{font-size:20px;font-weight:700;}
 .header-sub{font-size:12px;color:var(--text2);margin-top:2px;}
 .tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:18px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
@@ -43,7 +32,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .tag-a{background:#deeaf8;color:#0a3d6e;} .tag-b{background:#ddf0cc;color:#1e4a08;} .tag-all{background:#fde9c8;color:#6b3500;}
 @media(prefers-color-scheme:dark){.tag-a{background:#0f2e4f;color:#7db8ed;}.tag-b{background:#142e07;color:#8cc95a;}.tag-all{background:#3d1f00;color:#f5b35a;}}
 .group-label{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px;}
-/* ── TABELA RESPONSIVA ── */
 .table-wrap{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:18px;}
 table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;}
 thead th{padding:8px 5px;text-align:center;font-weight:600;font-size:11px;color:var(--text2);background:var(--bg2);border-bottom:1px solid var(--border);white-space:nowrap;}
@@ -53,25 +41,21 @@ tbody tr:last-child{border-bottom:none;}
 tbody tr:hover{background:var(--bg2);}
 tbody td{padding:8px 5px;text-align:center;white-space:nowrap;}
 td.td-name{text-align:left;font-weight:600;font-size:13px;padding-left:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-/* larguras fixas — tudo cabe em ~360px */
 .w-pos {width:30px;} .w-pts{width:32px;} .w-n{width:26px;} .w-sg{width:32px;} .w-forma{width:52px;} .w-gr{width:30px;}
 .pts-cell{font-weight:700;color:var(--blue);}
 .sg-pos{color:var(--green);font-weight:500;} .sg-neg{color:var(--red);font-weight:500;} .sg-zer{color:var(--text2);}
 .pos-badge{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;font-size:11px;font-weight:700;}
 .pos-1{background:var(--gold);color:#412402;} .pos-2{background:#d0cec4;color:#2a2a28;} .pos-3{background:#f0b89e;color:#450d00;}
 .pos-num{font-size:12px;color:var(--text2);}
-/* zonas classificação geral */
 .zona-camp {background:rgba(250,199,117,.12);}
 .zona-class{background:rgba(24,95,165,.07);}
 @media(prefers-color-scheme:dark){.zona-camp{background:rgba(250,199,117,.09);}.zona-class{background:rgba(24,95,165,.11);}}
 .form-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin:0 1px;}
 .fv{background:var(--green);} .fe{background:#999997;} .fd{background:var(--red);}
-/* filtros */
 .filter-bar{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;}
 .filter-btn{font-size:12px;font-weight:500;padding:5px 13px;border-radius:20px;border:1px solid var(--border2);background:none;cursor:pointer;color:var(--text2);transition:all .15s;}
 .filter-btn:hover{border-color:var(--blue);color:var(--blue);}
 .filter-btn.active{background:var(--blue);color:#fff;border-color:var(--blue);}
-/* partidas */
 .round-section{margin-bottom:18px;}
 .round-label{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:7px;}
 .match-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:9px 12px;margin-bottom:6px;}
@@ -86,7 +70,6 @@ td.td-name{text-align:left;font-weight:600;font-size:13px;padding-left:4px;overf
 .badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;}
 .badge-ok{background:#ddf0cc;color:#1e4a08;} .badge-pend{background:#e8e8e6;color:#555553;}
 @media(prefers-color-scheme:dark){.badge-ok{background:#142e07;color:#8cc95a;}.badge-pend{background:#333331;color:#999997;}}
-/* estatísticas */
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:18px;}
 .stat-card{background:var(--bg2);border-radius:var(--radius);padding:12px 14px;}
 .stat-label{font-size:11px;color:var(--text2);margin-bottom:3px;}
@@ -107,7 +90,6 @@ td.td-name{text-align:left;font-weight:600;font-size:13px;padding-left:4px;overf
 .empty-state{text-align:center;padding:2rem 1rem;color:var(--text2);background:var(--bg2);border-radius:var(--radius);}
 .empty-state i{font-size:30px;display:block;margin-bottom:8px;}
 .empty-state p{font-size:13px;}
-/* admin */
 .admin-gate{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:2rem;max-width:320px;margin:0 auto;text-align:center;}
 .lock-icon{width:48px;height:48px;border-radius:50%;background:var(--bg2);display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;}
 .lock-icon i{font-size:22px;color:var(--text2);}
@@ -135,8 +117,35 @@ input:focus,select:focus{border-color:var(--blue);}
 </style>
 </head>
 <body>
-  <script type="module">
-  // 1. IMPORTAÇÕES CORRETAS (Incluindo o Database)
+
+<div class="container">
+  <div class="header">
+    <div class="trophy-icon">
+      <img src="Copa Rural 2026.PNG" alt="Logo do Torneio">
+    </div>
+    <div>
+      <div class="header-title">Copa Rural Ervália 2026</div>
+      <div class="header-sub">12 times &nbsp;·&nbsp; Grupo A e Grupo B</div>
+    </div>
+  </div>
+  
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('classificacao')"><i class="ti ti-list-numbers"></i> Classificação</button>
+    <button class="tab" onclick="showTab('resultados')"><i class="ti ti-ball-football"></i> Resultados</button>
+    <button class="tab" onclick="showTab('estatisticas')"><i class="ti ti-chart-bar"></i> Estatísticas</button>
+    <button class="tab" onclick="showTab('admin')"><i class="ti ti-settings"></i> Admin</button>
+  </div>
+  
+  <div id="classificacao" class="section active"></div>
+  <div id="resultados"    class="section"></div>
+  <div id="estatisticas"  class="section"></div>
+  <div id="admin"         class="section"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+  // 1. IMPORTAÇÕES CORRETAS DO FIREBASE
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-analytics.js";
   import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-database.js";
@@ -155,7 +164,7 @@ input:focus,select:focus{border-color:var(--blue);}
   // 2. INICIALIZAÇÃO
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
-  const db = getDatabase(app); // Instância do banco de dados
+  const db = getDatabase(app); 
 
   const ADMIN_PASS='admin123';
   let isAdmin=false, filterRes='todos';
@@ -282,7 +291,6 @@ input:focus,select:focus{border-color:var(--blue);}
     })
   };
 
-  // Estado local para a tela
   let state = JSON.parse(JSON.stringify(defaultState));
 
   // 3. CONEXÃO COM O FIREBASE
