@@ -136,14 +136,11 @@ input:focus,select:focus{border-color:var(--blue);}
 </head>
 <body>
   <script type="module">
-  // Import the functions you need from the SDKs you need
+  // 1. IMPORTAÇÕES CORRETAS (Incluindo o Database)
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-analytics.js";
-  // TODO: Add SDKs for Firebase products that you want to use
-  // https://firebase.google.com/docs/web/setup#available-libraries
+  import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-database.js";
 
-  // Your web app's Firebase configuration
-  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
   const firebaseConfig = {
     apiKey: "AIzaSyClKERJ9gQVzlgb2BSx7JtvIgyz5dCMfYw",
     authDomain: "campeonatorural2026.firebaseapp.com",
@@ -155,421 +152,370 @@ input:focus,select:focus{border-color:var(--blue);}
     measurementId: "G-JMW5JZPQWG"
   };
 
-  // Initialize Firebase
+  // 2. INICIALIZAÇÃO
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
-</script>
-<div class="container">
-  <div class="header">
-    <div class="trophy-icon">
-  <img src="Copa Rural 2026.PNG" alt="Logo do Torneio">
-</div>
-    <div>
-      <div class="header-title">Copa Rural Ervália 2026</div>
-      <div class="header-sub">12 times &nbsp;·&nbsp; Grupo A e Grupo B</div>
-    </div>
-  </div>
-  <div class="tabs">
-    <button class="tab active" onclick="showTab('classificacao')"><i class="ti ti-list-numbers"></i> Classificação</button>
-    <button class="tab" onclick="showTab('resultados')"><i class="ti ti-ball-football"></i> Resultados</button>
-    <button class="tab" onclick="showTab('estatisticas')"><i class="ti ti-chart-bar"></i> Estatísticas</button>
-    <button class="tab" onclick="showTab('admin')"><i class="ti ti-settings"></i> Admin</button>
-  </div>
-  <div id="classificacao" class="section active"></div>
-  <div id="resultados"    class="section"></div>
-  <div id="estatisticas"  class="section"></div>
-  <div id="admin"         class="section"></div>
-</div>
-<div class="toast" id="toast"></div>
-<script>
-const ADMIN_PASS='admin123',STATE_KEY='torneio_copa2025';
-let isAdmin=false,filterRes='todos';
-const TEAMS=[
-  {id:1,name:'Imperial',group:'A'},{id:2,name:'Sub-Zero',group:'B'},
-  {id:3,name:'Saturno',group:'B'},{id:4,name:'30 de Fevereiro',group:'A'},
-  {id:5,name:'Grãomogol',group:'B'},{id:6,name:'Aliança',group:'B'},
-  {id:7,name:'Sport',group:'A'},{id:8,name:'Córrego Frio',group:'A'},
-  {id:9,name:'Capivara',group:'A'},{id:10,name:'Largados',group:'B'},
-  {id:11,name:'União Casca',group:'B'},{id:12,name:'Progresso',group:'A'}
-];
-const SEED=[
-  {date:'19/04',r:1,home:'Sport',hs:2,as:2,away:'30 de Fevereiro'},
-  {date:'19/04',r:1,home:'Capivara',hs:0,as:4,away:'Imperial'},
-  {date:'19/04',r:1,home:'Córrego Frio',hs:3,as:5,away:'Progresso'},
-  {date:'19/04',r:1,home:'Largados',hs:4,as:0,away:'União Casca'},
-  {date:'19/04',r:1,home:'Aliança',hs:5,as:3,away:'Saturno'},
-  {date:'19/04',r:1,home:'Grãomogol',hs:5,as:0,away:'Sub-Zero'},
-  {date:'26/04',r:2,home:'Imperial',hs:10,as:1,away:'Sport'},
-  {date:'26/04',r:2,home:'30 de Fevereiro',hs:6,as:1,away:'Córrego Frio'},
-  {date:'26/04',r:2,home:'Progresso',hs:2,as:3,away:'Capivara'},
-  {date:'26/04',r:2,home:'Sub-Zero',hs:4,as:1,away:'Largados'},
-  {date:'26/04',r:2,home:'Saturno',hs:1,as:4,away:'Grãomogol'},
-  {date:'26/04',r:2,home:'União Casca',hs:3,as:2,away:'Aliança'},
-  {date:'03/05',r:3,home:'Sport',hs:2,as:1,away:'Córrego Frio'},
-  {date:'03/05',r:3,home:'Capivara',hs:2,as:0,away:'30 de Fevereiro'},
-  {date:'03/05',r:3,home:'Imperial',hs:4,as:1,away:'Progresso'},
-  {date:'03/05',r:3,home:'Largados',hs:3,as:1,away:'Grãomogol'},
-  {date:'03/05',r:3,home:'Aliança',hs:4,as:5,away:'Sub-Zero'},
-  {date:'03/05',r:3,home:'União Casca',hs:0,as:3,away:'Saturno'},
-  {date:'10/05',r:4,home:'Progresso',hs:2,as:2,away:'Sport'},
-  {date:'10/05',r:4,home:'30 de Fevereiro',hs:3,as:2,away:'Imperial'},
-  {date:'10/05',r:4,home:'Córrego Frio',hs:5,as:2,away:'Capivara'},
-  {date:'10/05',r:4,home:'Saturno',hs:4,as:3,away:'Largados'},
-  {date:'10/05',r:4,home:'Grãomogol',hs:2,as:3,away:'Aliança'},
-  {date:'10/05',r:4,home:'Sub-Zero',hs:3,as:0,away:'União Casca'},
-  {date:'17/05',r:5,home:'30 de Fevereiro',hs:7,as:2,away:'Progresso'},
-  {date:'17/05',r:5,home:'Imperial',hs:3,as:3,away:'Córrego Frio'},
-  {date:'17/05',r:5,home:'Capivara',hs:1,as:1,away:'Sport'},
-  {date:'17/05',r:5,home:'União Casca',hs:1,as:5,away:'Grãomogol'},
-  {date:'17/05',r:5,home:'Saturno',hs:2,as:1,away:'Sub-Zero'},
-  {date:'17/05',r:5,home:'Largados',hs:2,as:3,away:'Aliança'},
-  {date:'24/05',r:6,home:'30 de Fevereiro',hs:1,as:3,away:'Sport'},
-  {date:'24/05',r:6,home:'Imperial',hs:4,as:3,away:'Capivara'},
-  {date:'24/05',r:6,home:'Progresso',hs:3,as:4,away:'Córrego Frio'},
-  {date:'24/05',r:6,home:'União Casca',hs:2,as:1,away:'Largados'},
-  {date:'24/05',r:6,home:'Saturno',hs:4,as:3,away:'Aliança'},
-  {date:'24/05',r:6,home:'Sub-Zero',hs:2,as:1,away:'Grãomogol'},
-  // NOVOS JOGOS PENDENTES (RODADAS 7 A 10)
-  {date:'31/05',r:7,home:'Sport',hs:null,as:null,away:'Imperial'},
-  {date:'31/05',r:7,home:'Córrego Frio',hs:null,as:null,away:'30 de Fevereiro'},
-  {date:'31/05',r:7,home:'Capivara',hs:null,as:null,away:'Progresso'},
-  {date:'31/05',r:7,home:'Largados',hs:null,as:null,away:'Sub-Zero'},
-  {date:'31/05',r:7,home:'Grãomogol',hs:null,as:null,away:'Saturno'},
-  {date:'31/05',r:7,home:'Aliança',hs:null,as:null,away:'União Casca'},
-  {date:'07/06',r:8,home:'Córrego Frio',hs:null,as:null,away:'Sport'},
-  {date:'07/06',r:8,home:'30 de Fevereiro',hs:null,as:null,away:'Capivara'},
-  {date:'07/06',r:8,home:'Progresso',hs:null,as:null,away:'Imperial'},
-  {date:'07/06',r:8,home:'Grãomogol',hs:null,as:null,away:'Largados'},
-  {date:'07/06',r:8,home:'Sub-Zero',hs:null,as:null,away:'Aliança'},
-  {date:'07/06',r:8,home:'Saturno',hs:null,as:null,away:'União Casca'},
-  {date:'14/06',r:9,home:'Sport',hs:null,as:null,away:'Progresso'},
-  {date:'14/06',r:9,home:'Imperial',hs:null,as:null,away:'30 de Fevereiro'},
-  {date:'14/06',r:9,home:'Capivara',hs:null,as:null,away:'Córrego Frio'},
-  {date:'14/06',r:9,home:'Largados',hs:null,as:null,away:'Saturno'},
-  {date:'14/06',r:9,home:'Aliança',hs:null,as:null,away:'Grãomogol'},
-  {date:'14/06',r:9,home:'União Casca',hs:null,as:null,away:'Sub-Zero'},
-  {date:'21/06',r:10,home:'Progresso',hs:null,as:null,away:'30 de Fevereiro'},
-  {date:'21/06',r:10,home:'Córrego Frio',hs:null,as:null,away:'Imperial'},
-  {date:'21/06',r:10,home:'Sport',hs:null,as:null,away:'Capivara'},
-  {date:'21/06',r:10,home:'Grãomogol',hs:null,as:null,away:'União Casca'},
-  {date:'21/06',r:10,home:'Sub-Zero',hs:null,as:null,away:'Saturno'},
-  {date:'21/06',r:10,home:'Aliança',hs:null,as:null,away:'Largados'}
-];
+  const db = getDatabase(app); // Instância do banco de dados
+
+  const ADMIN_PASS='admin123';
+  let isAdmin=false, filterRes='todos';
+  
+  const TEAMS=[
+    {id:1,name:'Imperial',group:'A'},{id:2,name:'Sub-Zero',group:'B'},
+    {id:3,name:'Saturno',group:'B'},{id:4,name:'30 de Fevereiro',group:'A'},
+    {id:5,name:'Grãomogol',group:'B'},{id:6,name:'Aliança',group:'B'},
+    {id:7,name:'Sport',group:'A'},{id:8,name:'Córrego Frio',group:'A'},
+    {id:9,name:'Capivara',group:'A'},{id:10,name:'Largados',group:'B'},
+    {id:11,name:'União Casca',group:'B'},{id:12,name:'Progresso',group:'A'}
+  ];
+  
+  const SEED=[
+    {date:'19/04',r:1,home:'Sport',hs:2,as:2,away:'30 de Fevereiro'},
+    {date:'19/04',r:1,home:'Capivara',hs:0,as:4,away:'Imperial'},
+    {date:'19/04',r:1,home:'Córrego Frio',hs:3,as:5,away:'Progresso'},
+    {date:'19/04',r:1,home:'Largados',hs:4,as:0,away:'União Casca'},
+    {date:'19/04',r:1,home:'Aliança',hs:5,as:3,away:'Saturno'},
+    {date:'19/04',r:1,home:'Grãomogol',hs:5,as:0,away:'Sub-Zero'},
+    {date:'26/04',r:2,home:'Imperial',hs:10,as:1,away:'Sport'},
+    {date:'26/04',r:2,home:'30 de Fevereiro',hs:6,as:1,away:'Córrego Frio'},
+    {date:'26/04',r:2,home:'Progresso',hs:2,as:3,away:'Capivara'},
+    {date:'26/04',r:2,home:'Sub-Zero',hs:4,as:1,away:'Largados'},
+    {date:'26/04',r:2,home:'Saturno',hs:1,as:4,away:'Grãomogol'},
+    {date:'26/04',r:2,home:'União Casca',hs:3,as:2,away:'Aliança'},
+    {date:'03/05',r:3,home:'Sport',hs:2,as:1,away:'Córrego Frio'},
+    {date:'03/05',r:3,home:'Capivara',hs:2,as:0,away:'30 de Fevereiro'},
+    {date:'03/05',r:3,home:'Imperial',hs:4,as:1,away:'Progresso'},
+    {date:'03/05',r:3,home:'Largados',hs:3,as:1,away:'Grãomogol'},
+    {date:'03/05',r:3,home:'Aliança',hs:4,as:5,away:'Sub-Zero'},
+    {date:'03/05',r:3,home:'União Casca',hs:0,as:3,away:'Saturno'},
+    {date:'10/05',r:4,home:'Progresso',hs:2,as:2,away:'Sport'},
+    {date:'10/05',r:4,home:'30 de Fevereiro',hs:3,as:2,away:'Imperial'},
+    {date:'10/05',r:4,home:'Córrego Frio',hs:5,as:2,away:'Capivara'},
+    {date:'10/05',r:4,home:'Saturno',hs:4,as:3,away:'Largados'},
+    {date:'10/05',r:4,home:'Grãomogol',hs:2,as:3,away:'Aliança'},
+    {date:'10/05',r:4,home:'Sub-Zero',hs:3,as:0,away:'União Casca'},
+    {date:'17/05',r:5,home:'30 de Fevereiro',hs:7,as:2,away:'Progresso'},
+    {date:'17/05',r:5,home:'Imperial',hs:3,as:3,away:'Córrego Frio'},
+    {date:'17/05',r:5,home:'Capivara',hs:1,as:1,away:'Sport'},
+    {date:'17/05',r:5,home:'União Casca',hs:1,as:5,away:'Grãomogol'},
+    {date:'17/05',r:5,home:'Saturno',hs:2,as:1,away:'Sub-Zero'},
+    {date:'17/05',r:5,home:'Largados',hs:2,as:3,away:'Aliança'},
+    {date:'24/05',r:6,home:'30 de Fevereiro',hs:1,as:3,away:'Sport'},
+    {date:'24/05',r:6,home:'Imperial',hs:4,as:3,away:'Capivara'},
+    {date:'24/05',r:6,home:'Progresso',hs:3,as:4,away:'Córrego Frio'},
+    {date:'24/05',r:6,home:'União Casca',hs:2,as:1,away:'Largados'},
+    {date:'24/05',r:6,home:'Saturno',hs:4,as:3,away:'Aliança'},
+    {date:'24/05',r:6,home:'Sub-Zero',hs:2,as:1,away:'Grãomogol'},
+    {date:'31/05',r:7,home:'Sport',hs:null,as:null,away:'Imperial'},
+    {date:'31/05',r:7,home:'Córrego Frio',hs:null,as:null,away:'30 de Fevereiro'},
+    {date:'31/05',r:7,home:'Capivara',hs:null,as:null,away:'Progresso'},
+    {date:'31/05',r:7,home:'Largados',hs:null,as:null,away:'Sub-Zero'},
+    {date:'31/05',r:7,home:'Grãomogol',hs:null,as:null,away:'Saturno'},
+    {date:'31/05',r:7,home:'Aliança',hs:null,as:null,away:'União Casca'},
+    {date:'07/06',r:8,home:'Córrego Frio',hs:null,as:null,away:'Sport'},
+    {date:'07/06',r:8,home:'30 de Fevereiro',hs:null,as:null,away:'Capivara'},
+    {date:'07/06',r:8,home:'Progresso',hs:null,as:null,away:'Imperial'},
+    {date:'07/06',r:8,home:'Grãomogol',hs:null,as:null,away:'Largados'},
+    {date:'07/06',r:8,home:'Sub-Zero',hs:null,as:null,away:'Aliança'},
+    {date:'07/06',r:8,home:'Saturno',hs:null,as:null,away:'União Casca'},
+    {date:'14/06',r:9,home:'Sport',hs:null,as:null,away:'Progresso'},
+    {date:'14/06',r:9,home:'Imperial',hs:null,as:null,away:'30 de Fevereiro'},
+    {date:'14/06',r:9,home:'Capivara',hs:null,as:null,away:'Córrego Frio'},
+    {date:'14/06',r:9,home:'Largados',hs:null,as:null,away:'Saturno'},
+    {date:'14/06',r:9,home:'Aliança',hs:null,as:null,away:'Grãomogol'},
+    {date:'14/06',r:9,home:'União Casca',hs:null,as:null,away:'Sub-Zero'},
+    {date:'21/06',r:10,home:'Progresso',hs:null,as:null,away:'30 de Fevereiro'},
+    {date:'21/06',r:10,home:'Córrego Frio',hs:null,as:null,away:'Imperial'},
+    {date:'21/06',r:10,home:'Sport',hs:null,as:null,away:'Capivara'},
+    {date:'21/06',r:10,home:'Grãomogol',hs:null,as:null,away:'União Casca'},
+    {date:'21/06',r:10,home:'Sub-Zero',hs:null,as:null,away:'Saturno'},
+    {date:'21/06',r:10,home:'Aliança',hs:null,as:null,away:'Largados'}
+  ];
+  
   const PLAYERS_DATA = [
-  {id:101,name:'Roney',teamId:7,goals:8},{id:102,name:'Felipe',teamId:1,goals:7},
-  {id:103,name:'Anderson',teamId:1,goals:7},{id:104,name:'Rodrigo',teamId:4,goals:6},
-  {id:105,name:'Magno (Maguino)',teamId:4,goals:5},{id:106,name:'Luiz Flávio',teamId:12,goals:5},
-  {id:107,name:'Elivelton',teamId:6,goals:5},{id:108,name:'Geneilton',teamId:5,goals:4},
-  {id:109,name:'Marley',teamId:8,goals:4},{id:110,name:'Romário',teamId:2,goals:4},
-  {id:111,name:'Estevão',teamId:3,goals:4},{id:112,name:'Junior',teamId:10,goals:4},
-  {id:113,name:'Pablo',teamId:8,goals:4},{id:114,name:'Elielton',teamId:6,goals:4},
-  {id:115,name:'João Paulo',teamId:6,goals:4},{id:116,name:'Guilherme',teamId:5,goals:3},
-  {id:117,name:'Gabriel',teamId:3,goals:3},{id:118,name:'Theo',teamId:8,goals:3},
-  {id:119,name:'Jorginho',teamId:9,goals:3},{id:120,name:'Kenedy',teamId:1,goals:3},
-  {id:121,name:'Alvim',teamId:4,goals:3},{id:122,name:'Tiago',teamId:6,goals:3},
-  {id:123,name:'Jullian',teamId:3,goals:3},{id:124,name:'Wagner',teamId:8,goals:2},
-  {id:125,name:'Wanderson',teamId:1,goals:2},{id:126,name:'Macarrão',teamId:1,goals:2},
-  {id:127,name:'Vaval',teamId:1,goals:2},{id:128,name:'William',teamId:1,goals:2},
-  {id:129,name:'Kauan',teamId:9,goals:2},{id:130,name:'André',teamId:9,goals:2},
-  {id:131,name:'Rodrigão',teamId:11,goals:2},{id:132,name:'Del',teamId:2,goals:2},
-  {id:133,name:'Fábio',teamId:2,goals:2},{id:134,name:'Anderson',teamId:2,goals:2},
-  {id:135,name:'Jefferson',teamId:5,goals:2},{id:136,name:'Juninho',teamId:5,goals:2},
-  {id:137,name:'Raniel',teamId:5,goals:2},{id:138,name:'Alvaro',teamId:4,goals:2},
-  {id:139,name:'Alailsom',teamId:6,goals:2},{id:140,name:'Matheus',teamId:6,goals:2},
-  {id:141,name:'Cláudio',teamId:10,goals:2},{id:142,name:'Gabriel',teamId:10,goals:2},
-  {id:143,name:'João Paulo',teamId:3,goals:2},{id:144,name:'Afonso',teamId:8,goals:1},
-  {id:145,name:'Lindair',teamId:8,goals:1},{id:146,name:'Leandro',teamId:8,goals:1},
-  {id:147,name:'Léu',teamId:8,goals:1},{id:148,name:'Juliano',teamId:1,goals:1},
-  {id:149,name:'Bruno',teamId:1,goals:1},{id:150,name:'Juju',teamId:1,goals:1},
-  {id:151,name:'Ramon',teamId:9,goals:1},{id:152,name:'Flaviano',teamId:9,goals:1},
-  {id:153,name:'Rodrigo',teamId:9,goals:1},{id:154,name:'Samuel',teamId:11,goals:1},
-  {id:155,name:'Thiago',teamId:2,goals:1},{id:156,name:'Junior',teamId:2,goals:1},
-  {id:157,name:'Nautinho',teamId:5,goals:1},{id:158,name:'Daniel',teamId:5,goals:1},
-  {id:159,name:'Bruno',teamId:5,goals:1},{id:160,name:'Fernando',teamId:4,goals:1},
-  {id:161,name:'Ronan',teamId:4,goals:1},{id:162,name:'Daro',teamId:4,goals:1},
-  {id:163,name:'Bruno',teamId:6,goals:1},{id:164,name:'Reinaldinho',teamId:10,goals:1},
-  {id:165,name:'Batista',teamId:10,goals:1},{id:166,name:'Edmilson',teamId:10,goals:1},
-  {id:167,name:'Rogério',teamId:7,goals:1},{id:168,name:'Canarinho',teamId:7,goals:1},
-  {id:169,name:'Eduardo',teamId:12,goals:1},{id:170,name:'Reinaldo',teamId:12,goals:1},
-  {id:171,name:'Geovane',teamId:12,goals:1}
-];
-const defaultState={
-  teams:TEAMS.map(t=>({...t})),
-  players:[...PLAYERS_DATA],
-  matches:SEED.map((s,i)=>{
-    const hid=TEAMS.find(t=>t.name.toLowerCase()===s.home.toLowerCase())?.id;
-    const aid=TEAMS.find(t=>t.name.toLowerCase()===s.away.toLowerCase())?.id;
-    const isPlayed = s.hs !== null && s.hs !== undefined;
-    return {id:i+1,home:hid,away:aid,homeScore:s.hs,awayScore:s.as,played:isPlayed,round:s.r,date:s.date};
-  })
-};
+    {id:101,name:'Roney',teamId:7,goals:8},{id:102,name:'Felipe',teamId:1,goals:7},
+    {id:103,name:'Anderson',teamId:1,goals:7},{id:104,name:'Rodrigo',teamId:4,goals:6},
+    {id:105,name:'Magno (Maguino)',teamId:4,goals:5},{id:106,name:'Luiz Flávio',teamId:12,goals:5},
+    {id:107,name:'Elivelton',teamId:6,goals:5},{id:108,name:'Geneilton',teamId:5,goals:4},
+    {id:109,name:'Marley',teamId:8,goals:4},{id:110,name:'Romário',teamId:2,goals:4},
+    {id:111,name:'Estevão',teamId:3,goals:4},{id:112,name:'Junior',teamId:10,goals:4},
+    {id:113,name:'Pablo',teamId:8,goals:4},{id:114,name:'Elielton',teamId:6,goals:4},
+    {id:115,name:'João Paulo',teamId:6,goals:4},{id:116,name:'Guilherme',teamId:5,goals:3},
+    {id:117,name:'Gabriel',teamId:3,goals:3},{id:118,name:'Theo',teamId:8,goals:3},
+    {id:119,name:'Jorginho',teamId:9,goals:3},{id:120,name:'Kenedy',teamId:1,goals:3},
+    {id:121,name:'Alvim',teamId:4,goals:3},{id:122,name:'Tiago',teamId:6,goals:3},
+    {id:123,name:'Jullian',teamId:3,goals:3},{id:124,name:'Wagner',teamId:8,goals:2},
+    {id:125,name:'Wanderson',teamId:1,goals:2},{id:126,name:'Macarrão',teamId:1,goals:2},
+    {id:127,name:'Vaval',teamId:1,goals:2},{id:128,name:'William',teamId:1,goals:2},
+    {id:129,name:'Kauan',teamId:9,goals:2},{id:130,name:'André',teamId:9,goals:2},
+    {id:131,name:'Rodrigão',teamId:11,goals:2},{id:132,name:'Del',teamId:2,goals:2},
+    {id:133,name:'Fábio',teamId:2,goals:2},{id:134,name:'Anderson',teamId:2,goals:2},
+    {id:135,name:'Jefferson',teamId:5,goals:2},{id:136,name:'Juninho',teamId:5,goals:2},
+    {id:137,name:'Raniel',teamId:5,goals:2},{id:138,name:'Alvaro',teamId:4,goals:2},
+    {id:139,name:'Alailsom',teamId:6,goals:2},{id:140,name:'Matheus',teamId:6,goals:2},
+    {id:141,name:'Cláudio',teamId:10,goals:2},{id:142,name:'Gabriel',teamId:10,goals:2},
+    {id:143,name:'João Paulo',teamId:3,goals:2},{id:144,name:'Afonso',teamId:8,goals:1},
+    {id:145,name:'Lindair',teamId:8,goals:1},{id:146,name:'Leandro',teamId:8,goals:1},
+    {id:147,name:'Léu',teamId:8,goals:1},{id:148,name:'Juliano',teamId:1,goals:1},
+    {id:149,name:'Bruno',teamId:1,goals:1},{id:150,name:'Juju',teamId:1,goals:1},
+    {id:151,name:'Ramon',teamId:9,goals:1},{id:152,name:'Flaviano',teamId:9,goals:1},
+    {id:153,name:'Rodrigo',teamId:9,goals:1},{id:154,name:'Samuel',teamId:11,goals:1},
+    {id:155,name:'Thiago',teamId:2,goals:1},{id:156,name:'Junior',teamId:2,goals:1},
+    {id:157,name:'Nautinho',teamId:5,goals:1},{id:158,name:'Daniel',teamId:5,goals:1},
+    {id:159,name:'Bruno',teamId:5,goals:1},{id:160,name:'Fernando',teamId:4,goals:1},
+    {id:161,name:'Ronan',teamId:4,goals:1},{id:162,name:'Daro',teamId:4,goals:1},
+    {id:163,name:'Bruno',teamId:6,goals:1},{id:164,name:'Reinaldinho',teamId:10,goals:1},
+    {id:165,name:'Batista',teamId:10,goals:1},{id:166,name:'Edmilson',teamId:10,goals:1},
+    {id:167,name:'Rogério',teamId:7,goals:1},{id:168,name:'Canarinho',teamId:7,goals:1},
+    {id:169,name:'Eduardo',teamId:12,goals:1},{id:170,name:'Reinaldo',teamId:12,goals:1},
+    {id:171,name:'Geovane',teamId:12,goals:1}
+  ];
 
-// Referência para o banco de dados
-const campeonatoRef = ref(db, 'campeonato/');
+  const defaultState = {
+    teams: TEAMS.map(t=>({...t})),
+    players: [...PLAYERS_DATA],
+    matches: SEED.map((s,i)=>{
+      const hid=TEAMS.find(t=>t.name.toLowerCase()===s.home.toLowerCase())?.id;
+      const aid=TEAMS.find(t=>t.name.toLowerCase()===s.away.toLowerCase())?.id;
+      const isPlayed = s.hs !== null && s.hs !== undefined;
+      return {id:i+1,home:hid,away:aid,homeScore:s.hs,awayScore:s.as,played:isPlayed,round:s.r,date:s.date};
+    })
+  };
 
-// Esta função observa o Firebase. Sempre que você alterar algo lá,
-// o site de todo mundo atualiza automaticamente.
-onValue(campeonatoRef, (snapshot) => {
-  const data = snapshot.val();
+  // Estado local para a tela
+  let state = JSON.parse(JSON.stringify(defaultState));
+
+  // 3. CONEXÃO COM O FIREBASE
+  const campeonatoRef = ref(db, 'campeonato/');
   
-  if (data) {
-    // Se já existem dados no Firebase, usamos eles
-    state = data;
-  } else {
-    // Se o banco estiver vazio (primeira vez), enviamos o estado padrão
-    set(campeonatoRef, defaultState);
-    state = defaultState;
-  }
-  
-  // Renderiza o site com os dados que acabamos de receber
-  renderAll();
-});
-let state=loadState();
-function tById(id){return state.teams.find(t=>t.id===id)||{};}
-function tName(id){return tById(id).name||'?';}
-function tGroup(id){return tById(id).group||'';}
-function calcTable(ids){
-  ids=ids||state.teams.map(t=>t.id);
-  const rows=state.teams.filter(t=>ids.includes(t.id)).map(t=>({id:t.id,name:t.name,group:t.group,pj:0,v:0,e:0,d:0,gp:0,gc:0,pts:0,form:[]}));
-  const byId=Object.fromEntries(rows.map(r=>[r.id,r]));
-  state.matches.filter(m=>m.played&&ids.includes(m.home)&&ids.includes(m.away)).forEach(m=>{
-    const h=byId[m.home],a=byId[m.away];if(!h||!a)return;
-    h.pj++;a.pj++;h.gp+=m.homeScore;h.gc+=m.awayScore;a.gp+=m.awayScore;a.gc+=m.homeScore;
-    if(m.homeScore>m.awayScore){h.v++;h.pts+=3;h.form.push('V');a.d++;a.form.push('D');}
-    else if(m.homeScore===m.awayScore){h.e++;h.pts++;h.form.push('E');a.e++;a.pts++;a.form.push('E');}
-    else{a.v++;a.pts+=3;a.form.push('V');h.d++;h.form.push('D');}
-  });
-  return rows.sort((a,b)=>b.pts-a.pts||(b.gp-b.gc)-(a.gp-a.gc)||b.gp-a.gp||a.name.localeCompare(b.name));
-}
-// Colunas: # | Time | Pts | PJ | V | E | D | GP | GC | SG | Forma | [Gr]
-function buildTable(rows,showGroup){
-  const head=`<thead><tr>
-    <th class="w-pos">#</th><th class="th-name">Time</th>
-    <th class="w-pts" title="Pontos">Pts</th><th class="w-n" title="Partidas">PJ</th>
-    <th class="w-n" title="Vitórias">V</th><th class="w-n" title="Empates">E</th>
-    <th class="w-n" title="Derrotas">D</th><th class="w-n" title="Gols pró">GP</th>
-    <th class="w-n" title="Gols contra">GC</th><th class="w-sg" title="Saldo">SG</th>
-    <th class="w-forma">Forma</th>
-  </tr></thead>`;
-  
-  const body=rows.map((r,i)=>{
-    const pos=i+1;
-    let rowClass='';
-    
-    // Mantém as faixas de destaque da Classificação Geral
-    if(showGroup){
-      if(pos===1) rowClass='zona-camp';
-      else if(pos<=9) rowClass='zona-class';
+  onValue(campeonatoRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data) {
+      state = data;
+    } else {
+      set(campeonatoRef, defaultState);
+      state = JSON.parse(JSON.stringify(defaultState));
     }
-    
-    // Aplica o número padrão e sem fundo para todas as posições
-    const posEl=`<span class="pos-num">${pos}</span>`;
-    
-    const form=r.form.slice(-6).map(f=>`<span class="form-dot f${f.toLowerCase()}"></span>`).join('');
-    const sg=r.gp-r.gc,sgC=sg>0?'sg-pos':sg<0?'sg-neg':'sg-zer';
-    
-    return `<tr class="${rowClass}">
-      <td class="w-pos">${posEl}</td><td class="td-name">${r.name}</td>
-      <td class="w-pts pts-cell">${r.pts}</td><td class="w-n">${r.pj}</td>
-      <td class="w-n">${r.v}</td><td class="w-n">${r.e}</td><td class="w-n">${r.d}</td>
-      <td class="w-n">${r.gp}</td><td class="w-n">${r.gc}</td>
-      <td class="w-sg ${sgC}">${sg>0?'+':''}${sg}</td>
-      <td class="w-forma">${form||'—'}</td>
-    </tr>`;
-  }).join('');
+    renderAll();
+  });
+
+  // Funções de ajuda
+  function tById(id){return state.teams.find(t=>t.id===id)||{};}
+  function tName(id){return tById(id).name||'?';}
+  function tGroup(id){return tById(id).group||'';}
   
-  return `<div class="table-wrap"><table>${head}<tbody>${body}</tbody></table></div>`;
-}
-function renderClassificacao(){
-  const idA=state.teams.filter(t=>t.group==='A').map(t=>t.id);
-  const idB=state.teams.filter(t=>t.group==='B').map(t=>t.id);
-  document.getElementById('classificacao').innerHTML=`
-    <div class="group-label"><span class="group-tag tag-a">Grupo A</span></div>
-    ${buildTable(calcTable(idA),false)}
-    <div class="group-label"><span class="group-tag tag-b">Grupo B</span></div>
-    ${buildTable(calcTable(idB),false)}
-    <div class="group-label"><span class="group-tag tag-all">Classificação Geral</span></div>
-    ${buildTable(calcTable(),true)}
-    <div class="legend">
-      <span><span style="display:inline-block;width:10px;height:10px;background:rgba(250,199,117,.35);border-radius:2px"></span>Vaga direta para final</span>
-      <span><span style="display:inline-block;width:10px;height:10px;background:rgba(24,95,165,.2);border-radius:2px"></span>Classificados (#2–#9)</span>
-      <span><span class="form-dot fv" style="display:inline-block"></span>Vitória</span>
-      <span><span class="form-dot fe" style="display:inline-block"></span>Empate</span>
-      <span><span class="form-dot fd" style="display:inline-block"></span>Derrota</span>
-    </div>`;
-}
-function renderResultados(){
-  const all=state.matches;
-  const ms=filterRes==='todos'?all:filterRes==='A'?all.filter(m=>tGroup(m.home)==='A'&&tGroup(m.away)==='A'):all.filter(m=>tGroup(m.home)==='B'&&tGroup(m.away)==='B');
-  const rounds=[...new Set(ms.map(m=>m.round))].sort((a,b)=>b-a);
-  document.getElementById('resultados').innerHTML=`
-    <div class="filter-bar">
-      <button class="filter-btn ${filterRes==='todos'?'active':''}" onclick="setFilter('todos')">Todos</button>
-      <button class="filter-btn ${filterRes==='A'?'active':''}" onclick="setFilter('A')">Grupo A</button>
-      <button class="filter-btn ${filterRes==='B'?'active':''}" onclick="setFilter('B')">Grupo B</button>
-    </div>
-    ${rounds.map(r=>{
-      const rms=ms.filter(m=>m.round===r);
-      const dl=rms[0]?.date?` &nbsp;·&nbsp; ${rms[0].date}`:'';
-      return `<div class="round-section"><div class="round-label">Rodada ${r}${dl}</div>
-      ${rms.map(m=>{
-        const g=tGroup(m.home);
-        if(!m.played)return `<div class="match-card">
-          <div class="match-meta"><span class="group-tag tag-${g.toLowerCase()}">Grupo ${g}</span><span class="badge badge-pend">Pendente</span></div>
-          <div class="match-body"><div class="match-team">${tName(m.home)}</div><div class="match-vs">vs</div><div class="match-team right">${tName(m.away)}</div></div>
-        </div>`;
-        const w=m.homeScore>m.awayScore?'home':m.homeScore<m.awayScore?'away':'draw';
-        return `<div class="match-card">
-          <div class="match-meta"><span class="group-tag tag-${g.toLowerCase()}">Grupo ${g}</span><span class="badge badge-ok">Encerrado</span></div>
-          <div class="match-body">
-            <div class="match-team${w==='home'?' winner':''}">${tName(m.home)}</div>
-            <div class="score-box"><span class="score-num${w==='home'?' winner':''}">${m.homeScore}</span><span class="score-sep">×</span><span class="score-num${w==='away'?' winner':''}">${m.awayScore}</span></div>
-            <div class="match-team right${w==='away'?' winner':''}">${tName(m.away)}</div>
-          </div>
-        </div>`;
-      }).join('')}</div>`;
-    }).join('')}`;
-}
-function setFilter(f){filterRes=f;renderResultados();}
-function renderEstatisticas(){
-  const played=state.matches.filter(m=>m.played);
-  const totalGols=played.reduce((s,m)=>s+m.homeScore+m.awayScore,0);
-  const topMatch=played.reduce((b,m)=>{const t=m.homeScore+m.awayScore;return t>b.g?{g:t,label:`${tName(m.home)} ${m.homeScore}×${m.awayScore} ${tName(m.away)}`}:b;},{g:0,label:''});
-  const top=[...state.players].sort((a,b)=>b.goals-a.goals).filter(p=>p.goals>0);
-  const maxG=top[0]?.goals||1;
-  document.getElementById('estatisticas').innerHTML=`
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-label">Partidas jogadas</div><div class="stat-value">${played.length}</div></div>
-      <div class="stat-card"><div class="stat-label">Gols marcados</div><div class="stat-value">${totalGols}</div></div>
-      <div class="stat-card"><div class="stat-label">Média/jogo</div><div class="stat-value">${played.length?(totalGols/played.length).toFixed(1):'0'}</div></div>
-      <div class="stat-card"><div class="stat-label">Jogadores</div><div class="stat-value">${state.players.length}</div></div>
-    </div>
-    ${topMatch.g>0?`<div class="top-match"><i class="ti ti-flame" style="color:#e08c14;font-size:15px;flex-shrink:0"></i> Maior placar: <strong>${topMatch.label}</strong> (${topMatch.g} gols)</div>`:''}
-    <div class="section-title"><i class="ti ti-shoe-football"></i> Artilharia</div>
-    ${top.length?`<div class="scorers-list">${top.map((p,i)=>`
-      <div class="scorer-row">
-        <span class="scorer-rank">${i+1}</span>
-        <div class="scorer-info"><div class="scorer-name">${p.name}</div><div class="scorer-team">${tName(p.teamId)} · Grupo ${tGroup(p.teamId)}</div></div>
-        <div class="scorer-bar-wrap"><div class="scorer-bar-fill" style="width:${Math.round(p.goals/maxG*100)}%"></div></div>
-        <div class="scorer-goals">${p.goals}</div>
-      </div>`).join('')}</div>`
-    :`<div class="empty-state"><i class="ti ti-user-off"></i><p>Nenhum gol registrado ainda.<br><small>Cadastre jogadores no painel admin.</small></p></div>`}`;
-}
-function renderAdmin(){
-  if(!isAdmin){
-    document.getElementById('admin').innerHTML=`
-    <div class="admin-gate">
-      <div class="lock-icon"><i class="ti ti-lock"></i></div>
-      <h3>Acesso restrito</h3><p class="sub">Digite a senha de administrador para gerenciar o torneio.</p>
-      <input type="password" id="pw-input" placeholder="Senha" style="width:100%;margin-bottom:10px" onkeydown="if(event.key==='Enter')tryLogin()"/>
-      <button class="btn btn-full" onclick="tryLogin()">Entrar &nbsp;<i class="ti ti-arrow-right" style="font-size:13px;vertical-align:-1px"></i></button>
-      <p id="pw-err" style="font-size:12px;color:#d63b3a;margin-top:10px;min-height:16px"></p>
-    </div>`;
-    return;
+  function calcTable(ids){
+    ids=ids||state.teams.map(t=>t.id);
+    const rows=state.teams.filter(t=>ids.includes(t.id)).map(t=>({id:t.id,name:t.name,group:t.group,pj:0,v:0,e:0,d:0,gp:0,gc:0,pts:0,form:[]}));
+    const byId=Object.fromEntries(rows.map(r=>[r.id,r]));
+    state.matches.filter(m=>m.played&&ids.includes(m.home)&&ids.includes(m.away)).forEach(m=>{
+      const h=byId[m.home],a=byId[m.away];if(!h||!a)return;
+      h.pj++;a.pj++;h.gp+=m.homeScore;h.gc+=m.awayScore;a.gp+=m.awayScore;a.gc+=m.homeScore;
+      if(m.homeScore>m.awayScore){h.v++;h.pts+=3;h.form.push('V');a.d++;a.form.push('D');}
+      else if(m.homeScore===m.awayScore){h.e++;h.pts++;h.form.push('E');a.e++;a.pts++;a.form.push('E');}
+      else{a.v++;a.pts+=3;a.form.push('V');h.d++;h.form.push('D');}
+    });
+    return rows.sort((a,b)=>b.pts-a.pts||(b.gp-b.gc)-(a.gp-a.gc)||b.gp-a.gp||a.name.localeCompare(b.name));
   }
-  
-  // Separa os jogos em duas listas (Pendentes e Encerrados)
-  const pendingMatches = state.matches.filter(m => !m.played).sort((a,b)=>a.round-b.round);
-  const playedMatches = state.matches.filter(m => m.played).sort((a,b)=>b.round-a.round);
-  
-  document.getElementById('admin').innerHTML=`
-    <div class="admin-panel">
-      <div class="admin-header">
-        <div class="admin-status"><i class="ti ti-shield-check"></i> Modo administrador</div>
-        <button class="logout-btn" onclick="logout()"><i class="ti ti-logout" style="font-size:12px;vertical-align:-1px;margin-right:3px"></i>Sair</button>
+
+  function buildTable(rows,showGroup){
+    const head=`<thead><tr>
+      <th class="w-pos">#</th><th class="th-name">Time</th>
+      <th class="w-pts" title="Pontos">Pts</th><th class="w-n" title="Partidas">PJ</th>
+      <th class="w-n" title="Vitórias">V</th><th class="w-n" title="Empates">E</th>
+      <th class="w-n" title="Derrotas">D</th><th class="w-n" title="Gols pró">GP</th>
+      <th class="w-n" title="Gols contra">GC</th><th class="w-sg" title="Saldo">SG</th>
+      <th class="w-forma">Forma</th>
+    </tr></thead>`;
+    const body=rows.map((r,i)=>{
+      const pos=i+1;
+      let rowClass='';
+      if(showGroup){if(pos===1) rowClass='zona-camp'; else if(pos<=9) rowClass='zona-class';}
+      const posEl=`<span class="pos-num">${pos}</span>`;
+      const form=r.form.slice(-6).map(f=>`<span class="form-dot f${f.toLowerCase()}"></span>`).join('');
+      const sg=r.gp-r.gc,sgC=sg>0?'sg-pos':sg<0?'sg-neg':'sg-zer';
+      return `<tr class="${rowClass}">
+        <td class="w-pos">${posEl}</td><td class="td-name">${r.name}</td>
+        <td class="w-pts pts-cell">${r.pts}</td><td class="w-n">${r.pj}</td>
+        <td class="w-n">${r.v}</td><td class="w-n">${r.e}</td><td class="w-n">${r.d}</td>
+        <td class="w-n">${r.gp}</td><td class="w-n">${r.gc}</td>
+        <td class="w-sg ${sgC}">${sg>0?'+':''}${sg}</td>
+        <td class="w-forma">${form||'—'}</td>
+      </tr>`;
+    }).join('');
+    return `<div class="table-wrap"><table>${head}<tbody>${body}</tbody></table></div>`;
+  }
+
+  function renderClassificacao(){
+    const idA=state.teams.filter(t=>t.group==='A').map(t=>t.id);
+    const idB=state.teams.filter(t=>t.group==='B').map(t=>t.id);
+    document.getElementById('classificacao').innerHTML=`
+      <div class="group-label"><span class="group-tag tag-a">Grupo A</span></div>
+      ${buildTable(calcTable(idA),false)}
+      <div class="group-label"><span class="group-tag tag-b">Grupo B</span></div>
+      ${buildTable(calcTable(idB),false)}
+      <div class="group-label"><span class="group-tag tag-all">Classificação Geral</span></div>
+      ${buildTable(calcTable(),true)}
+      <div class="legend">
+        <span><span style="display:inline-block;width:10px;height:10px;background:rgba(250,199,117,.35);border-radius:2px"></span>Vaga direta para final</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:rgba(24,95,165,.2);border-radius:2px"></span>Classificados (#2–#9)</span>
+      </div>`;
+  }
+
+  function renderResultados(){
+    const all=state.matches;
+    const ms=filterRes==='todos'?all:filterRes==='A'?all.filter(m=>tGroup(m.home)==='A'&&tGroup(m.away)==='A'):all.filter(m=>tGroup(m.home)==='B'&&tGroup(m.away)==='B');
+    const rounds=[...new Set(ms.map(m=>m.round))].sort((a,b)=>b-a);
+    document.getElementById('resultados').innerHTML=`
+      <div class="filter-bar">
+        <button class="filter-btn ${filterRes==='todos'?'active':''}" onclick="setFilter('todos')">Todos</button>
+        <button class="filter-btn ${filterRes==='A'?'active':''}" onclick="setFilter('A')">Grupo A</button>
+        <button class="filter-btn ${filterRes==='B'?'active':''}" onclick="setFilter('B')">Grupo B</button>
       </div>
-      
-      <div class="panel-card">
-        <h3><i class="ti ti-calendar-plus"></i> Registrar jogo pendente</h3>
-        <div class="form-row">
-          <div class="form-group"><label>Partida</label>
-            <select id="new-pending-match" style="min-width:220px">
-              ${pendingMatches.length ? pendingMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} × ${tName(m.away)} (${m.date})</option>`).join('') : '<option value="">Nenhuma partida pendente</option>'}
-            </select>
-          </div>
-          <div class="form-group"><label>Mandante</label><input type="number" id="pending-home" min="0" value="0" style="width:58px"></div>
-          <div class="form-group"><label>Visitante</label><input type="number" id="pending-away" min="0" value="0" style="width:58px"></div>
-          <button class="btn" onclick="savePendingMatch()" style="margin-top:auto" ${pendingMatches.length?'':'disabled'}>Salvar</button>
-        </div>
+      ${rounds.map(r=>{
+        const rms=ms.filter(m=>m.round===r);
+        const dl=rms[0]?.date?` &nbsp;·&nbsp; ${rms[0].date}`:'';
+        return `<div class="round-section"><div class="round-label">Rodada ${r}${dl}</div>
+        ${rms.map(m=>{
+          const g=tGroup(m.home);
+          if(!m.played)return `<div class="match-card"><div class="match-meta"><span class="group-tag tag-${g.toLowerCase()}">Grupo ${g}</span><span class="badge badge-pend">Pendente</span></div><div class="match-body"><div class="match-team">${tName(m.home)}</div><div class="match-vs">vs</div><div class="match-team right">${tName(m.away)}</div></div></div>`;
+          const w=m.homeScore>m.awayScore?'home':m.homeScore<m.awayScore?'away':'draw';
+          return `<div class="match-card"><div class="match-meta"><span class="group-tag tag-${g.toLowerCase()}">Grupo ${g}</span><span class="badge badge-ok">Encerrado</span></div><div class="match-body"><div class="match-team${w==='home'?' winner':''}">${tName(m.home)}</div><div class="score-box"><span class="score-num${w==='home'?' winner':''}">${m.homeScore}</span><span class="score-sep">×</span><span class="score-num${w==='away'?' winner':''}">${m.awayScore}</span></div><div class="match-team right${w==='away'?' winner':''}">${tName(m.away)}</div></div></div>`;
+        }).join('')}</div>`;
+      }).join('')}`;
+  }
+
+  function renderEstatisticas(){
+    const played=state.matches.filter(m=>m.played);
+    const totalGols=played.reduce((s,m)=>s+m.homeScore+m.awayScore,0);
+    const topMatch=played.reduce((b,m)=>{const t=m.homeScore+m.awayScore;return t>b.g?{g:t,label:`${tName(m.home)} ${m.homeScore}×${m.awayScore} ${tName(m.away)}`}:b;},{g:0,label:''});
+    const top=[...state.players].sort((a,b)=>b.goals-a.goals).filter(p=>p.goals>0);
+    const maxG=top[0]?.goals||1;
+    document.getElementById('estatisticas').innerHTML=`
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-label">Partidas</div><div class="stat-value">${played.length}</div></div>
+        <div class="stat-card"><div class="stat-label">Gols marcados</div><div class="stat-value">${totalGols}</div></div>
+        <div class="stat-card"><div class="stat-label">Média/jogo</div><div class="stat-value">${played.length?(totalGols/played.length).toFixed(1):'0'}</div></div>
+        <div class="stat-card"><div class="stat-label">Jogadores</div><div class="stat-value">${state.players.length}</div></div>
       </div>
-      
-      <div class="panel-card">
-        <h3><i class="ti ti-edit"></i> Corrigir resultado anterior</h3>
-        <div class="form-row">
-          <div class="form-group"><label>Partida já jogada</label>
-            <select id="sel-match" style="min-width:220px">
-              ${playedMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} ${m.homeScore}×${m.awayScore} ${tName(m.away)}</option>`).join('')}
-            </select>
+      ${topMatch.g>0?`<div class="top-match"><i class="ti ti-flame" style="color:#e08c14;font-size:15px;flex-shrink:0"></i> Maior placar: <strong>${topMatch.label}</strong> (${topMatch.g} gols)</div>`:''}
+      <div class="section-title"><i class="ti ti-shoe-football"></i> Artilharia</div>
+      ${top.length?`<div class="scorers-list">${top.map((p,i)=>`<div class="scorer-row"><span class="scorer-rank">${i+1}</span><div class="scorer-info"><div class="scorer-name">${p.name}</div><div class="scorer-team">${tName(p.teamId)}</div></div><div class="scorer-bar-wrap"><div class="scorer-bar-fill" style="width:${Math.round(p.goals/maxG*100)}%"></div></div><div class="scorer-goals">${p.goals}</div></div>`).join('')}</div>`:`<div class="empty-state"><i class="ti ti-user-off"></i><p>Nenhum gol registrado.</p></div>`}`;
+  }
+
+  function renderAdmin(){
+    if(!isAdmin){
+      document.getElementById('admin').innerHTML=`<div class="admin-gate"><div class="lock-icon"><i class="ti ti-lock"></i></div><h3>Acesso restrito</h3><input type="password" id="pw-input" placeholder="Senha" style="width:100%;margin-bottom:10px" onkeydown="if(event.key==='Enter')tryLogin()"/><button class="btn btn-full" onclick="tryLogin()">Entrar</button><p id="pw-err" style="color:#d63b3a;margin-top:10px"></p></div>`;
+      return;
+    }
+    const pendingMatches = state.matches.filter(m => !m.played).sort((a,b)=>a.round-b.round);
+    const playedMatches = state.matches.filter(m => m.played).sort((a,b)=>b.round-a.round);
+    
+    document.getElementById('admin').innerHTML=`
+      <div class="admin-panel">
+        <div class="admin-header"><div class="admin-status"><i class="ti ti-shield-check"></i> Modo administrador</div><button class="logout-btn" onclick="logout()">Sair</button></div>
+        
+        <div class="panel-card">
+          <h3>Registrar jogo pendente</h3>
+          <div class="form-row">
+            <div class="form-group"><label>Partida</label><select id="new-pending-match">${pendingMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} × ${tName(m.away)}</option>`).join('')}</select></div>
+            <div class="form-group"><label>Mandante</label><input type="number" id="pending-home" min="0" value="0" style="width:58px"></div>
+            <div class="form-group"><label>Visitante</label><input type="number" id="pending-away" min="0" value="0" style="width:58px"></div>
+            <button class="btn" onclick="savePendingMatch()">Salvar</button>
           </div>
-          <div class="form-group"><label>Mandante</label><input type="number" id="score-home" min="0" style="width:58px"></div>
-          <div class="form-group"><label>Visitante</label><input type="number" id="score-away" min="0" style="width:58px"></div>
-          <button class="btn" onclick="saveResult()" style="margin-top:auto">Corrigir</button>
         </div>
-      </div>
-      
-      <div class="panel-card">
-        <h3><i class="ti ti-user-plus"></i> Adicionar jogador</h3>
-        <div class="form-row">
-          <div class="form-group"><label>Nome</label><input type="text" id="new-player-name" placeholder="Nome completo" style="min-width:150px"></div>
-          <div class="form-group"><label>Time</label>
-            <select id="new-player-team">
-              ${state.teams.map(t=>`<option value="${t.id}">${t.name} (Gr.${t.group})</option>`).join('')}
-            </select>
+        
+        <div class="panel-card">
+          <h3>Corrigir resultado anterior</h3>
+          <div class="form-row">
+            <div class="form-group"><label>Partida já jogada</label><select id="sel-match">${playedMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} ${m.homeScore}×${m.awayScore} ${tName(m.away)}</option>`).join('')}</select></div>
+            <div class="form-group"><label>Mandante</label><input type="number" id="score-home" min="0" style="width:58px"></div>
+            <div class="form-group"><label>Visitante</label><input type="number" id="score-away" min="0" style="width:58px"></div>
+            <button class="btn" onclick="saveResult()">Corrigir</button>
           </div>
-          <button class="btn" onclick="addPlayer()" style="margin-top:auto">Adicionar</button>
         </div>
-      </div>
-      
-      ${state.players.length>0?`
-      <div class="panel-card">
-        <h3><i class="ti ti-shoe-football"></i> Adicionar gols</h3>
-        <div class="form-row">
-          <div class="form-group"><label>Jogador</label>
-            <select id="sel-player" style="min-width:200px">
-              ${[...state.players].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${p.name} (${tName(p.teamId)}) — ${p.goals}g</option>`).join('')}
-            </select>
+
+        <div class="panel-card">
+          <h3>Adicionar jogador</h3>
+          <div class="form-row">
+            <div class="form-group"><label>Nome</label><input type="text" id="new-player-name" style="min-width:150px"></div>
+            <div class="form-group"><label>Time</label><select id="new-player-team">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+            <button class="btn" onclick="addPlayer()">Adicionar</button>
           </div>
-          <div class="form-group"><label>Qtd.</label><input type="number" id="goal-count" min="1" max="20" value="1" style="width:58px"></div>
-          <button class="btn" onclick="addGoals()" style="margin-top:auto">Adicionar</button>
         </div>
-      </div>`:''}
-    </div>`;
-}
-function tryLogin(){if(document.getElementById('pw-input')?.value===ADMIN_PASS){isAdmin=true;renderAdmin();}else{document.getElementById('pw-err').textContent='Senha incorreta.';}}
-function logout(){isAdmin=false;renderAdmin();}
-function savePendingMatch() {
-  // ... lógica de encontrar a partida e atualizar os gols ...
+
+        ${state.players.length>0?`
+        <div class="panel-card">
+          <h3>Adicionar gols</h3>
+          <div class="form-row">
+            <div class="form-group"><label>Jogador</label><select id="sel-player">${[...state.players].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${p.name} (${tName(p.teamId)})</option>`).join('')}</select></div>
+            <div class="form-group"><label>Qtd.</label><input type="number" id="goal-count" min="1" value="1" style="width:58px"></div>
+            <button class="btn" onclick="addGoals()">Adicionar</button>
+          </div>
+        </div>`:''}
+      </div>`;
+  }
+
+  // 4. FUNÇÕES DE AÇÃO COM FIREBASE APLICADO
+  function savePendingMatch() {
+    const id = parseInt(document.getElementById('new-pending-match').value);
+    const hs = parseInt(document.getElementById('pending-home').value);
+    const as = parseInt(document.getElementById('pending-away').value);
+    const m = state.matches.find(m => m.id === id);
+    if(!m || isNaN(hs) || isNaN(as)) return;
+    m.homeScore = hs; m.awayScore = as; m.played = true;
+    set(ref(db, 'campeonato/'), state); 
+    showToast('Resultado registrado!');
+  }
+
+  function saveResult(){
+    const id=parseInt(document.getElementById('sel-match').value);
+    const hs=parseInt(document.getElementById('score-home').value),as_=parseInt(document.getElementById('score-away').value);
+    const m=state.matches.find(m=>m.id===id);if(!m||isNaN(hs)||isNaN(as_))return;
+    m.homeScore=hs;m.awayScore=as_;m.played=true;
+    set(ref(db, 'campeonato/'), state); 
+    showToast('Resultado salvo!');
+  }
+
+  function addPlayer(){
+    const name=document.getElementById('new-player-name')?.value?.trim(),teamId=parseInt(document.getElementById('new-player-team')?.value);
+    if(!name)return;
+    state.players.push({id:Date.now(),name,teamId,goals:0});
+    set(ref(db, 'campeonato/'), state); 
+    showToast(`${name} adicionado!`);
+  }
+
+  function addGoals(){
+    const pid=parseInt(document.getElementById('sel-player').value),count=parseInt(document.getElementById('goal-count').value)||1;
+    const p=state.players.find(p=>p.id===pid);if(!p)return;
+    p.goals+=count;
+    set(ref(db, 'campeonato/'), state); 
+    showToast(`+${count} gol(s)!`);
+  }
+
+  function showToast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2500);}
   
-  // Substitua o 'saveState()' por isto:
-  set(ref(db, 'campeonato/'), state); 
-  
-  renderAll();
-  showToast('Resultado registrado!');
-}
-function saveResult(){
-  const id=parseInt(document.getElementById('sel-match').value);
-  const hs=parseInt(document.getElementById('score-home').value),as_=parseInt(document.getElementById('score-away').value);
-  const m=state.matches.find(m=>m.id===id);if(!m||isNaN(hs)||isNaN(as_))return;
-  m.homeScore=hs;m.awayScore=as_;m.played=true;saveState();renderAll();showToast('Resultado salvo!');
-}
-function addPlayer(){
-  const name=document.getElementById('new-player-name')?.value?.trim(),teamId=parseInt(document.getElementById('new-player-team')?.value);
-  if(!name){showToast('Informe o nome do jogador.');return;}
-  state.players.push({id:Date.now(),name,teamId,goals:0});saveState();renderAll();showToast(`${name} adicionado!`);
-}
-function addGoals(){
-  const pid=parseInt(document.getElementById('sel-player').value),count=parseInt(document.getElementById('goal-count').value)||1;
-  const p=state.players.find(p=>p.id===pid);if(!p)return;
-  p.goals+=count;saveState();renderAll();showToast(`+${count} gol(s) para ${p.name}!`);
-}
-function showToast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2500);}
-function showTab(id){
-  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['classificacao','resultados','estatisticas','admin'][i]===id));
-  document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));
-  renderAll();
-}
-function renderAll(){renderClassificacao();renderResultados();renderEstatisticas();renderAdmin();}
-renderAll();
+  function showTab(id){
+    document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['classificacao','resultados','estatisticas','admin'][i]===id));
+    document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));
+    renderAll();
+  }
+
+  function setFilter(f){filterRes=f;renderResultados();}
+  function tryLogin(){if(document.getElementById('pw-input')?.value===ADMIN_PASS){isAdmin=true;renderAdmin();}else{document.getElementById('pw-err').textContent='Senha incorreta.';}}
+  function logout(){isAdmin=false;renderAdmin();}
+  function renderAll(){renderClassificacao();renderResultados();renderEstatisticas();renderAdmin();}
+
+  // 5. EXPORTA AS FUNÇÕES PARA O HTML (Necessário porque o script é do tipo "module")
+  window.showTab = showTab;
+  window.setFilter = setFilter;
+  window.tryLogin = tryLogin;
+  window.logout = logout;
+  window.savePendingMatch = savePendingMatch;
+  window.saveResult = saveResult;
+  window.addPlayer = addPlayer;
+  window.addGoals = addGoals;
+
 </script>
 </body>
 </html>
