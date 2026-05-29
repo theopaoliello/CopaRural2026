@@ -205,6 +205,31 @@ const SEED=[
   {date:'24/05',r:6,home:'União Casca',hs:2,as:1,away:'Largados'},
   {date:'24/05',r:6,home:'Saturno',hs:4,as:3,away:'Aliança'},
   {date:'24/05',r:6,home:'Sub-Zero',hs:2,as:1,away:'Grãomogol'},
+  // NOVOS JOGOS PENDENTES (RODADAS 7 A 10)
+  {date:'31/05',r:7,home:'Sport',hs:null,as:null,away:'Imperial'},
+  {date:'31/05',r:7,home:'Córrego Frio',hs:null,as:null,away:'30 de Fevereiro'},
+  {date:'31/05',r:7,home:'Capivara',hs:null,as:null,away:'Progresso'},
+  {date:'31/05',r:7,home:'Largados',hs:null,as:null,away:'Sub-Zero'},
+  {date:'31/05',r:7,home:'Grãomogol',hs:null,as:null,away:'Saturno'},
+  {date:'31/05',r:7,home:'Aliança',hs:null,as:null,away:'União Casca'},
+  {date:'07/06',r:8,home:'Córrego Frio',hs:null,as:null,away:'Sport'},
+  {date:'07/06',r:8,home:'30 de Fevereiro',hs:null,as:null,away:'Capivara'},
+  {date:'07/06',r:8,home:'Progresso',hs:null,as:null,away:'Imperial'},
+  {date:'07/06',r:8,home:'Grãomogol',hs:null,as:null,away:'Largados'},
+  {date:'07/06',r:8,home:'Sub-Zero',hs:null,as:null,away:'Aliança'},
+  {date:'07/06',r:8,home:'Saturno',hs:null,as:null,away:'União Casca'},
+  {date:'14/06',r:9,home:'Sport',hs:null,as:null,away:'Progresso'},
+  {date:'14/06',r:9,home:'Imperial',hs:null,as:null,away:'30 de Fevereiro'},
+  {date:'14/06',r:9,home:'Capivara',hs:null,as:null,away:'Córrego Frio'},
+  {date:'14/06',r:9,home:'Largados',hs:null,as:null,away:'Saturno'},
+  {date:'14/06',r:9,home:'Aliança',hs:null,as:null,away:'Grãomogol'},
+  {date:'14/06',r:9,home:'União Casca',hs:null,as:null,away:'Sub-Zero'},
+  {date:'21/06',r:10,home:'Progresso',hs:null,as:null,away:'30 de Fevereiro'},
+  {date:'21/06',r:10,home:'Córrego Frio',hs:null,as:null,away:'Imperial'},
+  {date:'21/06',r:10,home:'Sport',hs:null,as:null,away:'Capivara'},
+  {date:'21/06',r:10,home:'Grãomogol',hs:null,as:null,away:'União Casca'},
+  {date:'21/06',r:10,home:'Sub-Zero',hs:null,as:null,away:'Saturno'},
+  {date:'21/06',r:10,home:'Aliança',hs:null,as:null,away:'Largados'}
 ];
   const PLAYERS_DATA = [
   {id:101,name:'Roney',teamId:7,goals:8},{id:102,name:'Felipe',teamId:1,goals:7},
@@ -246,11 +271,12 @@ const SEED=[
 ];
 const defaultState={
   teams:TEAMS.map(t=>({...t})),
-  players:[...PLAYERS_DATA], // <-- Isso puxa os jogadores para o estado inicial
+  players:[...PLAYERS_DATA],
   matches:SEED.map((s,i)=>{
     const hid=TEAMS.find(t=>t.name.toLowerCase()===s.home.toLowerCase())?.id;
     const aid=TEAMS.find(t=>t.name.toLowerCase()===s.away.toLowerCase())?.id;
-    return {id:i+1,home:hid,away:aid,homeScore:s.hs,awayScore:s.as,played:true,round:s.r,date:s.date};
+    const isPlayed = s.hs !== null && s.hs !== undefined;
+    return {id:i+1,home:hid,away:aid,homeScore:s.hs,awayScore:s.as,played:isPlayed,round:s.r,date:s.date};
   })
 };
 
@@ -259,10 +285,13 @@ function loadState(){
     const r=localStorage.getItem(STATE_KEY);
     if(r) {
       const parsed = JSON.parse(r);
-      // Se a lista de jogadores do navegador estiver vazia, forçamos o preenchimento!
-      if(parsed.players.length === 0) {
-        parsed.players = [...PLAYERS_DATA];
-        localStorage.setItem(STATE_KEY, JSON.stringify(parsed));
+      if(parsed.players.length === 0) parsed.players = [...PLAYERS_DATA];
+      
+      // Adiciona as novas partidas no navegador de quem já tinha aberto o site
+      const newMatches = defaultState.matches.filter(dm => !parsed.matches.some(pm => pm.home === dm.home && pm.away === dm.away && pm.round === dm.round));
+      if(newMatches.length > 0) {
+         parsed.matches.push(...newMatches);
+         localStorage.setItem(STATE_KEY, JSON.stringify(parsed));
       }
       return parsed;
     }
@@ -402,55 +431,70 @@ function renderEstatisticas(){
     :`<div class="empty-state"><i class="ti ti-user-off"></i><p>Nenhum gol registrado ainda.<br><small>Cadastre jogadores no painel admin.</small></p></div>`}`;
 }
 function renderAdmin(){
-  if(!isAdmin){document.getElementById('admin').innerHTML=`
+  if(!isAdmin){
+    document.getElementById('admin').innerHTML=`
     <div class="admin-gate">
       <div class="lock-icon"><i class="ti ti-lock"></i></div>
       <h3>Acesso restrito</h3><p class="sub">Digite a senha de administrador para gerenciar o torneio.</p>
       <input type="password" id="pw-input" placeholder="Senha" style="width:100%;margin-bottom:10px" onkeydown="if(event.key==='Enter')tryLogin()"/>
       <button class="btn btn-full" onclick="tryLogin()">Entrar &nbsp;<i class="ti ti-arrow-right" style="font-size:13px;vertical-align:-1px"></i></button>
       <p id="pw-err" style="font-size:12px;color:#d63b3a;margin-top:10px;min-height:16px"></p>
-    </div>`;return;
+    </div>`;
+    return;
   }
-  const opts=state.teams.map(t=>`<option value="${t.id}">${t.name} (Gr.${t.group})</option>`).join('');
-  const opts2=state.teams.map((t,i)=>`<option value="${t.id}" ${i===1?'selected':''}>${t.name} (Gr.${t.group})</option>`).join('');
-  const nextR=Math.max(...state.matches.map(m=>m.round),0)+1;
+  
+  // Separa os jogos em duas listas (Pendentes e Encerrados)
+  const pendingMatches = state.matches.filter(m => !m.played).sort((a,b)=>a.round-b.round);
+  const playedMatches = state.matches.filter(m => m.played).sort((a,b)=>b.round-a.round);
+  
   document.getElementById('admin').innerHTML=`
     <div class="admin-panel">
       <div class="admin-header">
         <div class="admin-status"><i class="ti ti-shield-check"></i> Modo administrador</div>
         <button class="logout-btn" onclick="logout()"><i class="ti ti-logout" style="font-size:12px;vertical-align:-1px;margin-right:3px"></i>Sair</button>
       </div>
+      
       <div class="panel-card">
-        <h3><i class="ti ti-calendar-plus"></i> Adicionar partida</h3>
-        <div class="form-row">
-          <div class="form-group"><label>Mandante</label><select id="new-home" style="min-width:130px">${opts}</select></div>
-          <div class="form-group"><label>Visitante</label><select id="new-away" style="min-width:130px">${opts2}</select></div>
-          <div class="form-group"><label>Rodada</label><input type="number" id="new-round" min="1" value="${nextR}" style="width:58px"></div>
-          <div class="form-group"><label>Data</label><input type="text" id="new-date" placeholder="dd/mm" style="width:70px"></div>
-          <button class="btn" onclick="addMatch()" style="margin-top:auto">Adicionar</button>
-        </div>
-      </div>
-      <div class="panel-card">
-        <h3><i class="ti ti-ball-football"></i> Registrar / corrigir resultado</h3>
+        <h3><i class="ti ti-calendar-plus"></i> Registrar jogo pendente</h3>
         <div class="form-row">
           <div class="form-group"><label>Partida</label>
-            <select id="sel-match" style="min-width:220px">
-              ${[...state.matches].sort((a,b)=>b.round-a.round).map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} × ${tName(m.away)}${m.played?' ✓':''}</option>`).join('')}
+            <select id="new-pending-match" style="min-width:220px">
+              ${pendingMatches.length ? pendingMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} × ${tName(m.away)} (${m.date})</option>`).join('') : '<option value="">Nenhuma partida pendente</option>'}
             </select>
           </div>
-          <div class="form-group"><label>Mandante</label><input type="number" id="score-home" min="0" value="0" style="width:58px"></div>
-          <div class="form-group"><label>Visitante</label><input type="number" id="score-away" min="0" value="0" style="width:58px"></div>
-          <button class="btn" onclick="saveResult()" style="margin-top:auto">Salvar</button>
+          <div class="form-group"><label>Mandante</label><input type="number" id="pending-home" min="0" value="0" style="width:58px"></div>
+          <div class="form-group"><label>Visitante</label><input type="number" id="pending-away" min="0" value="0" style="width:58px"></div>
+          <button class="btn" onclick="savePendingMatch()" style="margin-top:auto" ${pendingMatches.length?'':'disabled'}>Salvar</button>
         </div>
       </div>
+      
+      <div class="panel-card">
+        <h3><i class="ti ti-edit"></i> Corrigir resultado anterior</h3>
+        <div class="form-row">
+          <div class="form-group"><label>Partida já jogada</label>
+            <select id="sel-match" style="min-width:220px">
+              ${playedMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} ${m.homeScore}×${m.awayScore} ${tName(m.away)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group"><label>Mandante</label><input type="number" id="score-home" min="0" style="width:58px"></div>
+          <div class="form-group"><label>Visitante</label><input type="number" id="score-away" min="0" style="width:58px"></div>
+          <button class="btn" onclick="saveResult()" style="margin-top:auto">Corrigir</button>
+        </div>
+      </div>
+      
       <div class="panel-card">
         <h3><i class="ti ti-user-plus"></i> Adicionar jogador</h3>
         <div class="form-row">
           <div class="form-group"><label>Nome</label><input type="text" id="new-player-name" placeholder="Nome completo" style="min-width:150px"></div>
-          <div class="form-group"><label>Time</label><select id="new-player-team">${opts}</select></div>
+          <div class="form-group"><label>Time</label>
+            <select id="new-player-team">
+              ${state.teams.map(t=>`<option value="${t.id}">${t.name} (Gr.${t.group})</option>`).join('')}
+            </select>
+          </div>
           <button class="btn" onclick="addPlayer()" style="margin-top:auto">Adicionar</button>
         </div>
       </div>
+      
       ${state.players.length>0?`
       <div class="panel-card">
         <h3><i class="ti ti-shoe-football"></i> Adicionar gols</h3>
@@ -468,13 +512,21 @@ function renderAdmin(){
 }
 function tryLogin(){if(document.getElementById('pw-input')?.value===ADMIN_PASS){isAdmin=true;renderAdmin();}else{document.getElementById('pw-err').textContent='Senha incorreta.';}}
 function logout(){isAdmin=false;renderAdmin();}
-function addMatch(){
-  const home=parseInt(document.getElementById('new-home').value),away=parseInt(document.getElementById('new-away').value);
-  const round=parseInt(document.getElementById('new-round').value)||1,date=document.getElementById('new-date').value.trim();
-  if(home===away){showToast('Times não podem ser iguais!');return;}
-  if(state.matches.some(m=>m.round===round&&((m.home===home&&m.away===away)||(m.home===away&&m.away===home)))){showToast('Partida já existe nesta rodada!');return;}
-  state.matches.push({id:Date.now(),home,away,homeScore:null,awayScore:null,played:false,round,date});
-  saveState();renderAll();showToast('Partida adicionada!');
+function savePendingMatch() {
+  const id = parseInt(document.getElementById('new-pending-match').value);
+  const hs = parseInt(document.getElementById('pending-home').value);
+  const as_ = parseInt(document.getElementById('pending-away').value);
+  const m = state.matches.find(m => m.id === id);
+  
+  if(!m || isNaN(hs) || isNaN(as_)) return;
+  
+  m.homeScore = hs;
+  m.awayScore = as_;
+  m.played = true; // Marca como encerrado!
+  
+  saveState(); 
+  renderAll(); 
+  showToast('Resultado registrado!');
 }
 function saveResult(){
   const id=parseInt(document.getElementById('sel-match').value);
