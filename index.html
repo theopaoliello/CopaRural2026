@@ -512,7 +512,7 @@ input:focus,select:focus{border-color:var(--blue);}
             <div class="form-group"><label>Time</label><select id="team-image-team">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
             <div class="form-group"><label>Escudo</label><input class="file-input" type="file" id="team-crest-file" accept="image/*"></div>
             <div class="form-group"><label>Foto do time</label><input class="file-input" type="file" id="team-photo-file" accept="image/*"></div>
-            <button class="btn" onclick="saveTeamImages()" style="margin-top:auto">Salvar imagens</button>
+            <button id="save-team-images-btn" class="btn" onclick="saveTeamImages()" style="margin-top:auto">Salvar imagens</button>
           </div>
         </div>
 
@@ -582,23 +582,33 @@ function resetMatch(){
   }
 
   async function saveTeamImages(){
-    const teamId=Number(document.getElementById('team-image-team').value);
-    const team=state.teams.find(t=>t.id===teamId);
-    const crestFile=document.getElementById('team-crest-file').files[0];
-    const photoFile=document.getElementById('team-photo-file').files[0];
-    if(!team)return showToast('Selecione um time');
-    if(!crestFile&&!photoFile)return showToast('Selecione ao menos uma imagem');
-    const uploadImage=async(file,type)=>{
-      const safeName=file.name.replace(/[^a-z0-9._-]/gi,'-');
-      const path=`teams/${teamId}/${type}-${Date.now()}-${safeName}`;
-      const fileRef=storageRef(storage,path);
-      await uploadBytes(fileRef,file);
-      return getDownloadURL(fileRef);
-    };
-    if(crestFile)team.crestUrl=await uploadImage(crestFile,'crest');
-    if(photoFile)team.photoUrl=await uploadImage(photoFile,'photo');
-    set(ref(db, 'campeonato/'), state);
-    showToast('Imagens salvas!');
+    const btn=document.getElementById('save-team-images-btn');
+    try{
+      const teamId=Number(document.getElementById('team-image-team').value);
+      const team=state.teams.find(t=>t.id===teamId);
+      const crestFile=document.getElementById('team-crest-file').files[0];
+      const photoFile=document.getElementById('team-photo-file').files[0];
+      if(!team)return showToast('Selecione um time');
+      if(!crestFile&&!photoFile)return showToast('Selecione ao menos uma imagem');
+      if(btn){btn.disabled=true;btn.textContent='Enviando...';}
+      showToast('Enviando imagens...');
+      const uploadImage=async(file,type)=>{
+        const safeName=file.name.replace(/[^a-z0-9._-]/gi,'-');
+        const path=`teams/${teamId}/${type}-${Date.now()}-${safeName}`;
+        const fileRef=storageRef(storage,path);
+        await uploadBytes(fileRef,file);
+        return getDownloadURL(fileRef);
+      };
+      if(crestFile)team.crestUrl=await uploadImage(crestFile,'crest');
+      if(photoFile)team.photoUrl=await uploadImage(photoFile,'photo');
+      await set(ref(db, 'campeonato/'), state);
+      showToast('Imagens salvas!');
+    }catch(error){
+      console.error('Erro ao salvar imagens do time:', error);
+      showToast(error?.code==='storage/unauthorized'?'Sem permissão no Firebase Storage':'Erro ao enviar imagens');
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent='Salvar imagens';}
+    }
   }
 
   function addGoals(){
