@@ -197,7 +197,35 @@ input:focus,select:focus{border-color:var(--blue);}
     {id:9,name:'Capivara',group:'A'},{id:10,name:'Largados',group:'B'},
     {id:11,name:'União Casca',group:'B'},{id:12,name:'Progresso',group:'A'}
   ];
-  
+
+  const OFFICIAL_ROSTERS={
+    1:['Guilherme','Lucas','Bruno','Vaval','William','Artilson','Anderson','Regis','Wanderson','Wellington','Kennedy','Juliano','Felipe','Samuel','Daniel','Lucas'],
+    2:['Rafael Lourenço','Rafael Marques','Israel','Júnior','Antenor','Paquinha','Nilsinho','Del','Anderson','Fábio','Thiago','Vincios','Renato','Daniel','Luciano','Romário','Kelvin'],
+    3:['Talim','Estevão','Leandro','Guilherme','Denilson','Humberto','Alisson','João Paulo','Jhow','Gabriel','Jullian','Ednilson','Robert','Luan','Luquinha','Matheus'],
+    4:['Magno','Ladir','Fernando','Samuel','Daro','Ronam','Calisto','Pedro','Wadson','Rodrigo','Né','Geovane','Alvaro'],
+    5:['Álvaro','Rodrigo','Neri','Bruno','Juninho','Raniel','Jefferson','Guilherme','Ze Antônio','Ze Maicon','Geneilton','Daniel','Naltinho','João Paulo','Gabriel','Elielton'],
+    6:['Sergio','Paulo','Elivelton','Everaldo','Matheus','Kaique','João Galego','Bruno','Bruno Andre','Diego','Elielsom','Diego','Tiago','Roney','Guilherme','Nego','Alailson'],
+    7:['Roney','Marco Antônio','Joildo','Mailson','Eduardo','Paulo Henrique','Sideny','Juvanildo','Wagner','Canarinho','Renan','Vanderlei','Rafael','Pablo','Maelson','Rogério','Amélio','Dedé'],
+    8:['Celinho','Gustavo','Roni','Wagner','Léu','Jhonatas','Leandro','Isaías','Ralyson','Theo','Marley','Lindair','Afonso','Cale','Rafael','Carlinhos'],
+    9:['Bata','Adriano','Ramon','Marcelo','Jorginho','Florêncio','Flaviano','André','Emerson','Rodrigo','Tiago','Batista','Kauan','Wallace','Cleitinho','Renan Valério'],
+    10:['Tarcísio','Gabriel','Vitor','Edmilson','Geraldo','Rael','Reinaldinho','Batista','Junior','Fabinho','Cláudio','Pedrinho','Eleir','Flavio','Vaguinho','Edmar'],
+    11:['Rogelio','Samuel','Rodriguin','Rodrigo','Geovany','Yago','Adriano','Wellington','Tatu','Vando','Coquin','Marquim','André','Diego'],
+    12:['Robinho','Carlos','Reinaldo','Samuel','Léo','Eduardo','Cristiano','Mariano','Rafael','Tales','Paulo','Geovane','Luiz Flávio']
+  };
+
+  const SCORER_GOALS={
+    '7|Roney':8,'1|Felipe':7,'1|Anderson':7,'4|Rodrigo':6,'4|Magno':5,'12|Luiz Flávio':5,'6|Elivelton':5,'5|Geneilton':4,'8|Marley':4,'2|Romário':4,'3|Estevão':4,'10|Junior':4,'8|Pablo':4,'6|Elielton':4,'6|João Paulo':4,'5|Guilherme':3,'3|Gabriel':3,'8|Theo':3,'9|Jorginho':3,'1|Kennedy':3,'4|Alvaro':3,'6|Tiago':3,'3|Jullian':3,'8|Wagner':2,'1|Wanderson':2,'1|Vaval':2,'1|William':2,'9|Kauan':2,'9|André':2,'11|Rodrigo':2,'2|Del':2,'2|Fábio':2,'2|Anderson':2,'5|Jefferson':2,'5|Juninho':2,'5|Raniel':2,'4|Ronam':1,'4|Daro':1,'6|Bruno':1,'10|Reinaldinho':1,'10|Batista':1,'10|Edmilson':1,'7|Rogério':1,'7|Canarinho':1,'12|Eduardo':1,'12|Reinaldo':1,'12|Geovane':1,'8|Afonso':1,'8|Lindair':1,'8|Leandro':1,'8|Léu':1,'1|Juliano':1,'1|Bruno':1,'9|Ramon':1,'9|Flaviano':1,'9|Rodrigo':1,'11|Samuel':1,'2|Thiago':1,'2|Júnior':1,'5|Naltinho':1,'5|Daniel':1,'5|Bruno':1,'4|Fernando':1
+  };
+
+  function buildOfficialPlayers(existing=[]){
+    const existingGoals=new Map(existing.map(p=>[`${p.teamId}|${p.name}`,p.goals||0]));
+    let id=100;
+    return Object.entries(OFFICIAL_ROSTERS).flatMap(([teamId,names])=>names.map(name=>{
+      const key=`${teamId}|${name}`;
+      return {id:++id,name,teamId:Number(teamId),goals:existingGoals.get(key)??SCORER_GOALS[key]??0};
+    }));
+  }
+
   const SEED=[
     {date:'19/04',r:1,home:'Sport',hs:2,as:2,away:'30 de Fevereiro'},
     {date:'19/04',r:1,home:'Capivara',hs:0,as:4,away:'Imperial'},
@@ -261,44 +289,7 @@ input:focus,select:focus{border-color:var(--blue);}
     {date:'21/06',r:10,home:'Aliança',hs:null,as:null,away:'Largados'}
   ];
   
-  const PLAYERS_DATA = [
-    {id:101,name:'Roney',teamId:7,goals:8},{id:102,name:'Felipe',teamId:1,goals:7},
-    {id:103,name:'Anderson',teamId:1,goals:7},{id:104,name:'Rodrigo',teamId:4,goals:6},
-    {id:105,name:'Magno (Maguino)',teamId:4,goals:5},{id:106,name:'Luiz Flávio',teamId:12,goals:5},
-    {id:107,name:'Elivelton',teamId:6,goals:5},{id:108,name:'Geneilton',teamId:5,goals:4},
-    {id:109,name:'Marley',teamId:8,goals:4},{id:110,name:'Romário',teamId:2,goals:4},
-    {id:111,name:'Estevão',teamId:3,goals:4},{id:112,name:'Junior',teamId:10,goals:4},
-    {id:113,name:'Pablo',teamId:8,goals:4},{id:114,name:'Elielton',teamId:6,goals:4},
-    {id:115,name:'João Paulo',teamId:6,goals:4},{id:116,name:'Guilherme',teamId:5,goals:3},
-    {id:117,name:'Gabriel',teamId:3,goals:3},{id:118,name:'Theo',teamId:8,goals:3},
-    {id:119,name:'Jorginho',teamId:9,goals:3},{id:120,name:'Kenedy',teamId:1,goals:3},
-    {id:121,name:'Alvim',teamId:4,goals:3},{id:122,name:'Tiago',teamId:6,goals:3},
-    {id:123,name:'Jullian',teamId:3,goals:3},{id:124,name:'Wagner',teamId:8,goals:2},
-    {id:125,name:'Wanderson',teamId:1,goals:2},{id:126,name:'Macarrão',teamId:1,goals:2},
-    {id:127,name:'Vaval',teamId:1,goals:2},{id:128,name:'William',teamId:1,goals:2},
-    {id:129,name:'Kauan',teamId:9,goals:2},{id:130,name:'André',teamId:9,goals:2},
-    {id:131,name:'Rodrigão',teamId:11,goals:2},{id:132,name:'Del',teamId:2,goals:2},
-    {id:133,name:'Fábio',teamId:2,goals:2},{id:134,name:'Anderson',teamId:2,goals:2},
-    {id:135,name:'Jefferson',teamId:5,goals:2},{id:136,name:'Juninho',teamId:5,goals:2},
-    {id:137,name:'Raniel',teamId:5,goals:2},{id:138,name:'Alvaro',teamId:4,goals:2},
-    {id:139,name:'Alailsom',teamId:6,goals:2},{id:140,name:'Matheus',teamId:6,goals:2},
-    {id:141,name:'Cláudio',teamId:10,goals:2},{id:142,name:'Gabriel',teamId:10,goals:2},
-    {id:143,name:'João Paulo',teamId:3,goals:2},{id:144,name:'Afonso',teamId:8,goals:1},
-    {id:145,name:'Lindair',teamId:8,goals:1},{id:146,name:'Leandro',teamId:8,goals:1},
-    {id:147,name:'Léu',teamId:8,goals:1},{id:148,name:'Juliano',teamId:1,goals:1},
-    {id:149,name:'Bruno',teamId:1,goals:1},{id:150,name:'Juju',teamId:1,goals:1},
-    {id:151,name:'Ramon',teamId:9,goals:1},{id:152,name:'Flaviano',teamId:9,goals:1},
-    {id:153,name:'Rodrigo',teamId:9,goals:1},{id:154,name:'Samuel',teamId:11,goals:1},
-    {id:155,name:'Thiago',teamId:2,goals:1},{id:156,name:'Junior',teamId:2,goals:1},
-    {id:157,name:'Nautinho',teamId:5,goals:1},{id:158,name:'Daniel',teamId:5,goals:1},
-    {id:159,name:'Bruno',teamId:5,goals:1},{id:160,name:'Fernando',teamId:4,goals:1},
-    {id:161,name:'Ronan',teamId:4,goals:1},{id:162,name:'Daro',teamId:4,goals:1},
-    {id:163,name:'Bruno',teamId:6,goals:1},{id:164,name:'Reinaldinho',teamId:10,goals:1},
-    {id:165,name:'Batista',teamId:10,goals:1},{id:166,name:'Edmilson',teamId:10,goals:1},
-    {id:167,name:'Rogério',teamId:7,goals:1},{id:168,name:'Canarinho',teamId:7,goals:1},
-    {id:169,name:'Eduardo',teamId:12,goals:1},{id:170,name:'Reinaldo',teamId:12,goals:1},
-    {id:171,name:'Geovane',teamId:12,goals:1}
-  ];
+  const PLAYERS_DATA = buildOfficialPlayers();
 
   const defaultState = {
     teams: TEAMS.map(t=>({...t})),
@@ -505,6 +496,12 @@ input:focus,select:focus{border-color:var(--blue);}
         </div>
 
         <div class="panel-card">
+          <h3><i class="ti ti-users"></i> Lista oficial de jogadores</h3>
+          <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Substitui a lista atual pelos jogadores oficiais informados, mantendo os gols já cadastrados quando o nome e o time forem iguais.</p>
+          <button class="btn" onclick="applyOfficialPlayers()">Atualizar jogadores oficiais</button>
+        </div>
+
+        <div class="panel-card">
           <h3><i class="ti ti-photo-up"></i> Editar imagens do time</h3>
           <div class="form-row">
             <div class="form-group"><label>Time</label><select id="team-image-team">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
@@ -627,6 +624,12 @@ function resetMatch(){
     }
   }
 
+  async function applyOfficialPlayers(){
+    state.players=buildOfficialPlayers(state.players);
+    await set(ref(db, 'campeonato/'), state);
+    showToast('Jogadores oficiais atualizados!');
+  }
+
   function addGoals(){
     const pid=parseInt(document.getElementById('sel-player').value),count=parseInt(document.getElementById('goal-count').value)||1;
     const p=state.players.find(p=>p.id===pid);if(!p)return;
@@ -661,6 +664,7 @@ function resetMatch(){
   window.resetMatch = resetMatch;
   window.addPlayer = addPlayer;
   window.saveTeamImages = saveTeamImages;
+  window.applyOfficialPlayers = applyOfficialPlayers;
   window.addGoals = addGoals;
   window.openTeam = openTeam;
   window.backToTeams = backToTeams;
