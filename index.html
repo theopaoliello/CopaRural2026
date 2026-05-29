@@ -424,41 +424,42 @@ input:focus,select:focus{border-color:var(--blue);}
         <div class="admin-header"><div class="admin-status"><i class="ti ti-shield-check"></i> Modo administrador</div><button class="logout-btn" onclick="logout()">Sair</button></div>
         
         <div class="panel-card">
-          <h3>Registrar jogo pendente</h3>
+          <h3><i class="ti ti-calendar-plus"></i> Registrar jogo pendente</h3>
           <div class="form-row">
-            <div class="form-group"><label>Partida</label><select id="new-pending-match">${pendingMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} × ${tName(m.away)}</option>`).join('')}</select></div>
+            <div class="form-group"><label>Partida</label><select id="new-pending-match">${pendingMatches.length ? pendingMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} × ${tName(m.away)}</option>`).join('') : '<option value="">Nenhuma partida pendente</option>'}</select></div>
             <div class="form-group"><label>Mandante</label><input type="number" id="pending-home" min="0" value="0" style="width:58px"></div>
             <div class="form-group"><label>Visitante</label><input type="number" id="pending-away" min="0" value="0" style="width:58px"></div>
-            <button class="btn" onclick="savePendingMatch()">Salvar</button>
+            <button class="btn" onclick="savePendingMatch()" style="margin-top:auto" ${pendingMatches.length?'':'disabled'}>Salvar</button>
           </div>
         </div>
         
         <div class="panel-card">
-          <h3>Corrigir resultado anterior</h3>
+          <h3><i class="ti ti-edit"></i> Corrigir ou Apagar resultado</h3>
           <div class="form-row">
-            <div class="form-group"><label>Partida já jogada</label><select id="sel-match">${playedMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} ${m.homeScore}×${m.awayScore} ${tName(m.away)}</option>`).join('')}</select></div>
+            <div class="form-group"><label>Partida já jogada</label><select id="sel-match">${playedMatches.length ? playedMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} ${m.homeScore}×${m.awayScore} ${tName(m.away)}</option>`).join('') : '<option value="">Nenhum jogo finalizado</option>'}</select></div>
             <div class="form-group"><label>Mandante</label><input type="number" id="score-home" min="0" style="width:58px"></div>
             <div class="form-group"><label>Visitante</label><input type="number" id="score-away" min="0" style="width:58px"></div>
-            <button class="btn" onclick="saveResult()">Corrigir</button>
+            <button class="btn" onclick="saveResult()" style="margin-top:auto" ${playedMatches.length?'':'disabled'}>Corrigir</button>
+            <button class="btn" onclick="resetMatch()" style="margin-top:auto; background:var(--red);" ${playedMatches.length?'':'disabled'} title="Voltar o jogo para Pendente">Apagar</button>
           </div>
         </div>
 
         <div class="panel-card">
-          <h3>Adicionar jogador</h3>
+          <h3><i class="ti ti-user-plus"></i> Adicionar jogador</h3>
           <div class="form-row">
             <div class="form-group"><label>Nome</label><input type="text" id="new-player-name" style="min-width:150px"></div>
             <div class="form-group"><label>Time</label><select id="new-player-team">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
-            <button class="btn" onclick="addPlayer()">Adicionar</button>
+            <button class="btn" onclick="addPlayer()" style="margin-top:auto">Adicionar</button>
           </div>
         </div>
 
         ${state.players.length>0?`
         <div class="panel-card">
-          <h3>Adicionar gols</h3>
+          <h3><i class="ti ti-shoe-football"></i> Adicionar gols</h3>
           <div class="form-row">
             <div class="form-group"><label>Jogador</label><select id="sel-player">${[...state.players].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${p.name} (${tName(p.teamId)})</option>`).join('')}</select></div>
             <div class="form-group"><label>Qtd.</label><input type="number" id="goal-count" min="1" value="1" style="width:58px"></div>
-            <button class="btn" onclick="addGoals()">Adicionar</button>
+            <button class="btn" onclick="addGoals()" style="margin-top:auto">Adicionar</button>
           </div>
         </div>`:''}
       </div>`;
@@ -484,7 +485,22 @@ input:focus,select:focus{border-color:var(--blue);}
     set(ref(db, 'campeonato/'), state); 
     showToast('Resultado salvo!');
   }
-
+function resetMatch(){
+    const id = parseInt(document.getElementById('sel-match').value);
+    if(isNaN(id)) return;
+    const m = state.matches.find(m => m.id === id);
+    if(!m) return;
+    
+    // Confirmação para evitar toques acidentais
+    if(confirm(`Tem certeza que deseja apagar o resultado de ${tName(m.home)} x ${tName(m.away)}? O jogo voltará a ficar pendente.`)) {
+      m.homeScore = null;
+      m.awayScore = null;
+      m.played = false;
+      
+      set(ref(db, 'campeonato/'), state); 
+      showToast('Resultado apagado!');
+    }
+  }
   function addPlayer(){
     const name=document.getElementById('new-player-name')?.value?.trim(),teamId=parseInt(document.getElementById('new-player-team')?.value);
     if(!name)return;
@@ -521,6 +537,7 @@ input:focus,select:focus{border-color:var(--blue);}
   window.logout = logout;
   window.savePendingMatch = savePendingMatch;
   window.saveResult = saveResult;
+  window.resetMatch = resetMatch;
   window.addPlayer = addPlayer;
   window.addGoals = addGoals;
 
