@@ -476,7 +476,7 @@ input:focus,select:focus{border-color:var(--blue);}
     const played=state.matches.filter(m=>m.played);
     const totalGols=played.reduce((s,m)=>s+m.homeScore+m.awayScore,0);
     const topMatch=played.reduce((b,m)=>{const t=m.homeScore+m.awayScore;return t>b.g?{g:t,label:`${tName(m.home)} ${m.homeScore}×${m.awayScore} ${tName(m.away)}`}:b;},{g:0,label:''});
-    const top=[...state.players].sort((a,b)=>b.goals-a.goals).filter(p=>p.goals>0);
+    const top=[...state.players].sort((a,b)=>b.goals-a.goals).filter(p=>p.goals>0).slice(0,10);
     const maxG=top[0]?.goals||1;
     document.getElementById('estatisticas').innerHTML=`
       <div class="stats-grid">
