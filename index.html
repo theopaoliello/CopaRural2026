@@ -169,7 +169,6 @@ input:focus,select:focus{border-color:var(--blue);}
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-analytics.js";
   import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-database.js";
-  import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-storage.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyClKERJ9gQVzlgb2BSx7JtvIgyz5dCMfYw",
@@ -186,7 +185,6 @@ input:focus,select:focus{border-color:var(--blue);}
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
   const db = getDatabase(app);
-  const storage = getStorage(app);
 
   const ADMIN_PASS='admin123';
   let isAdmin=false, filterRes='todos', selectedTeamId=null;
@@ -581,6 +579,28 @@ function resetMatch(){
     showToast(`${name} adicionado!`);
   }
 
+  function imageFileToDataUrl(file, maxSize=1200, quality=0.82){
+    return new Promise((resolve,reject)=>{
+      const reader=new FileReader();
+      reader.onload=()=>{
+        const img=new Image();
+        img.onload=()=>{
+          const scale=Math.min(1, maxSize/Math.max(img.width,img.height));
+          const canvas=document.createElement('canvas');
+          canvas.width=Math.round(img.width*scale);
+          canvas.height=Math.round(img.height*scale);
+          const ctx=canvas.getContext('2d');
+          ctx.drawImage(img,0,0,canvas.width,canvas.height);
+          resolve(canvas.toDataURL('image/jpeg',quality));
+        };
+        img.onerror=()=>reject(new Error('Não foi possível ler a imagem'));
+        img.src=reader.result;
+      };
+      reader.onerror=()=>reject(new Error('Não foi possível abrir o arquivo'));
+      reader.readAsDataURL(file);
+    });
+  }
+
   async function saveTeamImages(){
     const btn=document.getElementById('save-team-images-btn');
     try{
@@ -590,22 +610,18 @@ function resetMatch(){
       const photoFile=document.getElementById('team-photo-file').files[0];
       if(!team)return showToast('Selecione um time');
       if(!crestFile&&!photoFile)return showToast('Selecione ao menos uma imagem');
-      if(btn){btn.disabled=true;btn.textContent='Enviando...';}
-      showToast('Enviando imagens...');
-      const uploadImage=async(file,type)=>{
-        const safeName=file.name.replace(/[^a-z0-9._-]/gi,'-');
-        const path=`teams/${teamId}/${type}-${Date.now()}-${safeName}`;
-        const fileRef=storageRef(storage,path);
-        await uploadBytes(fileRef,file);
-        return getDownloadURL(fileRef);
-      };
-      if(crestFile)team.crestUrl=await uploadImage(crestFile,'crest');
-      if(photoFile)team.photoUrl=await uploadImage(photoFile,'photo');
+      if(btn){btn.disabled=true;btn.textContent='Processando...';}
+      showToast('Processando imagens...');
+      if(crestFile)team.crestUrl=await imageFileToDataUrl(crestFile,600,0.85);
+      if(photoFile)team.photoUrl=await imageFileToDataUrl(photoFile,1400,0.82);
+      if(btn)btn.textContent='Salvando...';
       await set(ref(db, 'campeonato/'), state);
+      document.getElementById('team-crest-file').value='';
+      document.getElementById('team-photo-file').value='';
       showToast('Imagens salvas!');
     }catch(error){
       console.error('Erro ao salvar imagens do time:', error);
-      showToast(error?.code==='storage/unauthorized'?'Sem permissão no Firebase Storage':'Erro ao enviar imagens');
+      showToast(error?.message||'Erro ao salvar imagens');
     }finally{
       if(btn){btn.disabled=false;btn.textContent='Salvar imagens';}
     }
