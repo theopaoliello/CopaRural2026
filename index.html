@@ -307,10 +307,38 @@ input:focus,select:focus{border-color:var(--blue);}
   // 3. CONEXÃO COM O FIREBASE
   const campeonatoRef = ref(db, 'campeonato/');
   
+  function normalizeState(data){
+    const base=JSON.parse(JSON.stringify(defaultState));
+    const normalized={...base,...(data||{})};
+    const teamIds=new Set((normalized.teams||[]).filter(Boolean).map(t=>Number(t.id)));
+    normalized.teams=(normalized.teams||[]).filter(t=>t&&teamIds.has(Number(t.id))).map(t=>({
+      ...t,
+      id:Number(t.id),
+      crestUrl:safeImage(t.crestUrl),
+      photoUrl:safeImage(t.photoUrl)
+    }));
+    normalized.players=(normalized.players||[]).filter(p=>p&&typeof p.name==='string'&&teamIds.has(Number(p.teamId))).map(p=>({
+      ...p,
+      id:Number(p.id),
+      teamId:Number(p.teamId),
+      goals:Number(p.goals)||0
+    }));
+    normalized.matches=(normalized.matches||[]).filter(m=>m&&teamIds.has(Number(m.home))&&teamIds.has(Number(m.away))).map(m=>({
+      ...m,
+      id:Number(m.id),
+      home:Number(m.home),
+      away:Number(m.away),
+      homeScore:m.homeScore==null?m.homeScore:Number(m.homeScore),
+      awayScore:m.awayScore==null?m.awayScore:Number(m.awayScore),
+      played:Boolean(m.played)
+    }));
+    return normalized;
+  }
+
   onValue(campeonatoRef, (snapshot) => {
     const data = snapshot.val();
     if (data) {
-      state = data;
+      state = normalizeState(data);
     } else {
       set(campeonatoRef, defaultState);
       state = JSON.parse(JSON.stringify(defaultState));
@@ -419,7 +447,7 @@ input:focus,select:focus{border-color:var(--blue);}
         return `<div class="group-label"><span class="group-tag tag-${g.toLowerCase()}">Grupo ${g}</span></div>
           <div class="teams-grid" style="margin-bottom:18px">
             ${teams.map(t=>`<button class="team-card" onclick="openTeam(${t.id})">
-              <div class="team-crest-sm">${t.crestUrl?`<img src="${t.crestUrl}" alt="Escudo ${t.name}">`:'<i class="ti ti-shield"></i>'}</div>
+              <div class="team-crest-sm">${safeImage(t.crestUrl)?`<img src="${safeImage(t.crestUrl)}" alt="Escudo ${t.name}">`:'<i class="ti ti-shield"></i>'}</div>
               <div><div class="team-card-name">${t.name}</div><div class="team-card-sub">Ver elenco e fotos</div></div>
             </button>`).join('')}
           </div>`;
@@ -433,13 +461,13 @@ input:focus,select:focus{border-color:var(--blue);}
     el.innerHTML=`
       <button class="back-btn" onclick="backToTeams()"><i class="ti ti-arrow-left"></i> Voltar para times</button>
       <div class="team-detail-header">
-        <div class="team-crest-lg">${team.crestUrl?`<img src="${team.crestUrl}" alt="Escudo ${team.name}">`:'<i class="ti ti-shield" style="font-size:32px"></i>'}</div>
+        <div class="team-crest-lg">${safeImage(team.crestUrl)?`<img src="${safeImage(team.crestUrl)}" alt="Escudo ${team.name}">`:'<i class="ti ti-shield" style="font-size:32px"></i>'}</div>
         <div>
           <div class="team-detail-title">${team.name}</div>
           <span class="group-tag tag-${team.group.toLowerCase()}">Grupo ${team.group}</span>
         </div>
       </div>
-      <div class="team-photo">${team.photoUrl?`<img src="${team.photoUrl}" alt="Foto do time ${team.name}">`:'<div><i class="ti ti-photo" style="font-size:32px;display:block;text-align:center;margin-bottom:6px"></i>Foto do time ainda não enviada</div>'}</div>
+      <div class="team-photo">${safeImage(team.photoUrl)?`<img src="${safeImage(team.photoUrl)}" alt="Foto do time ${team.name}">`:'<div><i class="ti ti-photo" style="font-size:32px;display:block;text-align:center;margin-bottom:6px"></i>Foto do time ainda não enviada</div>'}</div>
       <div class="section-title"><i class="ti ti-users"></i> Jogadores</div>
       ${players.length?`<div class="players-list">${players.map(p=>`<div class="player-row"><span>${p.name}</span><span class="player-goals">${p.goals||0} gol(s)</span></div>`).join('')}</div>`:`<div class="empty-state"><i class="ti ti-user-off"></i><p>Nenhum jogador cadastrado para este time.</p></div>`}`;
   }
@@ -576,19 +604,31 @@ function resetMatch(){
     showToast(`${name} adicionado!`);
   }
 
-  function imageFileToDataUrl(file, maxSize=1200, quality=0.82){
+  const MAX_IMAGE_CHARS=90000;
+  function safeImage(src){return typeof src==='string'&&src.startsWith('data:image/')&&src.length<=MAX_IMAGE_CHARS?src:'';}
+  function imageFileToDataUrl(file, maxSize=520, quality=0.62){
     return new Promise((resolve,reject)=>{
       const reader=new FileReader();
       reader.onload=()=>{
         const img=new Image();
         img.onload=()=>{
-          const scale=Math.min(1, maxSize/Math.max(img.width,img.height));
+          let scale=Math.min(1, maxSize/Math.max(img.width,img.height));
           const canvas=document.createElement('canvas');
-          canvas.width=Math.round(img.width*scale);
-          canvas.height=Math.round(img.height*scale);
           const ctx=canvas.getContext('2d');
-          ctx.drawImage(img,0,0,canvas.width,canvas.height);
-          resolve(canvas.toDataURL('image/jpeg',quality));
+          const makeData=(q)=>{
+            canvas.width=Math.max(1,Math.round(img.width*scale));
+            canvas.height=Math.max(1,Math.round(img.height*scale));
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            ctx.drawImage(img,0,0,canvas.width,canvas.height);
+            return canvas.toDataURL('image/jpeg',q);
+          };
+          let data=makeData(quality);
+          while(data.length>MAX_IMAGE_CHARS&&scale>0.2){
+            scale*=0.75;
+            data=makeData(0.55);
+          }
+          if(data.length>MAX_IMAGE_CHARS)return reject(new Error('Imagem muito grande. Use uma imagem menor.'));
+          resolve(data);
         };
         img.onerror=()=>reject(new Error('Não foi possível ler a imagem'));
         img.src=reader.result;
@@ -609,8 +649,8 @@ function resetMatch(){
       if(!crestFile&&!photoFile)return showToast('Selecione ao menos uma imagem');
       if(btn){btn.disabled=true;btn.textContent='Processando...';}
       showToast('Processando imagens...');
-      if(crestFile)team.crestUrl=await imageFileToDataUrl(crestFile,600,0.85);
-      if(photoFile)team.photoUrl=await imageFileToDataUrl(photoFile,1400,0.82);
+      if(crestFile)team.crestUrl=await imageFileToDataUrl(crestFile,360,0.68);
+      if(photoFile)team.photoUrl=await imageFileToDataUrl(photoFile,720,0.62);
       if(btn)btn.textContent='Salvando...';
       await set(ref(db, 'campeonato/'), state);
       document.getElementById('team-crest-file').value='';
