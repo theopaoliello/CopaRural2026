@@ -327,20 +327,25 @@ input:focus,select:focus{border-color:var(--blue);}
   }
 
   function buildTable(rows,showGroup){
+    // Alterado o título da coluna de "Forma" para "Últ.Jogos"
     const head=`<thead><tr>
       <th class="w-pos">#</th><th class="th-name">Time</th>
       <th class="w-pts" title="Pontos">Pts</th><th class="w-n" title="Partidas">PJ</th>
       <th class="w-n" title="Vitórias">V</th><th class="w-n" title="Empates">E</th>
       <th class="w-n" title="Derrotas">D</th><th class="w-n" title="Gols pró">GP</th>
       <th class="w-n" title="Gols contra">GC</th><th class="w-sg" title="Saldo">SG</th>
-      <th class="w-forma">Forma</th>
+      <th class="w-forma" title="Últimos 5 jogos">Últ.Jogos</th>
     </tr></thead>`;
+    
     const body=rows.map((r,i)=>{
       const pos=i+1;
       let rowClass='';
       if(showGroup){if(pos===1) rowClass='zona-camp'; else if(pos<=9) rowClass='zona-class';}
       const posEl=`<span class="pos-num">${pos}</span>`;
-      const form=r.form.slice(-6).map(f=>`<span class="form-dot f${f.toLowerCase()}"></span>`).join('');
+      
+      // Alterado de slice(-6) para slice(-5) para pegar apenas os últimos 5 jogos
+      const form=r.form.slice(-5).map(f=>`<span class="form-dot f${f.toLowerCase()}"></span>`).join('');
+      
       const sg=r.gp-r.gc,sgC=sg>0?'sg-pos':sg<0?'sg-neg':'sg-zer';
       return `<tr class="${rowClass}">
         <td class="w-pos">${posEl}</td><td class="td-name">${r.name}</td>
@@ -351,6 +356,7 @@ input:focus,select:focus{border-color:var(--blue);}
         <td class="w-forma">${form||'—'}</td>
       </tr>`;
     }).join('');
+    
     return `<div class="table-wrap"><table>${head}<tbody>${body}</tbody></table></div>`;
   }
 
