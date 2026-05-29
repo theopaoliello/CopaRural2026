@@ -206,15 +206,69 @@ const SEED=[
   {date:'24/05',r:6,home:'Saturno',hs:4,as:3,away:'Aliança'},
   {date:'24/05',r:6,home:'Sub-Zero',hs:2,as:1,away:'Grãomogol'},
 ];
+  const PLAYERS_DATA = [
+  {id:101,name:'Roney',teamId:7,goals:8},{id:102,name:'Felipe',teamId:1,goals:7},
+  {id:103,name:'Anderson',teamId:1,goals:7},{id:104,name:'Rodrigo',teamId:4,goals:6},
+  {id:105,name:'Magno (Maguino)',teamId:4,goals:5},{id:106,name:'Luiz Flávio',teamId:12,goals:5},
+  {id:107,name:'Elivelton',teamId:6,goals:5},{id:108,name:'Geneilton',teamId:5,goals:4},
+  {id:109,name:'Marley',teamId:8,goals:4},{id:110,name:'Romário',teamId:2,goals:4},
+  {id:111,name:'Estevão',teamId:3,goals:4},{id:112,name:'Junior',teamId:10,goals:4},
+  {id:113,name:'Pablo',teamId:8,goals:4},{id:114,name:'Elielton',teamId:6,goals:4},
+  {id:115,name:'João Paulo',teamId:6,goals:4},{id:116,name:'Guilherme',teamId:5,goals:3},
+  {id:117,name:'Gabriel',teamId:3,goals:3},{id:118,name:'Theo',teamId:8,goals:3},
+  {id:119,name:'Jorginho',teamId:9,goals:3},{id:120,name:'Kenedy',teamId:1,goals:3},
+  {id:121,name:'Alvim',teamId:4,goals:3},{id:122,name:'Tiago',teamId:6,goals:3},
+  {id:123,name:'Jullian',teamId:3,goals:3},{id:124,name:'Wagner',teamId:8,goals:2},
+  {id:125,name:'Wanderson',teamId:1,goals:2},{id:126,name:'Macarrão',teamId:1,goals:2},
+  {id:127,name:'Vaval',teamId:1,goals:2},{id:128,name:'William',teamId:1,goals:2},
+  {id:129,name:'Kauan',teamId:9,goals:2},{id:130,name:'André',teamId:9,goals:2},
+  {id:131,name:'Rodrigão',teamId:11,goals:2},{id:132,name:'Del',teamId:2,goals:2},
+  {id:133,name:'Fábio',teamId:2,goals:2},{id:134,name:'Anderson',teamId:2,goals:2},
+  {id:135,name:'Jefferson',teamId:5,goals:2},{id:136,name:'Juninho',teamId:5,goals:2},
+  {id:137,name:'Raniel',teamId:5,goals:2},{id:138,name:'Alvaro',teamId:4,goals:2},
+  {id:139,name:'Alailsom',teamId:6,goals:2},{id:140,name:'Matheus',teamId:6,goals:2},
+  {id:141,name:'Cláudio',teamId:10,goals:2},{id:142,name:'Gabriel',teamId:10,goals:2},
+  {id:143,name:'João Paulo',teamId:3,goals:2},{id:144,name:'Afonso',teamId:8,goals:1},
+  {id:145,name:'Lindair',teamId:8,goals:1},{id:146,name:'Leandro',teamId:8,goals:1},
+  {id:147,name:'Léu',teamId:8,goals:1},{id:148,name:'Juliano',teamId:1,goals:1},
+  {id:149,name:'Bruno',teamId:1,goals:1},{id:150,name:'Juju',teamId:1,goals:1},
+  {id:151,name:'Ramon',teamId:9,goals:1},{id:152,name:'Flaviano',teamId:9,goals:1},
+  {id:153,name:'Rodrigo',teamId:9,goals:1},{id:154,name:'Samuel',teamId:11,goals:1},
+  {id:155,name:'Thiago',teamId:2,goals:1},{id:156,name:'Junior',teamId:2,goals:1},
+  {id:157,name:'Nautinho',teamId:5,goals:1},{id:158,name:'Daniel',teamId:5,goals:1},
+  {id:159,name:'Bruno',teamId:5,goals:1},{id:160,name:'Fernando',teamId:4,goals:1},
+  {id:161,name:'Ronan',teamId:4,goals:1},{id:162,name:'Daro',teamId:4,goals:1},
+  {id:163,name:'Bruno',teamId:6,goals:1},{id:164,name:'Reinaldinho',teamId:10,goals:1},
+  {id:165,name:'Batista',teamId:10,goals:1},{id:166,name:'Edmilson',teamId:10,goals:1},
+  {id:167,name:'Rogério',teamId:7,goals:1},{id:168,name:'Canarinho',teamId:7,goals:1},
+  {id:169,name:'Eduardo',teamId:12,goals:1},{id:170,name:'Reinaldo',teamId:12,goals:1},
+  {id:171,name:'Geovane',teamId:12,goals:1}
+];
 const defaultState={
-  teams:TEAMS.map(t=>({...t})),players:[],
+  teams:TEAMS.map(t=>({...t})),
+  players:[...PLAYERS_DATA], // <-- Isso puxa os jogadores para o estado inicial
   matches:SEED.map((s,i)=>{
     const hid=TEAMS.find(t=>t.name.toLowerCase()===s.home.toLowerCase())?.id;
     const aid=TEAMS.find(t=>t.name.toLowerCase()===s.away.toLowerCase())?.id;
     return {id:i+1,home:hid,away:aid,homeScore:s.hs,awayScore:s.as,played:true,round:s.r,date:s.date};
   })
 };
-function loadState(){try{const r=localStorage.getItem(STATE_KEY);if(r)return JSON.parse(r);}catch(e){}return JSON.parse(JSON.stringify(defaultState));}
+
+function loadState(){
+  try{
+    const r=localStorage.getItem(STATE_KEY);
+    if(r) {
+      const parsed = JSON.parse(r);
+      // Se a lista de jogadores do navegador estiver vazia, forçamos o preenchimento!
+      if(parsed.players.length === 0) {
+        parsed.players = [...PLAYERS_DATA];
+        localStorage.setItem(STATE_KEY, JSON.stringify(parsed));
+      }
+      return parsed;
+    }
+  }catch(e){}
+  return JSON.parse(JSON.stringify(defaultState));
+}
 function saveState(){try{localStorage.setItem(STATE_KEY,JSON.stringify(state));}catch(e){}}
 let state=loadState();
 function tById(id){return state.teams.find(t=>t.id===id)||{};}
