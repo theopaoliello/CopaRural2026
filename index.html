@@ -135,6 +135,30 @@ input:focus,select:focus{border-color:var(--blue);}
 </style>
 </head>
 <body>
+  <script type="module">
+  // Import the functions you need from the SDKs you need
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-analytics.js";
+  // TODO: Add SDKs for Firebase products that you want to use
+  // https://firebase.google.com/docs/web/setup#available-libraries
+
+  // Your web app's Firebase configuration
+  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+  const firebaseConfig = {
+    apiKey: "AIzaSyClKERJ9gQVzlgb2BSx7JtvIgyz5dCMfYw",
+    authDomain: "campeonatorural2026.firebaseapp.com",
+    databaseURL: "https://campeonatorural2026-default-rtdb.firebaseio.com",
+    projectId: "campeonatorural2026",
+    storageBucket: "campeonatorural2026.firebasestorage.app",
+    messagingSenderId: "691917447621",
+    appId: "1:691917447621:web:75abe9ddd171bfb48b2bac",
+    measurementId: "G-JMW5JZPQWG"
+  };
+
+  // Initialize Firebase
+  const app = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+</script>
 <div class="container">
   <div class="header">
     <div class="trophy-icon">
@@ -280,25 +304,26 @@ const defaultState={
   })
 };
 
-function loadState(){
-  try{
-    const r=localStorage.getItem(STATE_KEY);
-    if(r) {
-      const parsed = JSON.parse(r);
-      if(parsed.players.length === 0) parsed.players = [...PLAYERS_DATA];
-      
-      // Adiciona as novas partidas no navegador de quem já tinha aberto o site
-      const newMatches = defaultState.matches.filter(dm => !parsed.matches.some(pm => pm.home === dm.home && pm.away === dm.away && pm.round === dm.round));
-      if(newMatches.length > 0) {
-         parsed.matches.push(...newMatches);
-         localStorage.setItem(STATE_KEY, JSON.stringify(parsed));
-      }
-      return parsed;
-    }
-  }catch(e){}
-  return JSON.parse(JSON.stringify(defaultState));
-}
-function saveState(){try{localStorage.setItem(STATE_KEY,JSON.stringify(state));}catch(e){}}
+// Referência para o banco de dados
+const campeonatoRef = ref(db, 'campeonato/');
+
+// Esta função observa o Firebase. Sempre que você alterar algo lá,
+// o site de todo mundo atualiza automaticamente.
+onValue(campeonatoRef, (snapshot) => {
+  const data = snapshot.val();
+  
+  if (data) {
+    // Se já existem dados no Firebase, usamos eles
+    state = data;
+  } else {
+    // Se o banco estiver vazio (primeira vez), enviamos o estado padrão
+    set(campeonatoRef, defaultState);
+    state = defaultState;
+  }
+  
+  // Renderiza o site com os dados que acabamos de receber
+  renderAll();
+});
 let state=loadState();
 function tById(id){return state.teams.find(t=>t.id===id)||{};}
 function tName(id){return tById(id).name||'?';}
@@ -513,19 +538,12 @@ function renderAdmin(){
 function tryLogin(){if(document.getElementById('pw-input')?.value===ADMIN_PASS){isAdmin=true;renderAdmin();}else{document.getElementById('pw-err').textContent='Senha incorreta.';}}
 function logout(){isAdmin=false;renderAdmin();}
 function savePendingMatch() {
-  const id = parseInt(document.getElementById('new-pending-match').value);
-  const hs = parseInt(document.getElementById('pending-home').value);
-  const as_ = parseInt(document.getElementById('pending-away').value);
-  const m = state.matches.find(m => m.id === id);
+  // ... lógica de encontrar a partida e atualizar os gols ...
   
-  if(!m || isNaN(hs) || isNaN(as_)) return;
+  // Substitua o 'saveState()' por isto:
+  set(ref(db, 'campeonato/'), state); 
   
-  m.homeScore = hs;
-  m.awayScore = as_;
-  m.played = true; // Marca como encerrado!
-  
-  saveState(); 
-  renderAll(); 
+  renderAll();
   showToast('Resultado registrado!');
 }
 function saveResult(){
