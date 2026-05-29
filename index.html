@@ -552,12 +552,14 @@ input:focus,select:focus{border-color:var(--blue);}
         <div class="panel-card">
           <h3><i class="ti ti-shoe-football"></i> Adicionar gols</h3>
           <div class="form-row">
-            <div class="form-group"><label>Jogador</label><select id="sel-player">${[...state.players].sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${p.id}">${p.name} (${tName(p.teamId)})</option>`).join('')}</select></div>
+            <div class="form-group"><label>Time</label><select id="goal-team" onchange="updateGoalPlayers()">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+            <div class="form-group"><label>Jogador</label><select id="sel-player"></select></div>
             <div class="form-group"><label>Qtd.</label><input type="number" id="goal-count" min="1" value="1" style="width:58px"></div>
             <button class="btn" onclick="addGoals()" style="margin-top:auto">Adicionar</button>
           </div>
         </div>`:''}
       </div>`;
+    updateGoalPlayers();
   }
 
   // 4. FUNÇÕES DE AÇÃO COM FIREBASE APLICADO
@@ -674,11 +676,19 @@ function resetMatch(){
     showToast('Jogadores oficiais atualizados!');
   }
 
+  function updateGoalPlayers(){
+    const teamId=parseInt(document.getElementById('goal-team')?.value);
+    const sel=document.getElementById('sel-player');
+    if(!sel)return;
+    const players=state.players.filter(p=>p.teamId===teamId).sort((a,b)=>a.name.localeCompare(b.name));
+    sel.innerHTML=players.length?players.map(p=>`<option value="${p.id}">${p.name}</option>`).join(''):'<option value="">Nenhum jogador neste time</option>';
+  }
+
   function addGoals(){
     const pid=parseInt(document.getElementById('sel-player').value),count=parseInt(document.getElementById('goal-count').value)||1;
     const p=state.players.find(p=>p.id===pid);if(!p)return;
     p.goals+=count;
-    set(ref(db, 'campeonato/'), state); 
+    set(ref(db, 'campeonato/'), state);
     showToast(`+${count} gol(s)!`);
   }
 
@@ -696,7 +706,7 @@ function resetMatch(){
   function setFilter(f){filterRes=f;renderResultados();}
   function tryLogin(){if(document.getElementById('pw-input')?.value===ADMIN_PASS){isAdmin=true;renderAdmin();}else{document.getElementById('pw-err').textContent='Senha incorreta.';}}
   function logout(){isAdmin=false;renderAdmin();}
-  function renderAll(){renderClassificacao();renderTimes();renderResultados();renderEstatisticas();renderAdmin();}
+  function renderAll(){renderClassificacao();renderTimes();renderResultados();renderEstatisticas();renderAdmin();updateGoalPlayers();}
 
   // 5. EXPORTA AS FUNÇÕES PARA O HTML (Necessário porque o script é do tipo "module")
   window.showTab = showTab;
@@ -709,6 +719,7 @@ function resetMatch(){
   window.addPlayer = addPlayer;
   window.saveTeamImages = saveTeamImages;
   window.applyOfficialPlayers = applyOfficialPlayers;
+  window.updateGoalPlayers = updateGoalPlayers;
   window.addGoals = addGoals;
   window.openTeam = openTeam;
   window.backToTeams = backToTeams;
