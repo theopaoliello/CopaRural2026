@@ -243,20 +243,23 @@ function buildTable(rows,showGroup){
     <th class="w-n" title="Gols contra">GC</th><th class="w-sg" title="Saldo">SG</th>
     <th class="w-forma">Forma</th>
   </tr></thead>`;
+  
   const body=rows.map((r,i)=>{
-    const pos=i+1;let posEl,rowClass='';
+    const pos=i+1;
+    let rowClass='';
+    
+    // Mantém as faixas de destaque da Classificação Geral
     if(showGroup){
-      if(pos===1){posEl=`<span class="pos-badge pos-1">1</span>`;rowClass='zona-camp';}
-      else if(pos<=9){posEl=`<span class="pos-num">${pos}</span>`;rowClass='zona-class';}
-      else posEl=`<span class="pos-num">${pos}</span>`;
-    }else{
-      if(pos===1)posEl=`<span class="pos-badge pos-1">1</span>`;
-      else if(pos===2)posEl=`<span class="pos-badge pos-2">2</span>`;
-      else if(pos===3)posEl=`<span class="pos-badge pos-3">3</span>`;
-      else posEl=`<span class="pos-num">${pos}</span>`;
+      if(pos===1) rowClass='zona-camp';
+      else if(pos<=9) rowClass='zona-class';
     }
+    
+    // Aplica o número padrão e sem fundo para todas as posições
+    const posEl=`<span class="pos-num">${pos}</span>`;
+    
     const form=r.form.slice(-6).map(f=>`<span class="form-dot f${f.toLowerCase()}"></span>`).join('');
     const sg=r.gp-r.gc,sgC=sg>0?'sg-pos':sg<0?'sg-neg':'sg-zer';
+    
     return `<tr class="${rowClass}">
       <td class="w-pos">${posEl}</td><td class="td-name">${r.name}</td>
       <td class="w-pts pts-cell">${r.pts}</td><td class="w-n">${r.pj}</td>
@@ -266,6 +269,7 @@ function buildTable(rows,showGroup){
       <td class="w-forma">${form||'—'}</td>
     </tr>`;
   }).join('');
+  
   return `<div class="table-wrap"><table>${head}<tbody>${body}</tbody></table></div>`;
 }
 function renderClassificacao(){
