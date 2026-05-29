@@ -90,6 +90,24 @@ td.td-name{text-align:left;font-weight:600;font-size:13px;padding-left:4px;overf
 .empty-state{text-align:center;padding:2rem 1rem;color:var(--text2);background:var(--bg2);border-radius:var(--radius);}
 .empty-state i{font-size:30px;display:block;margin-bottom:8px;}
 .empty-state p{font-size:13px;}
+.teams-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;}
+.team-card{display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:11px;cursor:pointer;text-align:left;color:var(--text);transition:background .15s,border-color .15s;}
+.team-card:hover{background:var(--bg2);border-color:var(--blue);}
+.team-crest-sm{width:42px;height:42px;border-radius:50%;background:var(--bg2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;color:var(--text2);}
+.team-crest-sm img,.team-crest-lg img{width:100%;height:100%;object-fit:cover;}
+.team-card-name{font-size:14px;font-weight:700;}
+.team-card-sub{font-size:11px;color:var(--text2);margin-top:2px;}
+.team-detail-header{display:flex;align-items:center;gap:14px;margin-bottom:14px;}
+.team-crest-lg{width:74px;height:74px;border-radius:50%;background:var(--bg2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;color:var(--text2);}
+.team-detail-title{font-size:20px;font-weight:700;margin-bottom:5px;}
+.team-photo{width:100%;height:260px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:16px;display:flex;align-items:center;justify-content:center;color:var(--text2);}
+.team-photo img{width:100%;height:100%;object-fit:cover;}
+.players-list{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+.player-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);}
+.player-row:last-child{border-bottom:none;}
+.player-goals{font-size:12px;font-weight:700;color:var(--blue);}
+.back-btn{font-size:12px;color:var(--blue);background:none;border:none;cursor:pointer;font-weight:700;margin-bottom:12px;padding:0;}
+.file-input{max-width:210px;}
 .admin-gate{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:2rem;max-width:320px;margin:0 auto;text-align:center;}
 .lock-icon{width:48px;height:48px;border-radius:50%;background:var(--bg2);display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;}
 .lock-icon i{font-size:22px;color:var(--text2);}
@@ -131,12 +149,14 @@ input:focus,select:focus{border-color:var(--blue);}
   
   <div class="tabs">
     <button class="tab active" onclick="showTab('classificacao')"><i class="ti ti-list-numbers"></i> Classificação</button>
+    <button class="tab" onclick="showTab('times')"><i class="ti ti-users-group"></i> Times</button>
     <button class="tab" onclick="showTab('resultados')"><i class="ti ti-ball-football"></i> Resultados</button>
     <button class="tab" onclick="showTab('estatisticas')"><i class="ti ti-chart-bar"></i> Estatísticas</button>
     <button class="tab" onclick="showTab('admin')"><i class="ti ti-settings"></i> Admin</button>
   </div>
   
   <div id="classificacao" class="section active"></div>
+  <div id="times"         class="section"></div>
   <div id="resultados"    class="section"></div>
   <div id="estatisticas"  class="section"></div>
   <div id="admin"         class="section"></div>
@@ -149,6 +169,7 @@ input:focus,select:focus{border-color:var(--blue);}
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-analytics.js";
   import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-database.js";
+  import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-storage.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyClKERJ9gQVzlgb2BSx7JtvIgyz5dCMfYw",
@@ -164,10 +185,11 @@ input:focus,select:focus{border-color:var(--blue);}
   // 2. INICIALIZAÇÃO
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
-  const db = getDatabase(app); 
+  const db = getDatabase(app);
+  const storage = getStorage(app);
 
   const ADMIN_PASS='admin123';
-  let isAdmin=false, filterRes='todos';
+  let isAdmin=false, filterRes='todos', selectedTeamId=null;
   
   const TEAMS=[
     {id:1,name:'Imperial',group:'A'},{id:2,name:'Sub-Zero',group:'B'},
@@ -399,6 +421,40 @@ input:focus,select:focus{border-color:var(--blue);}
       }).join('')}`;
   }
 
+  function renderTimes(){
+    const el=document.getElementById('times');
+    if(!selectedTeamId){
+      const groups=['A','B'];
+      el.innerHTML=groups.map(g=>{
+        const teams=state.teams.filter(t=>t.group===g).sort((a,b)=>a.name.localeCompare(b.name));
+        return `<div class="group-label"><span class="group-tag tag-${g.toLowerCase()}">Grupo ${g}</span></div>
+          <div class="teams-grid" style="margin-bottom:18px">
+            ${teams.map(t=>`<button class="team-card" onclick="openTeam(${t.id})">
+              <div class="team-crest-sm">${t.crestUrl?`<img src="${t.crestUrl}" alt="Escudo ${t.name}">`:'<i class="ti ti-shield"></i>'}</div>
+              <div><div class="team-card-name">${t.name}</div><div class="team-card-sub">Ver elenco e fotos</div></div>
+            </button>`).join('')}
+          </div>`;
+      }).join('');
+      return;
+    }
+
+    const team=tById(selectedTeamId);
+    if(!team.id){selectedTeamId=null;renderTimes();return;}
+    const players=state.players.filter(p=>p.teamId===team.id).sort((a,b)=>a.name.localeCompare(b.name));
+    el.innerHTML=`
+      <button class="back-btn" onclick="backToTeams()"><i class="ti ti-arrow-left"></i> Voltar para times</button>
+      <div class="team-detail-header">
+        <div class="team-crest-lg">${team.crestUrl?`<img src="${team.crestUrl}" alt="Escudo ${team.name}">`:'<i class="ti ti-shield" style="font-size:32px"></i>'}</div>
+        <div>
+          <div class="team-detail-title">${team.name}</div>
+          <span class="group-tag tag-${team.group.toLowerCase()}">Grupo ${team.group}</span>
+        </div>
+      </div>
+      <div class="team-photo">${team.photoUrl?`<img src="${team.photoUrl}" alt="Foto do time ${team.name}">`:'<div><i class="ti ti-photo" style="font-size:32px;display:block;text-align:center;margin-bottom:6px"></i>Foto do time ainda não enviada</div>'}</div>
+      <div class="section-title"><i class="ti ti-users"></i> Jogadores</div>
+      ${players.length?`<div class="players-list">${players.map(p=>`<div class="player-row"><span>${p.name}</span><span class="player-goals">${p.goals||0} gol(s)</span></div>`).join('')}</div>`:`<div class="empty-state"><i class="ti ti-user-off"></i><p>Nenhum jogador cadastrado para este time.</p></div>`}`;
+  }
+
   function renderEstatisticas(){
     const played=state.matches.filter(m=>m.played);
     const totalGols=played.reduce((s,m)=>s+m.homeScore+m.awayScore,0);
@@ -447,6 +503,16 @@ input:focus,select:focus{border-color:var(--blue);}
             <div class="form-group"><label>Visitante</label><input type="number" id="score-away" min="0" style="width:58px"></div>
             <button class="btn" onclick="saveResult()" style="margin-top:auto" ${playedMatches.length?'':'disabled'}>Corrigir</button>
             <button class="btn" onclick="resetMatch()" style="margin-top:auto; background:var(--red);" ${playedMatches.length?'':'disabled'} title="Voltar o jogo para Pendente">Apagar</button>
+          </div>
+        </div>
+
+        <div class="panel-card">
+          <h3><i class="ti ti-photo-up"></i> Editar imagens do time</h3>
+          <div class="form-row">
+            <div class="form-group"><label>Time</label><select id="team-image-team">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+            <div class="form-group"><label>Escudo</label><input class="file-input" type="file" id="team-crest-file" accept="image/*"></div>
+            <div class="form-group"><label>Foto do time</label><input class="file-input" type="file" id="team-photo-file" accept="image/*"></div>
+            <button class="btn" onclick="saveTeamImages()" style="margin-top:auto">Salvar imagens</button>
           </div>
         </div>
 
@@ -515,6 +581,26 @@ function resetMatch(){
     showToast(`${name} adicionado!`);
   }
 
+  async function saveTeamImages(){
+    const teamId=Number(document.getElementById('team-image-team').value);
+    const team=state.teams.find(t=>t.id===teamId);
+    const crestFile=document.getElementById('team-crest-file').files[0];
+    const photoFile=document.getElementById('team-photo-file').files[0];
+    if(!team)return showToast('Selecione um time');
+    if(!crestFile&&!photoFile)return showToast('Selecione ao menos uma imagem');
+    const uploadImage=async(file,type)=>{
+      const safeName=file.name.replace(/[^a-z0-9._-]/gi,'-');
+      const path=`teams/${teamId}/${type}-${Date.now()}-${safeName}`;
+      const fileRef=storageRef(storage,path);
+      await uploadBytes(fileRef,file);
+      return getDownloadURL(fileRef);
+    };
+    if(crestFile)team.crestUrl=await uploadImage(crestFile,'crest');
+    if(photoFile)team.photoUrl=await uploadImage(photoFile,'photo');
+    set(ref(db, 'campeonato/'), state);
+    showToast('Imagens salvas!');
+  }
+
   function addGoals(){
     const pid=parseInt(document.getElementById('sel-player').value),count=parseInt(document.getElementById('goal-count').value)||1;
     const p=state.players.find(p=>p.id===pid);if(!p)return;
@@ -525,8 +611,11 @@ function resetMatch(){
 
   function showToast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2500);}
   
+  function openTeam(id){selectedTeamId=id;renderTimes();}
+  function backToTeams(){selectedTeamId=null;renderTimes();}
+
   function showTab(id){
-    document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['classificacao','resultados','estatisticas','admin'][i]===id));
+    document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['classificacao','times','resultados','estatisticas','admin'][i]===id));
     document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));
     renderAll();
   }
@@ -534,7 +623,7 @@ function resetMatch(){
   function setFilter(f){filterRes=f;renderResultados();}
   function tryLogin(){if(document.getElementById('pw-input')?.value===ADMIN_PASS){isAdmin=true;renderAdmin();}else{document.getElementById('pw-err').textContent='Senha incorreta.';}}
   function logout(){isAdmin=false;renderAdmin();}
-  function renderAll(){renderClassificacao();renderResultados();renderEstatisticas();renderAdmin();}
+  function renderAll(){renderClassificacao();renderTimes();renderResultados();renderEstatisticas();renderAdmin();}
 
   // 5. EXPORTA AS FUNÇÕES PARA O HTML (Necessário porque o script é do tipo "module")
   window.showTab = showTab;
@@ -545,7 +634,10 @@ function resetMatch(){
   window.saveResult = saveResult;
   window.resetMatch = resetMatch;
   window.addPlayer = addPlayer;
+  window.saveTeamImages = saveTeamImages;
   window.addGoals = addGoals;
+  window.openTeam = openTeam;
+  window.backToTeams = backToTeams;
 
 </script>
 </body>
