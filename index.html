@@ -168,7 +168,7 @@ input:focus,select:focus{border-color:var(--blue);}
   // 1. IMPORTAÇÕES CORRETAS DO FIREBASE
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-analytics.js";
-  import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-database.js";
+  import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-database.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyClKERJ9gQVzlgb2BSx7JtvIgyz5dCMfYw",
@@ -642,7 +642,8 @@ function resetMatch(){
     const btn=document.getElementById('save-team-images-btn');
     try{
       const teamId=Number(document.getElementById('team-image-team').value);
-      const team=state.teams.find(t=>t.id===teamId);
+      const teamIndex=state.teams.findIndex(t=>t.id===teamId);
+      const team=state.teams[teamIndex];
       const crestFile=document.getElementById('team-crest-file').files[0];
       const photoFile=document.getElementById('team-photo-file').files[0];
       if(!team)return showToast('Selecione um time');
@@ -652,7 +653,10 @@ function resetMatch(){
       if(crestFile)team.crestUrl=await imageFileToDataUrl(crestFile,360,0.68);
       if(photoFile)team.photoUrl=await imageFileToDataUrl(photoFile,720,0.62);
       if(btn)btn.textContent='Salvando...';
-      await set(ref(db, 'campeonato/'), state);
+      const updates={};
+      if(crestFile)updates[`teams/${teamIndex}/crestUrl`]=team.crestUrl;
+      if(photoFile)updates[`teams/${teamIndex}/photoUrl`]=team.photoUrl;
+      await update(campeonatoRef, updates);
       document.getElementById('team-crest-file').value='';
       document.getElementById('team-photo-file').value='';
       showToast('Imagens salvas!');
