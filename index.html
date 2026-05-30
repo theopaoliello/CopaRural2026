@@ -115,6 +115,11 @@ td.td-name{text-align:left;font-weight:600;font-size:13px;padding-left:4px;overf
 .admin-gate p.sub{font-size:13px;color:var(--text2);margin-bottom:1.25rem;}
 .admin-panel{display:flex;flex-direction:column;gap:12px;}
 .admin-header{display:flex;justify-content:space-between;align-items:center;}
+.admin-menu{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+.admin-menu-btn{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:14px 12px;text-align:left;color:var(--text);font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:9px;transition:all .15s;}
+.admin-menu-btn i{font-size:18px;color:var(--blue);}
+.admin-menu-btn:hover,.admin-menu-btn.active{border-color:var(--blue);background:rgba(24,95,165,.08);}
+@media(max-width:520px){.admin-menu{grid-template-columns:1fr;}}
 .admin-status{font-size:13px;color:var(--text2);display:flex;align-items:center;gap:6px;}
 .admin-status i{color:var(--green);}
 .panel-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:13px 15px;}
@@ -500,6 +505,8 @@ input:focus,select:focus{border-color:var(--blue);}
       ${top.length?`<div class="scorers-list">${top.map((p,i)=>`<div class="scorer-row"><span class="scorer-rank">${i+1}</span><div class="scorer-info"><div class="scorer-name">${p.name}</div><div class="scorer-team">${tName(p.teamId)}</div></div><div class="scorer-bar-wrap"><div class="scorer-bar-fill" style="width:${Math.round(p.goals/maxG*100)}%"></div></div><div class="scorer-goals">${p.goals}</div></div>`).join('')}</div>`:`<div class="empty-state"><i class="ti ti-user-off"></i><p>Nenhum gol registrado.</p></div>`}`;
   }
 
+  let adminSection='jogos';
+
   function renderAdmin(){
     if(!isAdmin){
       document.getElementById('admin').innerHTML=`<div class="admin-gate"><div class="lock-icon"><i class="ti ti-lock"></i></div><h3>Acesso restrito</h3><input type="password" id="pw-input" placeholder="Senha" style="width:100%;margin-bottom:10px" onkeydown="if(event.key==='Enter')tryLogin()"/><button class="btn btn-full" onclick="tryLogin()">Entrar</button><p id="pw-err" style="color:#d63b3a;margin-top:10px"></p></div>`;
@@ -508,79 +515,90 @@ input:focus,select:focus{border-color:var(--blue);}
     const pendingMatches = state.matches.filter(m => !m.played).sort((a,b)=>a.round-b.round);
     const playedMatches = state.matches.filter(m => m.played).sort((a,b)=>b.round-a.round);
     
+    const adminMenu=`
+      <div class="admin-menu">
+        <button class="admin-menu-btn ${adminSection==='jogos'?'active':''}" onclick="setAdminSection('jogos')"><i class="ti ti-calendar-event"></i> Jogos</button>
+        <button class="admin-menu-btn ${adminSection==='gols'?'active':''}" onclick="setAdminSection('gols')"><i class="ti ti-shoe-football"></i> Gols/Artilharia</button>
+        <button class="admin-menu-btn ${adminSection==='times'?'active':''}" onclick="setAdminSection('times')"><i class="ti ti-users-group"></i> Gerenciar Times</button>
+        <button class="admin-menu-btn ${adminSection==='site'?'active':''}" onclick="setAdminSection('site')"><i class="ti ti-settings"></i> Gerenciar Site</button>
+      </div>`;
+
+    const jogosSection=`
+      <div class="panel-card">
+        <h3><i class="ti ti-calendar-plus"></i> Registrar jogo pendente</h3>
+        <div class="form-row">
+          <div class="form-group"><label>Partida</label><select id="new-pending-match">${pendingMatches.length ? pendingMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} × ${tName(m.away)}</option>`).join('') : '<option value="">Nenhuma partida pendente</option>'}</select></div>
+          <div class="form-group"><label>Mandante</label><input type="number" id="pending-home" min="0" value="0" style="width:58px"></div>
+          <div class="form-group"><label>Visitante</label><input type="number" id="pending-away" min="0" value="0" style="width:58px"></div>
+          <button class="btn" onclick="savePendingMatch()" style="margin-top:auto" ${pendingMatches.length?'':'disabled'}>Salvar</button>
+        </div>
+      </div>
+      <div class="panel-card">
+        <h3><i class="ti ti-edit"></i> Corrigir ou Apagar resultado</h3>
+        <div class="form-row">
+          <div class="form-group"><label>Partida já jogada</label><select id="sel-match">${playedMatches.length ? playedMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} ${m.homeScore}×${m.awayScore} ${tName(m.away)}</option>`).join('') : '<option value="">Nenhum jogo finalizado</option>'}</select></div>
+          <div class="form-group"><label>Mandante</label><input type="number" id="score-home" min="0" style="width:58px"></div>
+          <div class="form-group"><label>Visitante</label><input type="number" id="score-away" min="0" style="width:58px"></div>
+          <button class="btn" onclick="saveResult()" style="margin-top:auto" ${playedMatches.length?'':'disabled'}>Corrigir</button>
+          <button class="btn" onclick="resetMatch()" style="margin-top:auto; background:var(--red);" ${playedMatches.length?'':'disabled'} title="Voltar o jogo para Pendente">Apagar</button>
+        </div>
+      </div>`;
+
+    const golsSection=state.players.length>0?`
+      <div class="panel-card">
+        <h3><i class="ti ti-shoe-football"></i> Adicionar gols</h3>
+        <div class="form-row">
+          <div class="form-group"><label>Time</label><select id="goal-team" onchange="updateGoalPlayers()">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+          <div class="form-group"><label>Jogador</label><select id="sel-player"></select></div>
+          <div class="form-group"><label>Qtd.</label><input type="number" id="goal-count" value="1" style="width:58px"></div>
+          <button id="add-goals-btn" class="btn" onclick="addGoals()" style="margin-top:auto">Adicionar</button>
+        </div>
+      </div>`:'<div class="empty-state"><i class="ti ti-user-off"></i><p>Nenhum jogador cadastrado.</p></div>';
+
+    const timesSection=`
+      <div class="panel-card">
+        <h3><i class="ti ti-photo-up"></i> Editar imagens do time</h3>
+        <div class="form-row">
+          <div class="form-group"><label>Time</label><select id="team-image-team">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+          <div class="form-group"><label>Escudo</label><input class="file-input" type="file" id="team-crest-file" accept="image/*"></div>
+          <div class="form-group"><label>Foto do time</label><input class="file-input" type="file" id="team-photo-file" accept="image/*"></div>
+          <button id="save-team-images-btn" class="btn" onclick="saveTeamImages()" style="margin-top:auto">Salvar imagens</button>
+        </div>
+      </div>
+      <div class="panel-card">
+        <h3><i class="ti ti-user-plus"></i> Adicionar jogador</h3>
+        <div class="form-row">
+          <div class="form-group"><label>Nome</label><input type="text" id="new-player-name" style="min-width:150px"></div>
+          <div class="form-group"><label>Time</label><select id="new-player-team">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+          <button class="btn" onclick="addPlayer()" style="margin-top:auto">Adicionar</button>
+        </div>
+      </div>
+      <div class="panel-card">
+        <h3><i class="ti ti-users"></i> Lista oficial de jogadores</h3>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Substitui a lista atual pelos jogadores oficiais informados, mantendo os gols já cadastrados quando o nome e o time forem iguais.</p>
+        <button class="btn" onclick="applyOfficialPlayers()">Atualizar jogadores oficiais</button>
+      </div>`;
+
+    const siteSection=`
+      <div class="panel-card">
+        <h3><i class="ti ti-ad-2"></i> Banner de anúncio</h3>
+        ${safeImage(state.adBannerUrl)?`<div class="ad-banner"><img src="${safeImage(state.adBannerUrl)}" alt="Banner atual"></div>`:''}
+        <div class="form-row">
+          <div class="form-group"><label>Imagem do banner</label><input class="file-input" type="file" id="ad-banner-file" accept="image/*"></div>
+          <div class="form-group"><label>Link do anúncio</label><input type="url" id="ad-banner-link" placeholder="https://exemplo.com" value="${escapeAttr(normalizeAdLink(state.adBannerLink))}" style="min-width:220px"></div>
+          <button id="save-ad-banner-btn" class="btn" onclick="saveAdBanner()" style="margin-top:auto">Salvar banner</button>
+          <button class="btn" onclick="removeAdBanner()" style="margin-top:auto;background:var(--red)" ${safeImage(state.adBannerUrl)?'':'disabled'}>Remover</button>
+        </div>
+      </div>`;
+
+    const sectionContent={jogos:jogosSection,gols:golsSection,times:timesSection,site:siteSection}[adminSection]||jogosSection;
     document.getElementById('admin').innerHTML=`
       <div class="admin-panel">
         <div class="admin-header"><div class="admin-status"><i class="ti ti-shield-check"></i> Modo administrador</div><button class="logout-btn" onclick="logout()">Sair</button></div>
-        
-        <div class="panel-card">
-          <h3><i class="ti ti-calendar-plus"></i> Registrar jogo pendente</h3>
-          <div class="form-row">
-            <div class="form-group"><label>Partida</label><select id="new-pending-match">${pendingMatches.length ? pendingMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} × ${tName(m.away)}</option>`).join('') : '<option value="">Nenhuma partida pendente</option>'}</select></div>
-            <div class="form-group"><label>Mandante</label><input type="number" id="pending-home" min="0" value="0" style="width:58px"></div>
-            <div class="form-group"><label>Visitante</label><input type="number" id="pending-away" min="0" value="0" style="width:58px"></div>
-            <button class="btn" onclick="savePendingMatch()" style="margin-top:auto" ${pendingMatches.length?'':'disabled'}>Salvar</button>
-          </div>
-        </div>
-        
-        <div class="panel-card">
-          <h3><i class="ti ti-edit"></i> Corrigir ou Apagar resultado</h3>
-          <div class="form-row">
-            <div class="form-group"><label>Partida já jogada</label><select id="sel-match">${playedMatches.length ? playedMatches.map(m=>`<option value="${m.id}">[R${m.round}] ${tName(m.home)} ${m.homeScore}×${m.awayScore} ${tName(m.away)}</option>`).join('') : '<option value="">Nenhum jogo finalizado</option>'}</select></div>
-            <div class="form-group"><label>Mandante</label><input type="number" id="score-home" min="0" style="width:58px"></div>
-            <div class="form-group"><label>Visitante</label><input type="number" id="score-away" min="0" style="width:58px"></div>
-            <button class="btn" onclick="saveResult()" style="margin-top:auto" ${playedMatches.length?'':'disabled'}>Corrigir</button>
-            <button class="btn" onclick="resetMatch()" style="margin-top:auto; background:var(--red);" ${playedMatches.length?'':'disabled'} title="Voltar o jogo para Pendente">Apagar</button>
-          </div>
-        </div>
-
-        <div class="panel-card">
-          <h3><i class="ti ti-users"></i> Lista oficial de jogadores</h3>
-          <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Substitui a lista atual pelos jogadores oficiais informados, mantendo os gols já cadastrados quando o nome e o time forem iguais.</p>
-          <button class="btn" onclick="applyOfficialPlayers()">Atualizar jogadores oficiais</button>
-        </div>
-
-        <div class="panel-card">
-          <h3><i class="ti ti-ad-2"></i> Banner de anúncio</h3>
-          ${safeImage(state.adBannerUrl)?`<div class="ad-banner"><img src="${safeImage(state.adBannerUrl)}" alt="Banner atual"></div>`:''}
-          <div class="form-row">
-            <div class="form-group"><label>Imagem do banner</label><input class="file-input" type="file" id="ad-banner-file" accept="image/*"></div>
-            <div class="form-group"><label>Link do anúncio</label><input type="url" id="ad-banner-link" placeholder="https://exemplo.com" value="${escapeAttr(normalizeAdLink(state.adBannerLink))}" style="min-width:220px"></div>
-            <button id="save-ad-banner-btn" class="btn" onclick="saveAdBanner()" style="margin-top:auto">Salvar banner</button>
-            <button class="btn" onclick="removeAdBanner()" style="margin-top:auto;background:var(--red)" ${safeImage(state.adBannerUrl)?'':'disabled'}>Remover</button>
-          </div>
-        </div>
-
-        <div class="panel-card">
-          <h3><i class="ti ti-photo-up"></i> Editar imagens do time</h3>
-          <div class="form-row">
-            <div class="form-group"><label>Time</label><select id="team-image-team">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
-            <div class="form-group"><label>Escudo</label><input class="file-input" type="file" id="team-crest-file" accept="image/*"></div>
-            <div class="form-group"><label>Foto do time</label><input class="file-input" type="file" id="team-photo-file" accept="image/*"></div>
-            <button id="save-team-images-btn" class="btn" onclick="saveTeamImages()" style="margin-top:auto">Salvar imagens</button>
-          </div>
-        </div>
-
-        <div class="panel-card">
-          <h3><i class="ti ti-user-plus"></i> Adicionar jogador</h3>
-          <div class="form-row">
-            <div class="form-group"><label>Nome</label><input type="text" id="new-player-name" style="min-width:150px"></div>
-            <div class="form-group"><label>Time</label><select id="new-player-team">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
-            <button class="btn" onclick="addPlayer()" style="margin-top:auto">Adicionar</button>
-          </div>
-        </div>
-
-        ${state.players.length>0?`
-        <div class="panel-card">
-          <h3><i class="ti ti-shoe-football"></i> Adicionar gols</h3>
-          <div class="form-row">
-            <div class="form-group"><label>Time</label><select id="goal-team" onchange="updateGoalPlayers()">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
-            <div class="form-group"><label>Jogador</label><select id="sel-player"></select></div>
-            <div class="form-group"><label>Qtd.</label><input type="number" id="goal-count" value="1" style="width:58px"></div>
-            <button id="add-goals-btn" class="btn" onclick="addGoals()" style="margin-top:auto">Adicionar</button>
-          </div>
-        </div>`:''}
+        ${adminMenu}
+        ${sectionContent}
       </div>`;
-    updateGoalPlayers();
+    if(adminSection==='gols')updateGoalPlayers();
   }
 
   // 4. FUNÇÕES DE AÇÃO COM FIREBASE APLICADO
@@ -736,6 +754,11 @@ function resetMatch(){
     showToast('Jogadores oficiais atualizados!');
   }
 
+  function setAdminSection(section){
+    adminSection=section;
+    renderAdmin();
+  }
+
   function updateGoalPlayers(){
     const teamId=parseInt(document.getElementById('goal-team')?.value);
     const sel=document.getElementById('sel-player');
@@ -779,7 +802,7 @@ function resetMatch(){
   function setFilter(f){filterRes=f;renderResultados();}
   function tryLogin(){if(document.getElementById('pw-input')?.value===ADMIN_PASS){isAdmin=true;renderAdmin();}else{document.getElementById('pw-err').textContent='Senha incorreta.';}}
   function logout(){isAdmin=false;renderAdmin();}
-  function renderAll(){renderClassificacao();renderTimes();renderResultados();renderEstatisticas();renderAdmin();updateGoalPlayers();}
+  function renderAll(){renderClassificacao();renderTimes();renderResultados();renderEstatisticas();renderAdmin();if(adminSection==='gols')updateGoalPlayers();}
 
   // 5. EXPORTA AS FUNÇÕES PARA O HTML (Necessário porque o script é do tipo "module")
   window.showTab = showTab;
@@ -794,6 +817,7 @@ function resetMatch(){
   window.removeAdBanner = removeAdBanner;
   window.saveTeamImages = saveTeamImages;
   window.applyOfficialPlayers = applyOfficialPlayers;
+  window.setAdminSection = setAdminSection;
   window.updateGoalPlayers = updateGoalPlayers;
   window.addGoals = addGoals;
   window.openTeam = openTeam;
