@@ -554,7 +554,7 @@ input:focus,select:focus{border-color:var(--blue);}
           <div class="form-row">
             <div class="form-group"><label>Time</label><select id="goal-team" onchange="updateGoalPlayers()">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
             <div class="form-group"><label>Jogador</label><select id="sel-player"></select></div>
-            <div class="form-group"><label>Qtd.</label><input type="number" id="goal-count" min="1" value="1" style="width:58px"></div>
+            <div class="form-group"><label>Qtd.</label><input type="number" id="goal-count" value="1" style="width:58px"></div>
             <button id="add-goals-btn" class="btn" onclick="addGoals()" style="margin-top:auto">Adicionar</button>
           </div>
         </div>`:''}
@@ -691,12 +691,12 @@ function resetMatch(){
       const count=parseInt(document.getElementById('goal-count').value)||1;
       const playerIndex=state.players.findIndex(p=>p.id===pid);
       const p=state.players[playerIndex];
-      if(!p||count<1)return showToast('Selecione jogador e quantidade');
+      if(!p||!count)return showToast('Selecione jogador e quantidade');
       if(btn){btn.disabled=true;btn.textContent='Salvando...';}
       const updatedPlayers=state.players.map((player,index)=>index===playerIndex?{...player,goals:(Number(player.goals)||0)+count}:player);
       await set(ref(db, 'campeonato/players'), updatedPlayers);
       state.players=updatedPlayers;
-      showToast(`+${count} gol(s) para ${p.name}!`);
+      showToast(`${count>0?'+':''}${count} gol(s) para ${p.name}!`);
     }catch(error){
       console.error('Erro ao adicionar gols:', error);
       showToast(error?.message||'Erro ao salvar gols');
