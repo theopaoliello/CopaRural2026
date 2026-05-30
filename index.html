@@ -555,7 +555,7 @@ input:focus,select:focus{border-color:var(--blue);}
             <div class="form-group"><label>Time</label><select id="goal-team" onchange="updateGoalPlayers()">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
             <div class="form-group"><label>Jogador</label><select id="sel-player"></select></div>
             <div class="form-group"><label>Qtd.</label><input type="number" id="goal-count" min="1" value="1" style="width:58px"></div>
-            <button class="btn" onclick="addGoals()" style="margin-top:auto">Adicionar</button>
+            <button id="add-goals-btn" class="btn" onclick="addGoals()" style="margin-top:auto">Adicionar</button>
           </div>
         </div>`:''}
       </div>`;
@@ -684,12 +684,25 @@ function resetMatch(){
     sel.innerHTML=players.length?players.map(p=>`<option value="${p.id}">${p.name}</option>`).join(''):'<option value="">Nenhum jogador neste time</option>';
   }
 
-  function addGoals(){
-    const pid=parseInt(document.getElementById('sel-player').value),count=parseInt(document.getElementById('goal-count').value)||1;
-    const p=state.players.find(p=>p.id===pid);if(!p)return;
-    p.goals+=count;
-    set(ref(db, 'campeonato/'), state);
-    showToast(`+${count} gol(s)!`);
+  async function addGoals(){
+    const btn=document.getElementById('add-goals-btn');
+    try{
+      const pid=parseInt(document.getElementById('sel-player').value);
+      const count=parseInt(document.getElementById('goal-count').value)||1;
+      const playerIndex=state.players.findIndex(p=>p.id===pid);
+      const p=state.players[playerIndex];
+      if(!p||count<1)return showToast('Selecione jogador e quantidade');
+      if(btn){btn.disabled=true;btn.textContent='Salvando...';}
+      const newGoals=(Number(p.goals)||0)+count;
+      await update(campeonatoRef, {[`players/${playerIndex}/goals`]:newGoals});
+      p.goals=newGoals;
+      showToast(`+${count} gol(s) para ${p.name}!`);
+    }catch(error){
+      console.error('Erro ao adicionar gols:', error);
+      showToast(error?.message||'Erro ao salvar gols');
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent='Adicionar';}
+    }
   }
 
   function showToast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2500);}
