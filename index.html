@@ -130,6 +130,8 @@ input:focus,select:focus{border-color:var(--blue);}
 .logout-btn:hover{background:var(--bg2);}
 .legend{font-size:11px;color:var(--text2);margin-top:8px;padding-left:2px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;}
 .legend span{display:flex;align-items:center;gap:4px;}
+.ad-banner{display:block;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin:0 0 18px;background:var(--bg2);}
+.ad-banner img{display:block;width:100%;height:auto;max-height:180px;object-fit:cover;}
 .toast{position:fixed;bottom:20px;right:16px;left:16px;max-width:320px;margin:0 auto;background:#1D9E75;color:#fff;padding:10px 16px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;opacity:0;transition:opacity .3s;pointer-events:none;z-index:999;box-shadow:0 4px 16px rgba(0,0,0,.2);text-align:center;}
 .toast.show{opacity:1;}
 </style>
@@ -299,7 +301,8 @@ input:focus,select:focus{border-color:var(--blue);}
       const aid=TEAMS.find(t=>t.name.toLowerCase()===s.away.toLowerCase())?.id;
       const isPlayed = s.hs !== null && s.hs !== undefined;
       return {id:i+1,home:hid,away:aid,homeScore:s.hs,awayScore:s.as,played:isPlayed,round:s.r,date:s.date};
-    })
+    }),
+    adBannerUrl: ''
   };
 
   let state = JSON.parse(JSON.stringify(defaultState));
@@ -314,8 +317,8 @@ input:focus,select:focus{border-color:var(--blue);}
     normalized.teams=(normalized.teams||[]).filter(t=>t&&teamIds.has(Number(t.id))).map(t=>({
       ...t,
       id:Number(t.id),
-      crestUrl:safeImage(t.crestUrl),
-      photoUrl:safeImage(t.photoUrl)
+      crestUrl:safeImage(t.crestUrl,MAX_TEAM_IMAGE_CHARS),
+      photoUrl:safeImage(t.photoUrl,MAX_TEAM_IMAGE_CHARS)
     }));
     normalized.players=(normalized.players||[]).filter(p=>p&&typeof p.name==='string'&&teamIds.has(Number(p.teamId))).map(p=>({
       ...p,
@@ -332,6 +335,7 @@ input:focus,select:focus{border-color:var(--blue);}
       awayScore:m.awayScore==null?m.awayScore:Number(m.awayScore),
       played:Boolean(m.played)
     }));
+    normalized.adBannerUrl=safeImage(normalized.adBannerUrl);
     return normalized;
   }
 
@@ -402,11 +406,13 @@ input:focus,select:focus{border-color:var(--blue);}
   function renderClassificacao(){
     const idA=state.teams.filter(t=>t.group==='A').map(t=>t.id);
     const idB=state.teams.filter(t=>t.group==='B').map(t=>t.id);
+    const adBanner=safeImage(state.adBannerUrl)?`<a class="ad-banner" href="#admin" onclick="showTab('admin')"><img src="${safeImage(state.adBannerUrl)}" alt="Anúncio"></a>`:'';
     document.getElementById('classificacao').innerHTML=`
       <div class="group-label"><span class="group-tag tag-a">Grupo A</span></div>
       ${buildTable(calcTable(idA),false)}
       <div class="group-label"><span class="group-tag tag-b">Grupo B</span></div>
       ${buildTable(calcTable(idB),false)}
+      ${adBanner}
       <div class="group-label"><span class="group-tag tag-all">Classificação Geral</span></div>
       ${buildTable(calcTable(),true)}
       <div class="legend">
@@ -530,6 +536,16 @@ input:focus,select:focus{border-color:var(--blue);}
         </div>
 
         <div class="panel-card">
+          <h3><i class="ti ti-ad-2"></i> Banner de anúncio</h3>
+          ${safeImage(state.adBannerUrl)?`<div class="ad-banner"><img src="${safeImage(state.adBannerUrl)}" alt="Banner atual"></div>`:''}
+          <div class="form-row">
+            <div class="form-group"><label>Imagem do banner</label><input class="file-input" type="file" id="ad-banner-file" accept="image/*"></div>
+            <button id="save-ad-banner-btn" class="btn" onclick="saveAdBanner()" style="margin-top:auto">Salvar banner</button>
+            <button class="btn" onclick="removeAdBanner()" style="margin-top:auto;background:var(--red)" ${safeImage(state.adBannerUrl)?'':'disabled'}>Remover</button>
+          </div>
+        </div>
+
+        <div class="panel-card">
           <h3><i class="ti ti-photo-up"></i> Editar imagens do time</h3>
           <div class="form-row">
             <div class="form-group"><label>Time</label><select id="team-image-team">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
@@ -606,9 +622,10 @@ function resetMatch(){
     showToast(`${name} adicionado!`);
   }
 
-  const MAX_IMAGE_CHARS=90000;
-  function safeImage(src){return typeof src==='string'&&src.startsWith('data:image/')&&src.length<=MAX_IMAGE_CHARS?src:'';}
-  function imageFileToDataUrl(file, maxSize=520, quality=0.62){
+  const MAX_IMAGE_CHARS=220000;
+  const MAX_TEAM_IMAGE_CHARS=90000;
+  function safeImage(src,maxChars=MAX_IMAGE_CHARS){return typeof src==='string'&&src.startsWith('data:image/')&&src.length<=maxChars?src:'';}
+  function imageFileToDataUrl(file, maxSize=520, quality=0.62, maxChars=MAX_TEAM_IMAGE_CHARS){
     return new Promise((resolve,reject)=>{
       const reader=new FileReader();
       reader.onload=()=>{
@@ -625,11 +642,11 @@ function resetMatch(){
             return canvas.toDataURL('image/jpeg',q);
           };
           let data=makeData(quality);
-          while(data.length>MAX_IMAGE_CHARS&&scale>0.2){
+          while(data.length>maxChars&&scale>0.2){
             scale*=0.75;
             data=makeData(0.55);
           }
-          if(data.length>MAX_IMAGE_CHARS)return reject(new Error('Imagem muito grande. Use uma imagem menor.'));
+          if(data.length>maxChars)return reject(new Error('Imagem muito grande. Use uma imagem menor.'));
           resolve(data);
         };
         img.onerror=()=>reject(new Error('Não foi possível ler a imagem'));
@@ -638,6 +655,32 @@ function resetMatch(){
       reader.onerror=()=>reject(new Error('Não foi possível abrir o arquivo'));
       reader.readAsDataURL(file);
     });
+  }
+
+  async function saveAdBanner(){
+    const btn=document.getElementById('save-ad-banner-btn');
+    try{
+      const file=document.getElementById('ad-banner-file')?.files?.[0];
+      if(!file)return showToast('Selecione uma imagem');
+      if(btn){btn.disabled=true;btn.textContent='Processando...';}
+      const adBannerUrl=await imageFileToDataUrl(file,860,0.62,MAX_IMAGE_CHARS);
+      if(btn)btn.textContent='Salvando...';
+      await update(campeonatoRef,{adBannerUrl});
+      state.adBannerUrl=adBannerUrl;
+      document.getElementById('ad-banner-file').value='';
+      showToast('Banner salvo!');
+    }catch(error){
+      console.error('Erro ao salvar banner:', error);
+      showToast(error?.message||'Erro ao salvar banner');
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent='Salvar banner';}
+    }
+  }
+
+  async function removeAdBanner(){
+    await update(campeonatoRef,{adBannerUrl:''});
+    state.adBannerUrl='';
+    showToast('Banner removido!');
   }
 
   async function saveTeamImages(){
@@ -652,8 +695,8 @@ function resetMatch(){
       if(!crestFile&&!photoFile)return showToast('Selecione ao menos uma imagem');
       if(btn){btn.disabled=true;btn.textContent='Processando...';}
       showToast('Processando imagens...');
-      if(crestFile)team.crestUrl=await imageFileToDataUrl(crestFile,360,0.68);
-      if(photoFile)team.photoUrl=await imageFileToDataUrl(photoFile,720,0.62);
+      if(crestFile)team.crestUrl=await imageFileToDataUrl(crestFile,360,0.68,MAX_TEAM_IMAGE_CHARS);
+      if(photoFile)team.photoUrl=await imageFileToDataUrl(photoFile,720,0.62,MAX_TEAM_IMAGE_CHARS);
       if(btn)btn.textContent='Salvando...';
       const updates={};
       if(crestFile)updates[`teams/${teamIndex}/crestUrl`]=team.crestUrl;
@@ -730,6 +773,8 @@ function resetMatch(){
   window.saveResult = saveResult;
   window.resetMatch = resetMatch;
   window.addPlayer = addPlayer;
+  window.saveAdBanner = saveAdBanner;
+  window.removeAdBanner = removeAdBanner;
   window.saveTeamImages = saveTeamImages;
   window.applyOfficialPlayers = applyOfficialPlayers;
   window.updateGoalPlayers = updateGoalPlayers;
