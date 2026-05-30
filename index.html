@@ -693,9 +693,9 @@ function resetMatch(){
       const p=state.players[playerIndex];
       if(!p||count<1)return showToast('Selecione jogador e quantidade');
       if(btn){btn.disabled=true;btn.textContent='Salvando...';}
-      const newGoals=(Number(p.goals)||0)+count;
-      await update(campeonatoRef, {[`players/${playerIndex}/goals`]:newGoals});
-      p.goals=newGoals;
+      const updatedPlayers=state.players.map((player,index)=>index===playerIndex?{...player,goals:(Number(player.goals)||0)+count}:player);
+      await set(ref(db, 'campeonato/players'), updatedPlayers);
+      state.players=updatedPlayers;
       showToast(`+${count} gol(s) para ${p.name}!`);
     }catch(error){
       console.error('Erro ao adicionar gols:', error);
