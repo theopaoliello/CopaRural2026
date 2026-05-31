@@ -602,39 +602,63 @@ input:focus,select:focus{border-color:var(--blue);}
   }
 
   // 4. FUNÇÕES DE AÇÃO COM FIREBASE APLICADO
-  function savePendingMatch() {
+  async function savePendingMatch() {
     const id = parseInt(document.getElementById('new-pending-match').value);
     const hs = parseInt(document.getElementById('pending-home').value);
     const as = parseInt(document.getElementById('pending-away').value);
-    const m = state.matches.find(m => m.id === id);
+    const matchIndex = state.matches.findIndex(m => m.id === id);
+    const m = state.matches[matchIndex];
     if(!m || isNaN(hs) || isNaN(as)) return;
-    m.homeScore = hs; m.awayScore = as; m.played = true;
-    set(ref(db, 'campeonato/'), state); 
-    showToast('Resultado registrado!');
+    try{
+      await update(campeonatoRef, {
+        [`matches/${matchIndex}/homeScore`]: hs,
+        [`matches/${matchIndex}/awayScore`]: as,
+        [`matches/${matchIndex}/played`]: true
+      });
+      showToast('Resultado registrado!');
+    }catch(error){
+      console.error('Erro ao registrar resultado:', error);
+      showToast(error?.message||'Erro ao salvar resultado');
+    }
   }
 
-  function saveResult(){
+  async function saveResult(){
     const id=parseInt(document.getElementById('sel-match').value);
     const hs=parseInt(document.getElementById('score-home').value),as_=parseInt(document.getElementById('score-away').value);
-    const m=state.matches.find(m=>m.id===id);if(!m||isNaN(hs)||isNaN(as_))return;
-    m.homeScore=hs;m.awayScore=as_;m.played=true;
-    set(ref(db, 'campeonato/'), state); 
-    showToast('Resultado salvo!');
+    const matchIndex=state.matches.findIndex(m=>m.id===id);
+    const m=state.matches[matchIndex];if(!m||isNaN(hs)||isNaN(as_))return;
+    try{
+      await update(campeonatoRef, {
+        [`matches/${matchIndex}/homeScore`]: hs,
+        [`matches/${matchIndex}/awayScore`]: as_,
+        [`matches/${matchIndex}/played`]: true
+      });
+      showToast('Resultado salvo!');
+    }catch(error){
+      console.error('Erro ao salvar resultado:', error);
+      showToast(error?.message||'Erro ao salvar resultado');
+    }
   }
-function resetMatch(){
+async function resetMatch(){
     const id = parseInt(document.getElementById('sel-match').value);
     if(isNaN(id)) return;
-    const m = state.matches.find(m => m.id === id);
+    const matchIndex = state.matches.findIndex(m => m.id === id);
+    const m = state.matches[matchIndex];
     if(!m) return;
-    
+
     // Confirmação para evitar toques acidentais
     if(confirm(`Tem certeza que deseja apagar o resultado de ${tName(m.home)} x ${tName(m.away)}? O jogo voltará a ficar pendente.`)) {
-      m.homeScore = null;
-      m.awayScore = null;
-      m.played = false;
-      
-      set(ref(db, 'campeonato/'), state); 
-      showToast('Resultado apagado!');
+      try{
+        await update(campeonatoRef, {
+          [`matches/${matchIndex}/homeScore`]: null,
+          [`matches/${matchIndex}/awayScore`]: null,
+          [`matches/${matchIndex}/played`]: false
+        });
+        showToast('Resultado apagado!');
+      }catch(error){
+        console.error('Erro ao apagar resultado:', error);
+        showToast(error?.message||'Erro ao apagar resultado');
+      }
     }
   }
   function addPlayer(){
