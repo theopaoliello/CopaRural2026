@@ -553,6 +553,12 @@ input:focus,select:focus{border-color:var(--blue);}
           <div class="form-group"><label>Qtd.</label><input type="number" id="goal-count" value="1" style="width:58px"></div>
           <button id="add-goals-btn" class="btn" onclick="addGoals()" style="margin-top:auto">Adicionar</button>
         </div>
+      </div>
+      <div class="panel-card">
+        <h3><i class="ti ti-list-numbers"></i> Adicionar gols por lista</h3>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Primeira linha: nome do time. Linhas seguintes: nome do jogador e quantidade de gols.</p>
+        <textarea id="bulk-goals-input" rows="6" placeholder="Córrego Frio&#10;Theo 2&#10;Léu 1&#10;Afonso 2" style="width:100%;resize:vertical;margin-bottom:10px"></textarea>
+        <button id="bulk-goals-btn" class="btn" onclick="addBulkGoals()">Adicionar lista</button>
       </div>`:'<div class="empty-state"><i class="ti ti-user-off"></i><p>Nenhum jogador cadastrado.</p></div>';
 
     const timesSection=`
@@ -812,6 +818,58 @@ async function resetMatch(){
     }
   }
 
+  function normalizeText(value){
+    return String(value??'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ');
+  }
+
+  async function addBulkGoals(){
+    const btn=document.getElementById('bulk-goals-btn');
+    const input=document.getElementById('bulk-goals-input');
+    try{
+      const lines=(input?.value||'').split('\n').map(line=>line.trim()).filter(Boolean);
+      if(lines.length<2)return showToast('Informe o time e ao menos um jogador');
+      const teamName=lines[0];
+      const team=state.teams.find(t=>normalizeText(t.name)===normalizeText(teamName));
+      if(!team)return showToast(`Time não encontrado: ${teamName}`);
+
+      const additions=new Map();
+      const invalidLines=[];
+      const missingPlayers=[];
+      for(const line of lines.slice(1)){
+        const match=line.match(/^(.*?)\s+(-?\d+)$/);
+        if(!match){invalidLines.push(line);continue;}
+        const playerName=match[1].trim();
+        const count=parseInt(match[2],10);
+        if(!playerName||count<=0){invalidLines.push(line);continue;}
+        const player=state.players.find(p=>Number(p.teamId)===Number(team.id)&&normalizeText(p.name)===normalizeText(playerName));
+        if(!player){missingPlayers.push(playerName);continue;}
+        additions.set(player.id,(additions.get(player.id)||0)+count);
+      }
+
+      if(invalidLines.length)return showToast(`Linha inválida: ${invalidLines[0]}`);
+      if(missingPlayers.length)return showToast(`Jogador não encontrado em ${team.name}: ${missingPlayers[0]}`);
+      if(!additions.size)return showToast('Nenhum gol válido para adicionar');
+
+      if(btn){btn.disabled=true;btn.textContent='Salvando...';}
+      let totalGoals=0;
+      const updatedPlayers=state.players.map(player=>{
+        const count=additions.get(player.id)||0;
+        if(!count)return player;
+        totalGoals+=count;
+        return {...player,goals:(Number(player.goals)||0)+count};
+      });
+      await set(ref(db, 'campeonato/players'), updatedPlayers);
+      state.players=updatedPlayers;
+      input.value='';
+      showToast(`${totalGoals} gol(s) adicionados para ${additions.size} jogador(es)`);
+    }catch(error){
+      console.error('Erro ao adicionar gols por lista:', error);
+      showToast(error?.message||'Erro ao salvar lista de gols');
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent='Adicionar lista';}
+    }
+  }
+
   function showToast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2500);}
   
   function openTeam(id){selectedTeamId=id;renderTimes();}
@@ -844,6 +902,7 @@ async function resetMatch(){
   window.setAdminSection = setAdminSection;
   window.updateGoalPlayers = updateGoalPlayers;
   window.addGoals = addGoals;
+  window.addBulkGoals = addBulkGoals;
   window.openTeam = openTeam;
   window.backToTeams = backToTeams;
 
