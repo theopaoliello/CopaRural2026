@@ -105,6 +105,13 @@ td.td-name{text-align:left;font-weight:600;font-size:13px;padding-left:4px;overf
 .team-card-name{font-size:14px;font-weight:700;}
 .team-card-sub{font-size:11px;color:var(--text2);margin-top:2px;}
 .team-detail-header{display:flex;align-items:center;gap:14px;margin-bottom:14px;}
+.team-detail-main{display:flex;align-items:center;gap:14px;min-width:0;}
+.team-detail-info{min-width:0;}
+.team-goals-summary{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+.team-goals-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;min-width:105px;text-align:center;}
+.team-goals-label{font-size:10px;color:var(--text2);font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin-bottom:2px;}
+.team-goals-value{font-size:20px;font-weight:700;color:var(--blue);}
+@media(max-width:520px){.team-detail-header{align-items:flex-start;flex-direction:column}.team-goals-summary{margin-left:0;width:100%;justify-content:stretch}.team-goals-card{flex:1}}
 .team-crest-lg{width:74px;height:74px;border-radius:50%;background:var(--bg2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;color:var(--text2);}
 .team-detail-title{font-size:20px;font-weight:700;margin-bottom:5px;}
 .team-photo{width:100%;height:260px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:16px;display:flex;align-items:center;justify-content:center;color:var(--text2);}
@@ -511,13 +518,21 @@ input:focus,select:focus{border-color:var(--blue);}
     const team=tById(selectedTeamId);
     if(!team.id){selectedTeamId=null;renderTimes();return;}
     const players=state.players.filter(p=>p.teamId===team.id).sort((a,b)=>a.name.localeCompare(b.name));
+    const goalsTable=calcTable().find(r=>r.id===team.id)?.gp||0;
+    const goalsPlayers=players.reduce((sum,p)=>sum+(Number(p.goals)||0),0);
     el.innerHTML=`
       <button class="back-btn" onclick="backToTeams()"><i class="ti ti-arrow-left"></i> Voltar para times</button>
       <div class="team-detail-header">
-        <div class="team-crest-lg">${safeImage(team.crestUrl)?`<img src="${safeImage(team.crestUrl)}" alt="Escudo ${team.name}">`:'<i class="ti ti-shield" style="font-size:32px"></i>'}</div>
-        <div>
-          <div class="team-detail-title">${team.name}</div>
-          <span class="group-tag tag-${team.group.toLowerCase()}">Grupo ${team.group}</span>
+        <div class="team-detail-main">
+          <div class="team-crest-lg">${safeImage(team.crestUrl)?`<img src="${safeImage(team.crestUrl)}" alt="Escudo ${team.name}">`:'<i class="ti ti-shield" style="font-size:32px"></i>'}</div>
+          <div class="team-detail-info">
+            <div class="team-detail-title">${team.name}</div>
+            <span class="group-tag tag-${team.group.toLowerCase()}">Grupo ${team.group}</span>
+          </div>
+        </div>
+        <div class="team-goals-summary">
+          <div class="team-goals-card"><div class="team-goals-label">Gols Tabela</div><div class="team-goals-value">${goalsTable}</div></div>
+          <div class="team-goals-card"><div class="team-goals-label">Gols Jogadores</div><div class="team-goals-value">${goalsPlayers}</div></div>
         </div>
       </div>
       <div class="team-photo">${safeImage(team.photoUrl)?`<img src="${safeImage(team.photoUrl)}" alt="Foto do time ${team.name}">`:'<div><i class="ti ti-photo" style="font-size:32px;display:block;text-align:center;margin-bottom:6px"></i>Foto do time ainda não enviada</div>'}</div>
