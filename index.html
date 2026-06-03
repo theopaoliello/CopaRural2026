@@ -59,6 +59,13 @@ td.td-name{text-align:left;font-weight:600;font-size:13px;padding-left:4px;overf
 .round-section{margin-bottom:18px;}
 .round-label{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:7px;}
 .match-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:9px 12px;margin-bottom:6px;}
+.match-card.clickable{cursor:pointer;transition:border-color .15s,background .15s;}
+.match-card.clickable:hover{border-color:var(--blue);background:var(--bg2);}
+.match-goals-detail{margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
+.match-goals-title{font-size:11px;font-weight:700;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.03em;}
+.match-goal-row{display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:4px 0;color:var(--text);}
+.match-goal-row span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.match-goal-row strong{color:var(--blue);flex-shrink:0;}
 .match-meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
 .match-body{display:flex;align-items:center;justify-content:space-between;gap:8px;}
 .match-team{flex:1;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
@@ -194,7 +201,7 @@ input:focus,select:focus{border-color:var(--blue);}
   const db = getDatabase(app);
 
   const ADMIN_PASS='admin123';
-  let isAdmin=false, filterRes='todos', filterTeam='todos', selectedTeamId=null;
+  let isAdmin=false, filterRes='todos', filterTeam='todos', selectedTeamId=null, expandedMatchId=null;
   
   const TEAMS=[
     {id:1,name:'Imperial',group:'A'},{id:2,name:'Sub-Zero',group:'B'},
@@ -462,9 +469,26 @@ input:focus,select:focus{border-color:var(--blue);}
           const g=tGroup(m.home);
           if(!m.played)return `<div class="match-card"><div class="match-meta"><span class="group-tag tag-${g.toLowerCase()}">Grupo ${g}</span><span class="badge badge-pend">Pendente</span></div><div class="match-body"><div class="match-team">${tName(m.home)}</div><div class="match-vs">vs</div><div class="match-team right">${tName(m.away)}</div></div></div>`;
           const w=m.homeScore>m.awayScore?'home':m.homeScore<m.awayScore?'away':'draw';
-          return `<div class="match-card"><div class="match-meta"><span class="group-tag tag-${g.toLowerCase()}">Grupo ${g}</span><span class="badge badge-ok">Encerrado</span></div><div class="match-body"><div class="match-team${w==='home'?' winner':''}">${tName(m.home)}</div><div class="score-box"><span class="score-num${w==='home'?' winner':''}">${m.homeScore}</span><span class="score-sep">×</span><span class="score-num${w==='away'?' winner':''}">${m.awayScore}</span></div><div class="match-team right${w==='away'?' winner':''}">${tName(m.away)}</div></div></div>`;
+          const hasGoals=Array.isArray(m.goals)&&m.goals.length>0;
+          const isExpanded=expandedMatchId===m.id;
+          const detail=hasGoals&&isExpanded?renderMatchScorersDetail(m):'';
+          return `<div class="match-card${hasGoals?' clickable':''}" ${hasGoals?`onclick="toggleMatchGoals(${m.id})" title="Clique para ver os marcadores"`:''}><div class="match-meta"><span class="group-tag tag-${g.toLowerCase()}">Grupo ${g}</span><span class="badge badge-ok">Encerrado${hasGoals?` · ${isExpanded?'ocultar gols':'ver gols'}`:''}</span></div><div class="match-body"><div class="match-team${w==='home'?' winner':''}">${tName(m.home)}</div><div class="score-box"><span class="score-num${w==='home'?' winner':''}">${m.homeScore}</span><span class="score-sep">×</span><span class="score-num${w==='away'?' winner':''}">${m.awayScore}</span></div><div class="match-team right${w==='away'?' winner':''}">${tName(m.away)}</div></div>${detail}</div>`;
         }).join('')}</div>`;
       }).join(''):`<div class="empty-state"><i class="ti ti-ball-football-off"></i><p>Nenhum jogo encontrado para este filtro.</p></div>`}`;
+  }
+
+  function renderMatchScorersDetail(match){
+    const byTeam=[match.home,match.away].map(teamId=>{
+      const rows=(match.goals||[]).filter(g=>g.teamId===teamId).sort((a,b)=>b.goals-a.goals||a.name.localeCompare(b.name));
+      if(!rows.length)return '';
+      return `<div><div class="match-goals-title">${escapeAttr(tName(teamId))}</div>${rows.map(g=>`<div class="match-goal-row"><span>${escapeAttr(g.name)}</span><strong>${g.goals} gol${g.goals>1?'s':''}</strong></div>`).join('')}</div>`;
+    }).filter(Boolean).join('');
+    return `<div class="match-goals-detail">${byTeam}</div>`;
+  }
+
+  function toggleMatchGoals(matchId){
+    expandedMatchId=expandedMatchId===matchId?null:matchId;
+    renderResultados();
   }
 
   function renderTimes(){
@@ -1042,6 +1066,7 @@ async function resetMatch(){
   window.showTab = showTab;
   window.setFilter = setFilter;
   window.setTeamFilter = setTeamFilter;
+  window.toggleMatchGoals = toggleMatchGoals;
   window.tryLogin = tryLogin;
   window.logout = logout;
   window.savePendingMatch = savePendingMatch;
