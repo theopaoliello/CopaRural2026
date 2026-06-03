@@ -194,7 +194,7 @@ input:focus,select:focus{border-color:var(--blue);}
   const db = getDatabase(app);
 
   const ADMIN_PASS='admin123';
-  let isAdmin=false, filterRes='todos', selectedTeamId=null;
+  let isAdmin=false, filterRes='todos', filterTeam='todos', selectedTeamId=null;
   
   const TEAMS=[
     {id:1,name:'Imperial',group:'A'},{id:2,name:'Sub-Zero',group:'B'},
@@ -432,15 +432,23 @@ input:focus,select:focus{border-color:var(--blue);}
 
   function renderResultados(){
     const all=state.matches;
-    const ms=filterRes==='todos'?all:filterRes==='A'?all.filter(m=>tGroup(m.home)==='A'&&tGroup(m.away)==='A'):all.filter(m=>tGroup(m.home)==='B'&&tGroup(m.away)==='B');
+    let ms=filterRes==='todos'?all:filterRes==='A'?all.filter(m=>tGroup(m.home)==='A'&&tGroup(m.away)==='A'):all.filter(m=>tGroup(m.home)==='B'&&tGroup(m.away)==='B');
+    if(filterTeam!=='todos'){
+      const teamId=Number(filterTeam);
+      ms=ms.filter(m=>m.home===teamId||m.away===teamId);
+    }
     const rounds=[...new Set(ms.map(m=>m.round))].sort((a,b)=>b-a);
     document.getElementById('resultados').innerHTML=`
       <div class="filter-bar">
         <button class="filter-btn ${filterRes==='todos'?'active':''}" onclick="setFilter('todos')">Todos</button>
         <button class="filter-btn ${filterRes==='A'?'active':''}" onclick="setFilter('A')">Grupo A</button>
         <button class="filter-btn ${filterRes==='B'?'active':''}" onclick="setFilter('B')">Grupo B</button>
+        <select onchange="setTeamFilter(this.value)" aria-label="Filtrar por time">
+          <option value="todos" ${filterTeam==='todos'?'selected':''}>Todos os times</option>
+          ${state.teams.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(t=>`<option value="${t.id}" ${Number(filterTeam)===t.id?'selected':''}>${t.name}</option>`).join('')}
+        </select>
       </div>
-      ${rounds.map(r=>{
+      ${rounds.length?rounds.map(r=>{
         const rms=ms.filter(m=>m.round===r);
         const dl=rms[0]?.date?` &nbsp;·&nbsp; ${rms[0].date}`:'';
         return `<div class="round-section"><div class="round-label">Rodada ${r}${dl}</div>
@@ -450,7 +458,7 @@ input:focus,select:focus{border-color:var(--blue);}
           const w=m.homeScore>m.awayScore?'home':m.homeScore<m.awayScore?'away':'draw';
           return `<div class="match-card"><div class="match-meta"><span class="group-tag tag-${g.toLowerCase()}">Grupo ${g}</span><span class="badge badge-ok">Encerrado</span></div><div class="match-body"><div class="match-team${w==='home'?' winner':''}">${tName(m.home)}</div><div class="score-box"><span class="score-num${w==='home'?' winner':''}">${m.homeScore}</span><span class="score-sep">×</span><span class="score-num${w==='away'?' winner':''}">${m.awayScore}</span></div><div class="match-team right${w==='away'?' winner':''}">${tName(m.away)}</div></div></div>`;
         }).join('')}</div>`;
-      }).join('')}`;
+      }).join(''):`<div class="empty-state"><i class="ti ti-ball-football-off"></i><p>Nenhum jogo encontrado para este filtro.</p></div>`}`;
   }
 
   function renderTimes(){
@@ -882,6 +890,7 @@ async function resetMatch(){
   }
 
   function setFilter(f){filterRes=f;renderResultados();}
+  function setTeamFilter(teamId){filterTeam=teamId;renderResultados();}
   function tryLogin(){if(document.getElementById('pw-input')?.value===ADMIN_PASS){isAdmin=true;renderAdmin();}else{document.getElementById('pw-err').textContent='Senha incorreta.';}}
   function logout(){isAdmin=false;renderAdmin();}
   function renderAll(){renderClassificacao();renderTimes();renderResultados();renderEstatisticas();renderAdmin();if(adminSection==='gols')updateGoalPlayers();}
@@ -889,6 +898,7 @@ async function resetMatch(){
   // 5. EXPORTA AS FUNÇÕES PARA O HTML (Necessário porque o script é do tipo "module")
   window.showTab = showTab;
   window.setFilter = setFilter;
+  window.setTeamFilter = setTeamFilter;
   window.tryLogin = tryLogin;
   window.logout = logout;
   window.savePendingMatch = savePendingMatch;
