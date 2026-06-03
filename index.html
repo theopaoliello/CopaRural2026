@@ -339,7 +339,13 @@ input:focus,select:focus{border-color:var(--blue);}
       away:Number(m.away),
       homeScore:m.homeScore==null?m.homeScore:Number(m.homeScore),
       awayScore:m.awayScore==null?m.awayScore:Number(m.awayScore),
-      played:Boolean(m.played)
+      played:Boolean(m.played),
+      goals:Array.isArray(m.goals)?m.goals.filter(g=>g&&teamIds.has(Number(g.teamId))&&Number(g.playerId)&&Number(g.goals)>0).map(g=>({
+        playerId:Number(g.playerId),
+        teamId:Number(g.teamId),
+        name:String(g.name||''),
+        goals:Number(g.goals)||0
+      })):[]
     }));
     normalized.adBannerUrl=safeImage(normalized.adBannerUrl);
     normalized.adBannerLink=normalizeAdLink(normalized.adBannerLink);
@@ -522,7 +528,9 @@ input:focus,select:focus{border-color:var(--blue);}
     }
     const pendingMatches = state.matches.filter(m => !m.played).sort((a,b)=>a.round-b.round);
     const playedMatches = state.matches.filter(m => m.played).sort((a,b)=>b.round-a.round);
-    
+    const allMatchesForGoals = [...state.matches].sort((a,b)=>a.played-b.played||a.round-b.round||a.id-b.id);
+    const firstMatchForGoals = allMatchesForGoals[0];
+
     const adminMenu=`
       <div class="admin-menu">
         <button class="admin-menu-btn ${adminSection==='jogos'?'active':''}" onclick="setAdminSection('jogos')"><i class="ti ti-calendar-event"></i> Jogos</button>
@@ -540,6 +548,22 @@ input:focus,select:focus{border-color:var(--blue);}
           <div class="form-group"><label>Visitante</label><input type="number" id="pending-away" min="0" value="0" style="width:58px"></div>
           <button class="btn" onclick="savePendingMatch()" style="margin-top:auto" ${pendingMatches.length?'':'disabled'}>Salvar</button>
         </div>
+      </div>
+      <div class="panel-card">
+        <h3><i class="ti ti-list-details"></i> Registrar jogo com artilheiros</h3>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Digite um jogador por linha, seguido pela quantidade de gols. Exemplo: João 2</p>
+        <div class="form-row" style="margin-bottom:10px">
+          <div class="form-group"><label>Partida</label><select id="match-goals-match" onchange="updateMatchGoalTeams()">${allMatchesForGoals.length ? allMatchesForGoals.map(m=>`<option value="${m.id}">${m.played?'[Jogada]':'[Pendente]'} [R${m.round}] ${tName(m.home)}${m.played?` ${m.homeScore}×${m.awayScore} `:' × '}${tName(m.away)}</option>`).join('') : '<option value="">Nenhuma partida cadastrada</option>'}</select></div>
+        </div>
+        <div class="form-row" style="align-items:stretch">
+          <div class="form-group" style="flex:1;min-width:220px"><label id="match-goals-home-label">${firstMatchForGoals?tName(firstMatchForGoals.home):'Mandante'}</label><textarea id="match-goals-home" rows="7" placeholder="Nome do jogador 2&#10;Outro jogador 1" style="width:100%;resize:vertical"></textarea></div>
+          <div class="form-group" style="flex:1;min-width:220px"><label id="match-goals-away-label">${firstMatchForGoals?tName(firstMatchForGoals.away):'Visitante'}</label><textarea id="match-goals-away" rows="7" placeholder="Nome do jogador 1" style="width:100%;resize:vertical"></textarea></div>
+        </div>
+        <div class="form-row" style="margin-top:10px">
+          <button class="btn" onclick="previewMatchGoalSubmit()" ${allMatchesForGoals.length?'':'disabled'}>Testar Envio</button>
+          <button id="submit-match-goals-btn" class="btn" onclick="submitMatchGoalResult()" ${allMatchesForGoals.length?'':'disabled'}>Enviar</button>
+        </div>
+        <div id="match-goals-preview" class="empty-state" style="margin-top:12px"><p>Selecione uma partida e teste o envio antes de salvar.</p></div>
       </div>
       <div class="panel-card">
         <h3><i class="ti ti-edit"></i> Corrigir ou Apagar resultado</h3>
@@ -613,9 +637,121 @@ input:focus,select:focus{border-color:var(--blue);}
         ${sectionContent}
       </div>`;
     if(adminSection==='gols')updateGoalPlayers();
+    if(adminSection==='jogos')updateMatchGoalTeams();
   }
 
   // 4. FUNÇÕES DE AÇÃO COM FIREBASE APLICADO
+  function getMatchGoalFormMatch(){
+    const id=parseInt(document.getElementById('match-goals-match')?.value);
+    const matchIndex=state.matches.findIndex(m=>m.id===id);
+    return {matchIndex,match:state.matches[matchIndex]};
+  }
+
+  function formatGoalLines(match,teamId){
+    return (match.goals||[]).filter(g=>g.teamId===teamId).map(g=>`${g.name} ${g.goals}`).join('\n');
+  }
+
+  function updateMatchGoalTeams(){
+    const {match}=getMatchGoalFormMatch();
+    const homeLabel=document.getElementById('match-goals-home-label');
+    const awayLabel=document.getElementById('match-goals-away-label');
+    const homeInput=document.getElementById('match-goals-home');
+    const awayInput=document.getElementById('match-goals-away');
+    const preview=document.getElementById('match-goals-preview');
+    if(!match||!homeLabel||!awayLabel||!homeInput||!awayInput)return;
+    homeLabel.textContent=tName(match.home);
+    awayLabel.textContent=tName(match.away);
+    homeInput.value=formatGoalLines(match,match.home);
+    awayInput.value=formatGoalLines(match,match.away);
+    if(preview)preview.innerHTML='<p>Selecione uma partida e teste o envio antes de salvar.</p>';
+  }
+
+  function parseTeamGoalLines(teamId,text){
+    const errors=[];
+    const grouped=new Map();
+    String(text||'').split('\n').forEach((rawLine,index)=>{
+      const line=rawLine.trim();
+      if(!line)return;
+      const match=line.match(/^(.+?)\s+(\d+)$/);
+      if(!match){
+        errors.push(`Linha ${index+1}: use o formato "Nome do jogador 2".`);
+        return;
+      }
+      const name=match[1].trim();
+      const goals=Number(match[2]);
+      if(!name||!Number.isInteger(goals)||goals<=0){
+        errors.push(`Linha ${index+1}: quantidade de gols inválida.`);
+        return;
+      }
+      const player=state.players.find(p=>p.teamId===teamId&&normalizeText(p.name)===normalizeText(name));
+      if(!player){
+        errors.push(`Linha ${index+1}: jogador "${name}" não encontrado em ${tName(teamId)}.`);
+        return;
+      }
+      const current=grouped.get(player.id)||{playerId:player.id,teamId,name:player.name,goals:0};
+      current.goals+=goals;
+      grouped.set(player.id,current);
+    });
+    const entries=[...grouped.values()];
+    return {entries,errors,totalGoals:entries.reduce((sum,g)=>sum+g.goals,0)};
+  }
+
+  function buildMatchGoalPayload(){
+    const {matchIndex,match}=getMatchGoalFormMatch();
+    if(!match)return {errors:['Selecione uma partida válida.']};
+    const home=parseTeamGoalLines(match.home,document.getElementById('match-goals-home')?.value);
+    const away=parseTeamGoalLines(match.away,document.getElementById('match-goals-away')?.value);
+    const goals=[...home.entries,...away.entries];
+    return {matchIndex,match,home,away,goals,homeScore:home.totalGoals,awayScore:away.totalGoals,errors:[...home.errors,...away.errors]};
+  }
+
+  function renderMatchGoalPreview(payload){
+    const el=document.getElementById('match-goals-preview');
+    if(!el)return;
+    if(payload.errors?.length){
+      el.innerHTML=`<div style="text-align:left;color:var(--red)"><strong>Corrija antes de enviar:</strong><ul>${payload.errors.map(e=>`<li>${escapeAttr(e)}</li>`).join('')}</ul></div>`;
+      return;
+    }
+    const rows=payload.goals.length?payload.goals.map(g=>`<div class="scorer-row"><div class="scorer-info"><div class="scorer-name">${escapeAttr(g.name)}</div><div class="scorer-team">${escapeAttr(tName(g.teamId))}</div></div><div class="scorer-goals">${g.goals}</div></div>`).join(''):'<p>Nenhum gol registrado. O placar será 0×0.</p>';
+    el.innerHTML=`<div style="text-align:left;width:100%"><div class="top-match" style="margin-top:0"><strong>${escapeAttr(tName(payload.match.home))} ${payload.homeScore}×${payload.awayScore} ${escapeAttr(tName(payload.match.away))}</strong></div><div class="scorers-list">${rows}</div></div>`;
+  }
+
+  function previewMatchGoalSubmit(){
+    renderMatchGoalPreview(buildMatchGoalPayload());
+  }
+
+  function applyGoalDelta(players,goals,sign){
+    goals.forEach(goal=>{
+      const player=players.find(p=>p.id===goal.playerId);
+      if(player)player.goals=Math.max(0,(Number(player.goals)||0)+(sign*goal.goals));
+    });
+  }
+
+  async function submitMatchGoalResult(){
+    const payload=buildMatchGoalPayload();
+    renderMatchGoalPreview(payload);
+    if(payload.errors?.length){showToast('Corrija os erros antes de enviar.');return;}
+    const players=state.players.map(p=>({...p,goals:Number(p.goals)||0}));
+    if(Array.isArray(payload.match.goals)&&payload.match.goals.length)applyGoalDelta(players,payload.match.goals,-1);
+    applyGoalDelta(players,payload.goals,1);
+    try{
+      await update(campeonatoRef, {
+        [`matches/${payload.matchIndex}/homeScore`]: payload.homeScore,
+        [`matches/${payload.matchIndex}/awayScore`]: payload.awayScore,
+        [`matches/${payload.matchIndex}/played`]: true,
+        [`matches/${payload.matchIndex}/goals`]: payload.goals,
+        players
+      });
+      state.players=players;
+      state.matches[payload.matchIndex]={...payload.match,homeScore:payload.homeScore,awayScore:payload.awayScore,played:true,goals:payload.goals};
+      showToast('Resultado e artilharia salvos!');
+      renderAll();
+    }catch(error){
+      console.error('Erro ao salvar gols da partida:', error);
+      showToast(error?.message||'Erro ao salvar gols da partida');
+    }
+  }
+
   async function savePendingMatch() {
     const id = parseInt(document.getElementById('new-pending-match').value);
     const hs = parseInt(document.getElementById('pending-home').value);
@@ -663,11 +799,18 @@ async function resetMatch(){
     // Confirmação para evitar toques acidentais
     if(confirm(`Tem certeza que deseja apagar o resultado de ${tName(m.home)} x ${tName(m.away)}? O jogo voltará a ficar pendente.`)) {
       try{
-        await update(campeonatoRef, {
+        const updates={
           [`matches/${matchIndex}/homeScore`]: null,
           [`matches/${matchIndex}/awayScore`]: null,
-          [`matches/${matchIndex}/played`]: false
-        });
+          [`matches/${matchIndex}/played`]: false,
+          [`matches/${matchIndex}/goals`]: []
+        };
+        if(Array.isArray(m.goals)&&m.goals.length){
+          const players=state.players.map(p=>({...p,goals:Number(p.goals)||0}));
+          applyGoalDelta(players,m.goals,-1);
+          updates.players=players;
+        }
+        await update(campeonatoRef, updates);
         showToast('Resultado apagado!');
       }catch(error){
         console.error('Erro ao apagar resultado:', error);
@@ -893,7 +1036,7 @@ async function resetMatch(){
   function setTeamFilter(teamId){filterTeam=teamId;renderResultados();}
   function tryLogin(){if(document.getElementById('pw-input')?.value===ADMIN_PASS){isAdmin=true;renderAdmin();}else{document.getElementById('pw-err').textContent='Senha incorreta.';}}
   function logout(){isAdmin=false;renderAdmin();}
-  function renderAll(){renderClassificacao();renderTimes();renderResultados();renderEstatisticas();renderAdmin();if(adminSection==='gols')updateGoalPlayers();}
+  function renderAll(){renderClassificacao();renderTimes();renderResultados();renderEstatisticas();renderAdmin();if(adminSection==='gols')updateGoalPlayers();if(adminSection==='jogos')updateMatchGoalTeams();}
 
   // 5. EXPORTA AS FUNÇÕES PARA O HTML (Necessário porque o script é do tipo "module")
   window.showTab = showTab;
@@ -911,6 +1054,9 @@ async function resetMatch(){
   window.applyOfficialPlayers = applyOfficialPlayers;
   window.setAdminSection = setAdminSection;
   window.updateGoalPlayers = updateGoalPlayers;
+  window.updateMatchGoalTeams = updateMatchGoalTeams;
+  window.previewMatchGoalSubmit = previewMatchGoalSubmit;
+  window.submitMatchGoalResult = submitMatchGoalResult;
   window.addGoals = addGoals;
   window.addBulkGoals = addBulkGoals;
   window.openTeam = openTeam;
