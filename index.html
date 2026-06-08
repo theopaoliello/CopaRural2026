@@ -355,12 +355,16 @@ input:focus,select:focus{border-color:var(--blue);}
       homeScore:m.homeScore==null?m.homeScore:Number(m.homeScore),
       awayScore:m.awayScore==null?m.awayScore:Number(m.awayScore),
       played:Boolean(m.played),
-      goals:Array.isArray(m.goals)?m.goals.filter(g=>g&&teamIds.has(Number(g.teamId))&&Number(g.playerId)&&Number(g.goals)>0).map(g=>({
-        playerId:Number(g.playerId),
-        teamId:Number(g.teamId),
-        name:String(g.name||''),
-        goals:Number(g.goals)||0
-      })):[]
+      goals:Array.isArray(m.goals)?m.goals.filter(g=>g&&teamIds.has(Number(g.teamId))&&Number(g.goals)>0&&(Number(g.playerId)||['player','unregistered','own_goal'].includes(g.type))).map(g=>{
+        const type=g.type||'player';
+        return {
+          type,
+          playerId:Number(g.playerId)||null,
+          teamId:Number(g.teamId),
+          name:String(g.name||goalTypeLabel(type)),
+          goals:Number(g.goals)||0
+        };
+      }):[]
     }));
     normalized.adBannerUrl=safeImage(normalized.adBannerUrl);
     normalized.adBannerLink=normalizeAdLink(normalized.adBannerLink);
@@ -383,6 +387,15 @@ input:focus,select:focus{border-color:var(--blue);}
   function tName(id){return tById(id).name||'?';}
   function tGroup(id){return tById(id).group||'';}
   function sortedTeams(){return state.teams.slice().sort((a,b)=>a.name.localeCompare(b.name));}
+  function goalTypeLabel(type){return type==='unregistered'?'Sem registro':type==='own_goal'?'Gol contra':'';}
+  function goalDisplayName(goal){return goalTypeLabel(goal.type)||goal.name;}
+  function editableGoalName(goal){return goal.type==='unregistered'?'SR':goal.type==='own_goal'?'GC':goal.name;}
+  function specialGoalType(name){
+    const normalized=normalizeText(name);
+    if(normalized==='sr'||normalized==='sem registro')return 'unregistered';
+    if(normalized==='gc'||normalized==='gol contra')return 'own_goal';
+    return '';
+  }
 
   function calcTable(ids){
     ids=ids||state.teams.map(t=>t.id);
@@ -488,9 +501,9 @@ input:focus,select:focus{border-color:var(--blue);}
 
   function renderMatchScorersDetail(match){
     const byTeam=[match.home,match.away].map(teamId=>{
-      const rows=(match.goals||[]).filter(g=>g.teamId===teamId).sort((a,b)=>b.goals-a.goals||a.name.localeCompare(b.name));
+      const rows=(match.goals||[]).filter(g=>g.teamId===teamId).sort((a,b)=>b.goals-a.goals||goalDisplayName(a).localeCompare(goalDisplayName(b)));
       if(!rows.length)return '';
-      return `<div><div class="match-goals-title">${escapeAttr(tName(teamId))}</div>${rows.map(g=>`<div class="match-goal-row"><span>${escapeAttr(g.name)}</span><strong>${g.goals} gol${g.goals>1?'s':''}</strong></div>`).join('')}</div>`;
+      return `<div><div class="match-goals-title">${escapeAttr(tName(teamId))}</div>${rows.map(g=>`<div class="match-goal-row"><span>${escapeAttr(goalDisplayName(g))}</span><strong>${g.goals} gol${g.goals>1?'s':''}</strong></div>`).join('')}</div>`;
     }).filter(Boolean).join('');
     return `<div class="match-goals-detail">${byTeam}</div>`;
   }
@@ -592,13 +605,13 @@ input:focus,select:focus{border-color:var(--blue);}
       </div>
       <div class="panel-card">
         <h3><i class="ti ti-list-details"></i> Registrar jogo com artilheiros</h3>
-        <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Digite um jogador por linha, seguido pela quantidade de gols. Exemplo: João 2</p>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Digite um por linha: jogador real, <strong>SR</strong> para sem registro ou <strong>GC</strong> para gol contra. Exemplo: João 2</p>
         <div class="form-row" style="margin-bottom:10px">
           <div class="form-group"><label>Partida</label><select id="match-goals-match" onchange="updateMatchGoalTeams()">${allMatchesForGoals.length ? allMatchesForGoals.map(m=>`<option value="${m.id}">${m.played?'[Jogada]':'[Pendente]'} [R${m.round}] ${tName(m.home)}${m.played?` ${m.homeScore}×${m.awayScore} `:' × '}${tName(m.away)}</option>`).join('') : '<option value="">Nenhuma partida cadastrada</option>'}</select></div>
         </div>
         <div class="form-row" style="align-items:stretch">
-          <div class="form-group" style="flex:1;min-width:220px"><label id="match-goals-home-label">${firstMatchForGoals?tName(firstMatchForGoals.home):'Mandante'}</label><textarea id="match-goals-home" rows="7" placeholder="Nome do jogador 2&#10;Outro jogador 1" style="width:100%;resize:vertical"></textarea></div>
-          <div class="form-group" style="flex:1;min-width:220px"><label id="match-goals-away-label">${firstMatchForGoals?tName(firstMatchForGoals.away):'Visitante'}</label><textarea id="match-goals-away" rows="7" placeholder="Nome do jogador 1" style="width:100%;resize:vertical"></textarea></div>
+          <div class="form-group" style="flex:1;min-width:220px"><label id="match-goals-home-label">${firstMatchForGoals?tName(firstMatchForGoals.home):'Mandante'}</label><textarea id="match-goals-home" rows="7" placeholder="Nome do jogador 2&#10;SR 1&#10;GC 1" style="width:100%;resize:vertical"></textarea></div>
+          <div class="form-group" style="flex:1;min-width:220px"><label id="match-goals-away-label">${firstMatchForGoals?tName(firstMatchForGoals.away):'Visitante'}</label><textarea id="match-goals-away" rows="7" placeholder="Nome do jogador 1&#10;Sem registro 1&#10;Gol contra 1" style="width:100%;resize:vertical"></textarea></div>
         </div>
         <div class="form-row" style="margin-top:10px">
           <button class="btn" onclick="previewMatchGoalSubmit()" ${allMatchesForGoals.length?'':'disabled'}>Testar Envio</button>
@@ -698,7 +711,7 @@ input:focus,select:focus{border-color:var(--blue);}
   }
 
   function formatGoalLines(match,teamId){
-    return (match.goals||[]).filter(g=>g.teamId===teamId).map(g=>`${g.name} ${g.goals}`).join('\n');
+    return (match.goals||[]).filter(g=>g.teamId===teamId).map(g=>`${editableGoalName(g)} ${g.goals}`).join('\n');
   }
 
   function updateMatchGoalTeams(){
@@ -724,7 +737,7 @@ input:focus,select:focus{border-color:var(--blue);}
       if(!line)return;
       const match=line.match(/^(.+?)\s+(\d+)$/);
       if(!match){
-        errors.push(`Linha ${index+1}: use o formato "Nome do jogador 2".`);
+        errors.push(`Linha ${index+1}: use "Nome do jogador 2", "SR 1" ou "GC 1".`);
         return;
       }
       const name=match[1].trim();
@@ -733,12 +746,19 @@ input:focus,select:focus{border-color:var(--blue);}
         errors.push(`Linha ${index+1}: quantidade de gols inválida.`);
         return;
       }
+      const type=specialGoalType(name);
+      if(type){
+        const current=grouped.get(type)||{type,playerId:null,teamId,name:goalTypeLabel(type),goals:0};
+        current.goals+=goals;
+        grouped.set(type,current);
+        return;
+      }
       const player=state.players.find(p=>p.teamId===teamId&&normalizeText(p.name)===normalizeText(name));
       if(!player){
         errors.push(`Linha ${index+1}: jogador "${name}" não encontrado em ${tName(teamId)}.`);
         return;
       }
-      const current=grouped.get(player.id)||{playerId:player.id,teamId,name:player.name,goals:0};
+      const current=grouped.get(player.id)||{type:'player',playerId:player.id,teamId,name:player.name,goals:0};
       current.goals+=goals;
       grouped.set(player.id,current);
     });
@@ -762,7 +782,7 @@ input:focus,select:focus{border-color:var(--blue);}
       el.innerHTML=`<div style="text-align:left;color:var(--red)"><strong>Corrija antes de enviar:</strong><ul>${payload.errors.map(e=>`<li>${escapeAttr(e)}</li>`).join('')}</ul></div>`;
       return;
     }
-    const rows=payload.goals.length?payload.goals.map(g=>`<div class="scorer-row"><div class="scorer-info"><div class="scorer-name">${escapeAttr(g.name)}</div><div class="scorer-team">${escapeAttr(tName(g.teamId))}</div></div><div class="scorer-goals">${g.goals}</div></div>`).join(''):'<p>Nenhum gol registrado. O placar será 0×0.</p>';
+    const rows=payload.goals.length?payload.goals.map(g=>`<div class="scorer-row"><div class="scorer-info"><div class="scorer-name">${escapeAttr(goalDisplayName(g))}</div><div class="scorer-team">${escapeAttr(tName(g.teamId))}</div></div><div class="scorer-goals">${g.goals}</div></div>`).join(''):'<p>Nenhum gol registrado. O placar será 0×0.</p>';
     el.innerHTML=`<div style="text-align:left;width:100%"><div class="top-match" style="margin-top:0"><strong>${escapeAttr(tName(payload.match.home))} ${payload.homeScore}×${payload.awayScore} ${escapeAttr(tName(payload.match.away))}</strong></div><div class="scorers-list">${rows}</div></div>`;
   }
 
@@ -772,6 +792,7 @@ input:focus,select:focus{border-color:var(--blue);}
 
   function applyGoalDelta(players,goals,sign){
     goals.forEach(goal=>{
+      if(goal.type&&goal.type!=='player')return;
       const player=players.find(p=>p.id===goal.playerId);
       if(player)player.goals=Math.max(0,(Number(player.goals)||0)+(sign*goal.goals));
     });
