@@ -382,7 +382,8 @@ input:focus,select:focus{border-color:var(--blue);}
   function tById(id){return state.teams.find(t=>t.id===id)||{};}
   function tName(id){return tById(id).name||'?';}
   function tGroup(id){return tById(id).group||'';}
-  
+  function sortedTeams(){return state.teams.slice().sort((a,b)=>a.name.localeCompare(b.name));}
+
   function calcTable(ids){
     ids=ids||state.teams.map(t=>t.id);
     const rows=state.teams.filter(t=>ids.includes(t.id)).map(t=>({id:t.id,name:t.name,group:t.group,pj:0,v:0,e:0,d:0,gp:0,gc:0,pts:0,form:[]}));
@@ -466,7 +467,7 @@ input:focus,select:focus{border-color:var(--blue);}
         <button class="filter-btn ${filterRes==='B'?'active':''}" onclick="setFilter('B')">Grupo B</button>
         <select onchange="setTeamFilter(this.value)" aria-label="Filtrar por time">
           <option value="todos" ${filterTeam==='todos'?'selected':''}>Todos os times</option>
-          ${state.teams.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(t=>`<option value="${t.id}" ${Number(filterTeam)===t.id?'selected':''}>${t.name}</option>`).join('')}
+          ${sortedTeams().map(t=>`<option value="${t.id}" ${Number(filterTeam)===t.id?'selected':''}>${t.name}</option>`).join('')}
         </select>
       </div>
       ${rounds.length?rounds.map(r=>{
@@ -620,7 +621,7 @@ input:focus,select:focus{border-color:var(--blue);}
       <div class="panel-card">
         <h3><i class="ti ti-shoe-football"></i> Adicionar gols</h3>
         <div class="form-row">
-          <div class="form-group"><label>Time</label><select id="goal-team" onchange="updateGoalPlayers()">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+          <div class="form-group"><label>Time</label><select id="goal-team" onchange="updateGoalPlayers()">${sortedTeams().map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
           <div class="form-group"><label>Jogador</label><select id="sel-player"></select></div>
           <div class="form-group"><label>Qtd.</label><input type="number" id="goal-count" value="1" style="width:58px"></div>
           <button id="add-goals-btn" class="btn" onclick="addGoals()" style="margin-top:auto">Adicionar</button>
@@ -637,7 +638,7 @@ input:focus,select:focus{border-color:var(--blue);}
       <div class="panel-card">
         <h3><i class="ti ti-photo-up"></i> Editar imagens do time</h3>
         <div class="form-row">
-          <div class="form-group"><label>Time</label><select id="team-image-team">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+          <div class="form-group"><label>Time</label><select id="team-image-team">${sortedTeams().map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
           <div class="form-group"><label>Escudo</label><input class="file-input" type="file" id="team-crest-file" accept="image/*"></div>
           <div class="form-group"><label>Foto do time</label><input class="file-input" type="file" id="team-photo-file" accept="image/*"></div>
           <button id="save-team-images-btn" class="btn" onclick="saveTeamImages()" style="margin-top:auto">Salvar imagens</button>
@@ -647,14 +648,14 @@ input:focus,select:focus{border-color:var(--blue);}
         <h3><i class="ti ti-user-plus"></i> Adicionar jogador</h3>
         <div class="form-row">
           <div class="form-group"><label>Nome</label><input type="text" id="new-player-name" style="min-width:150px"></div>
-          <div class="form-group"><label>Time</label><select id="new-player-team">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+          <div class="form-group"><label>Time</label><select id="new-player-team">${sortedTeams().map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
           <button class="btn" onclick="addPlayer()" style="margin-top:auto">Adicionar</button>
         </div>
       </div>
       <div class="panel-card">
         <h3><i class="ti ti-user-minus"></i> Remover jogador</h3>
         <div class="form-row">
-          <div class="form-group"><label>Time</label><select id="remove-player-team" onchange="updateRemovePlayers()">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+          <div class="form-group"><label>Time</label><select id="remove-player-team" onchange="updateRemovePlayers()">${sortedTeams().map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
           <div class="form-group"><label>Jogador</label><select id="remove-player-id"></select></div>
           <button id="remove-player-btn" class="btn danger-btn" onclick="removePlayer()" style="margin-top:auto">Excluir do campeonato</button>
         </div>
