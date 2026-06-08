@@ -857,12 +857,25 @@ async function resetMatch(){
       }
     }
   }
-  function addPlayer(){
-    const name=document.getElementById('new-player-name')?.value?.trim(),teamId=parseInt(document.getElementById('new-player-team')?.value);
-    if(!name)return;
-    state.players.push({id:Date.now(),name,teamId,goals:0});
-    set(ref(db, 'campeonato/'), state); 
-    showToast(`${name} adicionado!`);
+  async function addPlayer(){
+    const btn=event?.currentTarget;
+    const name=document.getElementById('new-player-name')?.value?.trim();
+    const teamId=parseInt(document.getElementById('new-player-team')?.value);
+    if(!name||isNaN(teamId))return showToast('Informe nome e time');
+    try{
+      if(btn){btn.disabled=true;btn.textContent='Salvando...';}
+      const updatedPlayers=[...state.players,{id:Date.now(),name,teamId,goals:0}];
+      await set(ref(db, 'campeonato/players'), updatedPlayers);
+      state.players=updatedPlayers;
+      const input=document.getElementById('new-player-name');
+      if(input)input.value='';
+      showToast(`${name} adicionado!`);
+    }catch(error){
+      console.error('Erro ao adicionar jogador:', error);
+      showToast(error?.message||'Erro ao salvar jogador');
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent='Adicionar';}
+    }
   }
 
   const MAX_IMAGE_CHARS=220000;
