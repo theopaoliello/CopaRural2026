@@ -120,6 +120,7 @@ td.td-name{text-align:left;font-weight:600;font-size:13px;padding-left:4px;overf
 .player-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border-bottom:1px solid var(--border);}
 .player-row:last-child{border-bottom:none;}
 .player-goals{font-size:12px;font-weight:700;color:var(--blue);}
+.danger-btn{background:var(--red);}
 .back-btn{font-size:12px;color:var(--blue);background:none;border:none;cursor:pointer;font-weight:700;margin-bottom:12px;padding:0;}
 .file-input{max-width:210px;}
 .admin-gate{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:2rem;max-width:320px;margin:0 auto;text-align:center;}
@@ -651,6 +652,14 @@ input:focus,select:focus{border-color:var(--blue);}
         </div>
       </div>
       <div class="panel-card">
+        <h3><i class="ti ti-user-minus"></i> Remover jogador</h3>
+        <div class="form-row">
+          <div class="form-group"><label>Time</label><select id="remove-player-team" onchange="updateRemovePlayers()">${state.teams.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+          <div class="form-group"><label>Jogador</label><select id="remove-player-id"></select></div>
+          <button id="remove-player-btn" class="btn danger-btn" onclick="removePlayer()" style="margin-top:auto">Excluir do campeonato</button>
+        </div>
+      </div>
+      <div class="panel-card">
         <h3><i class="ti ti-users"></i> Lista oficial de jogadores</h3>
         <p style="font-size:12px;color:var(--text2);margin-bottom:12px">Substitui a lista atual pelos jogadores oficiais informados, mantendo os gols já cadastrados quando o nome e o time forem iguais.</p>
         <button class="btn" onclick="applyOfficialPlayers()">Atualizar jogadores oficiais</button>
@@ -677,6 +686,7 @@ input:focus,select:focus{border-color:var(--blue);}
       </div>`;
     if(adminSection==='gols')updateGoalPlayers();
     if(adminSection==='jogos')updateMatchGoalTeams();
+    if(adminSection==='times')updateRemovePlayers();
   }
 
   // 4. FUNÇÕES DE AÇÃO COM FIREBASE APLICADO
@@ -869,12 +879,44 @@ async function resetMatch(){
       state.players=updatedPlayers;
       const input=document.getElementById('new-player-name');
       if(input)input.value='';
+      updateRemovePlayers();
       showToast(`${name} adicionado!`);
     }catch(error){
       console.error('Erro ao adicionar jogador:', error);
       showToast(error?.message||'Erro ao salvar jogador');
     }finally{
       if(btn){btn.disabled=false;btn.textContent='Adicionar';}
+    }
+  }
+
+  function updateRemovePlayers(){
+    const teamId=parseInt(document.getElementById('remove-player-team')?.value);
+    const sel=document.getElementById('remove-player-id');
+    const btn=document.getElementById('remove-player-btn');
+    if(!sel)return;
+    const players=state.players.filter(p=>p.teamId===teamId).sort((a,b)=>a.name.localeCompare(b.name));
+    sel.innerHTML=players.length?players.map(p=>`<option value="${p.id}">${escapeAttr(p.name)} (${p.goals||0} gol(s))</option>`).join(''):'<option value="">Nenhum jogador neste time</option>';
+    if(btn)btn.disabled=!players.length;
+  }
+
+  async function removePlayer(){
+    const btn=document.getElementById('remove-player-btn');
+    const pid=parseInt(document.getElementById('remove-player-id')?.value);
+    const player=state.players.find(p=>p.id===pid);
+    if(!player)return showToast('Selecione um jogador');
+    if(!confirm(`Excluir ${player.name} do campeonato?`))return;
+    try{
+      if(btn){btn.disabled=true;btn.textContent='Excluindo...';}
+      const updatedPlayers=state.players.filter(p=>p.id!==pid);
+      await set(ref(db, 'campeonato/players'), updatedPlayers);
+      state.players=updatedPlayers;
+      updateRemovePlayers();
+      showToast(`${player.name} excluído do campeonato!`);
+    }catch(error){
+      console.error('Erro ao remover jogador:', error);
+      showToast(error?.message||'Erro ao excluir jogador');
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent='Excluir do campeonato';}
     }
   }
 
