@@ -52,6 +52,127 @@ td.td-name{text-align:left;font-weight:600;font-size:13px;padding-left:4px;overf
 @media(prefers-color-scheme:dark){.zona-camp{background:rgba(250,199,117,.09);}.zona-class{background:rgba(24,95,165,.11);}}
 .form-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin:0 1px;}
 .fv{background:var(--green);} .fe{background:#999997;} .fd{background:var(--red);}
+.knockout-intro{background:linear-gradient(135deg,rgba(24,95,165,.1),rgba(250,199,117,.18));border:1px solid var(--border);border-radius:var(--radius);padding:13px 15px;margin-bottom:16px;}
+.knockout-intro h2{font-size:16px;margin-bottom:5px;display:flex;align-items:center;gap:7px;}
+.knockout-intro p{font-size:12px;color:var(--text2);line-height:1.45;}
+.bracket-wrapper {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 30px 20px;
+  overflow-x: auto;
+  position: relative;
+}
+.bracket-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-width: 850px;
+  gap: 0;
+}
+.bracket-column {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  height: 500px;
+  position: relative;
+  min-width: 180px;
+}
+.bracket-stage-title {
+  position: absolute;
+  top: -26px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.bracket-game-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 180px;
+}
+.bracket-game {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--blue);
+  border-radius: 8px;
+  padding: 9px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  z-index: 2;
+}
+.bracket-column:not(:last-child) .bracket-game-container:after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  width: calc((850px - 720px) / 3);
+  height: 1px;
+  background: var(--border2);
+}
+.bracket-column:not(:last-child) .bracket-game:after {
+  content: "";
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-top: 1px solid var(--border2);
+  border-right: 1px solid var(--border2);
+  transform: translateY(-50%) rotate(45deg);
+  background: var(--bg);
+}
+.bracket-game-id {
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--text2);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 2px;
+  display: flex;
+  justify-content: space-between;
+}
+.bracket-team-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+.bracket-team-name {
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+}
+.bracket-team-seed {
+  font-size: 9px;
+  background: var(--blue);
+  color: #fff;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+.bracket-team-line.placeholder { color: var(--text2); font-style: italic; }
+.bracket-team-line.placeholder .bracket-team-seed { background: var(--border2); color: var(--text2); }
+
+/* Conectores discretos */
+.game-final { border-left-color: var(--gold); background: rgba(250,199,117,0.08); }
+
+@media(max-width: 720px) {
+  .bracket-wrapper { padding: 15px 5px; }
+  .bracket-container { min-width: auto; flex-direction: column; height: auto; gap: 30px; }
+  .bracket-column { height: auto; gap: 15px; }
+  .bracket-game-container { width: 100%; }
+  .bracket-column:not(:last-child) .bracket-game-container:after, .bracket-column:not(:last-child) .bracket-game:after { display: none; }
+}
 .filter-bar{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;}
 .filter-btn{font-size:12px;font-weight:500;padding:5px 13px;border-radius:20px;border:1px solid var(--border2);background:none;cursor:pointer;color:var(--text2);transition:all .15s;}
 .filter-btn:hover{border-color:var(--blue);color:var(--blue);}
@@ -171,13 +292,15 @@ input:focus,select:focus{border-color:var(--blue);}
   
   <div class="tabs">
     <button class="tab active" onclick="showTab('classificacao')"><i class="ti ti-list-numbers"></i> Classificação</button>
+    <button class="tab" onclick="showTab('mataMata')"><i class="ti ti-tournament"></i> Mata-Mata</button>
     <button class="tab" onclick="showTab('times')"><i class="ti ti-users-group"></i> Times</button>
     <button class="tab" onclick="showTab('resultados')"><i class="ti ti-ball-football"></i> Resultados</button>
     <button class="tab" onclick="showTab('estatisticas')"><i class="ti ti-chart-bar"></i> Estatísticas</button>
     <button class="tab" onclick="showTab('admin')"><i class="ti ti-settings"></i> Admin</button>
   </div>
-  
+
   <div id="classificacao" class="section active"></div>
+  <div id="mataMata"      class="section"></div>
   <div id="times"         class="section"></div>
   <div id="resultados"    class="section"></div>
   <div id="estatisticas"  class="section"></div>
@@ -188,6 +311,80 @@ input:focus,select:focus{border-color:var(--blue);}
 
 <script type="module">
   // 1. IMPORTAÇÕES CORRETAS DO FIREBASE
+// -------------------------------------------------------------------
+// Função para gerar partidas do mata‑mata (knockout) a partir da classificação geral.
+// As partidas são inseridas em `state.matches` com a propriedade `stage: "mataMata"`.
+// Elas aparecerão nas abas "Resultados" (filtro separado) e no menu Admin como partidas pendentes.
+function generateKnockoutMatches() {
+  // Evita gerar múltiplas vezes se já existirem partidas de mata‑mata.
+  if (state.matches.some(m => m.stage === 'mataMata')) return;
+  const geral = calcTable(); // classificação geral
+  const seed = pos => geral[pos - 1] || null;
+  const nextId = Math.max(0, ...state.matches.map(m => m.id)) + 1;
+  const bracketGames = [
+    // 1ª fase
+    { id: 'A', home: seed(2), away: seed(9) },
+    { id: 'B', home: seed(4), away: seed(7) },
+    { id: 'C', home: seed(3), away: seed(8) },
+    { id: 'D', home: seed(5), away: seed(6) },
+    // Semifinais
+    { id: 'E', home: null, away: null }, // vencedores de A e B
+    { id: 'F', home: null, away: null }, // vencedores de C e D
+    // Final do chaveamento
+    { id: 'G', home: null, away: null }, // vencedores de E e F
+    // Grande final (contra 1º colocado)
+    { id: 'GR', home: seed(1), away: null }
+  ];
+
+  // Helper to map placeholder teams
+  const placeholder = (label) => ({ id: null, name: label, placeholder: true });
+
+  // Cria partidas reais para fase 1 (conhecemos os times)
+  let matchId = nextId;
+  const created = [];
+  bracketGames.slice(0, 4).forEach(g => {
+    if (!g.home || !g.away) return;
+    created.push({
+      id: matchId++,
+      home: g.home.id,
+      away: g.away.id,
+      homeScore: null,
+      awayScore: null,
+      played: false,
+      round: 0,
+      stage: 'mataMata',
+      // placeholders for future rounds (winners)
+      placeholderHome: g.id,
+      placeholderAway: null
+    });
+  });
+  // Os jogos das fases posteriores serão criados dinamicamente quando os vencedores forem conhecidos.
+  // Por enquanto, adicionamos placeholders apenas para que apareçam no admin como pendentes.
+  // Eles terão `home` ou `away` null e serão atualizados ao salvar resultados.
+  const placeholderGames = [
+    { id: 'E', home: null, away: null },
+    { id: 'F', home: null, away: null },
+    { id: 'G', home: null, away: null },
+    { id: 'GR', home: seed(1)?.id ?? null, away: null }
+  ];
+  placeholderGames.forEach(g => {
+    created.push({
+      id: matchId++,
+      home: g.home,
+      away: g.away,
+      homeScore: null,
+      awayScore: null,
+      played: false,
+      round: 0,
+      stage: 'mataMata'
+    });
+  });
+
+  state.matches = state.matches.concat(created);
+}
+
+// -------------------------------------------------------------------
+// 2. INICIALIZAÇÃO
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-app.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-analytics.js";
   import { getDatabase, ref, onValue, set, update } from "https://www.gstatic.com/firebasejs/12.14.0/firebase-database.js";
@@ -379,6 +576,7 @@ input:focus,select:focus{border-color:var(--blue);}
       set(campeonatoRef, defaultState);
       state = JSON.parse(JSON.stringify(defaultState));
     }
+    generateKnockoutMatches();
     renderAll();
   });
 
@@ -465,9 +663,58 @@ input:focus,select:focus{border-color:var(--blue);}
       </div>`;
   }
 
+  function renderMataMata(){
+    const geral=calcTable();
+    const seed=pos=>geral[pos-1]||null;
+    const teamObj=(team,pos)=>team?{name:team.name,seed:`${pos}º`,placeholder:false}:{name:`${pos}º colocado`,seed:`${pos}º`,placeholder:true};
+    const winnerObj=game=>({name:`Vencedor ${game}`,seed:game,placeholder:true});
+    const gameCard=(id,top,bottom,final=false)=>`<div class="bracket-game-container">
+      <div class="bracket-game${final?' game-final':''}">
+        <div class="bracket-game-id"><span>${escapeAttr(id)}</span><span>ida e volta</span></div>
+        <div class="bracket-team-line${top.placeholder?' placeholder':''}">
+          <span class="bracket-team-name">${escapeAttr(top.name)}</span>
+          <span class="bracket-team-seed">${escapeAttr(top.seed)}</span>
+        </div>
+        <div class="bracket-team-line${bottom.placeholder?' placeholder':''}">
+          <span class="bracket-team-name">${escapeAttr(bottom.name)}</span>
+          <span class="bracket-team-seed">${escapeAttr(bottom.seed)}</span>
+        </div>
+      </div>
+    </div>`;
+    document.getElementById('mataMata').innerHTML=`
+      <div class="knockout-intro">
+        <h2><i class="ti ti-tournament"></i> Mata-Mata</h2>
+        <p>Chaveamento montado automaticamente pela Classificação Geral. Todos os confrontos serão disputados em ida e volta.</p>
+      </div>
+      <div class="bracket-wrapper">
+        <div class="bracket-container" aria-label="Chaveamento da fase final">
+          <div class="bracket-column">
+            <div class="bracket-stage-title">1ª fase</div>
+            ${gameCard('Jogo A',teamObj(seed(2),2),teamObj(seed(9),9))}
+            ${gameCard('Jogo B',teamObj(seed(4),4),teamObj(seed(7),7))}
+            ${gameCard('Jogo C',teamObj(seed(3),3),teamObj(seed(8),8))}
+            ${gameCard('Jogo D',teamObj(seed(5),5),teamObj(seed(6),6))}
+          </div>
+          <div class="bracket-column">
+            <div class="bracket-stage-title">Semifinais</div>
+            ${gameCard('Jogo E',winnerObj('A'),winnerObj('B'))}
+            ${gameCard('Jogo F',winnerObj('C'),winnerObj('D'))}
+          </div>
+          <div class="bracket-column">
+            <div class="bracket-stage-title">Final do chaveamento</div>
+            ${gameCard('Jogo G',winnerObj('E'),winnerObj('F'))}
+          </div>
+          <div class="bracket-column">
+            <div class="bracket-stage-title">Grande final</div>
+            ${gameCard('Grande Final',teamObj(seed(1),1),winnerObj('G'),true)}
+          </div>
+        </div>
+      </div>`;
+  }
+
   function renderResultados(){
     const all=state.matches;
-    let ms=filterRes==='todos'?all:filterRes==='A'?all.filter(m=>tGroup(m.home)==='A'&&tGroup(m.away)==='A'):all.filter(m=>tGroup(m.home)==='B'&&tGroup(m.away)==='B');
+    let ms; if(filterRes==='todos'){ms=all;} else if(filterRes==='A'){ms=all.filter(m=>tGroup(m.home)==='A'&&tGroup(m.away)==='A');} else if(filterRes==='B'){ms=all.filter(m=>tGroup(m.home)==='B'&&tGroup(m.away)==='B');} else if(filterRes==='mataMata'){ms=all.filter(m=>m.stage==='mataMata');} else {ms=all;}
     if(filterTeam!=='todos'){
       const teamId=Number(filterTeam);
       ms=ms.filter(m=>m.home===teamId||m.away===teamId);
@@ -816,7 +1063,8 @@ input:focus,select:focus{border-color:var(--blue);}
       state.players=players;
       state.matches[payload.matchIndex]={...payload.match,homeScore:payload.homeScore,awayScore:payload.awayScore,played:true,goals:payload.goals};
       showToast('Resultado e artilharia salvos!');
-      renderAll();
+      generateKnockoutMatches();
+    renderAll();
     }catch(error){
       console.error('Erro ao salvar gols da partida:', error);
       showToast(error?.message||'Erro ao salvar gols da partida');
@@ -1143,8 +1391,9 @@ async function resetMatch(){
   function backToTeams(){selectedTeamId=null;renderTimes();}
 
   function showTab(id){
-    document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['classificacao','times','resultados','estatisticas','admin'][i]===id));
+    document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['classificacao','mataMata','times','resultados','estatisticas','admin'][i]===id));
     document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active',s.id===id));
+    generateKnockoutMatches();
     renderAll();
   }
 
@@ -1152,7 +1401,7 @@ async function resetMatch(){
   function setTeamFilter(teamId){filterTeam=teamId;renderResultados();}
   function tryLogin(){if(document.getElementById('pw-input')?.value===ADMIN_PASS){isAdmin=true;renderAdmin();}else{document.getElementById('pw-err').textContent='Senha incorreta.';}}
   function logout(){isAdmin=false;renderAdmin();}
-  function renderAll(){renderClassificacao();renderTimes();renderResultados();renderEstatisticas();renderAdmin();if(adminSection==='gols')updateGoalPlayers();if(adminSection==='jogos')updateMatchGoalTeams();}
+  function renderAll(){renderClassificacao();renderMataMata();renderTimes();renderResultados();renderEstatisticas();renderAdmin();if(adminSection==='gols')updateGoalPlayers();if(adminSection==='jogos')updateMatchGoalTeams();}
 
   // 5. EXPORTA AS FUNÇÕES PARA O HTML (Necessário porque o script é do tipo "module")
   window.showTab = showTab;
