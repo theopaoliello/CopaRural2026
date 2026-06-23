@@ -315,68 +315,120 @@ input:focus,select:focus{border-color:var(--blue);}
 // Função para gerar partidas do mata‑mata (knockout) a partir da classificação geral.
 // As partidas são inseridas em `state.matches` com a propriedade `stage: "mataMata"`.
 // Elas aparecerão nas abas "Resultados" (filtro separado) e no menu Admin como partidas pendentes.
-function generateKnockoutMatches() {
-  // Evita gerar múltiplas vezes se já existirem partidas de mata‑mata.
-  if (state.matches.some(m => m.stage === 'mataMata')) return;
+// Cada confronto tem IDA e VOLTA (mesmo confronto, mando invertido). Placar agregado define o vencedor.
+function generateKnockoutMatches(force=false) {
+  // Se force=true, remove partidas antigas de mata-mata
+  if (force) {
+    state.matches = state.matches.filter(m => m.stage !== 'mataMata');
+  } else {
+    // Se já existirem, apenas garante que o 1º colocado está no GR como home
+    if (state.matches.some(m => m.stage === 'mataMata')) {
+      const geral = calcTable();
+      const firstPlace = geral[0] || null;
+      if (firstPlace) {
+        state.matches.forEach(m => {
+          if (m.stage === 'mataMata' && m.bracketId === 'GR' && !m.played) {
+            if (m.leg === 'ida') m.home = firstPlace.id;
+            if (m.leg === 'volta') m.away = firstPlace.id;
+          }
+        });
+      }
+      return;
+    }
+  }
   const geral = calcTable(); // classificação geral
   const seed = pos => geral[pos - 1] || null;
   const nextId = Math.max(0, ...state.matches.map(m => m.id)) + 1;
-  const bracketGames = [
-    // 1ª fase
-    { id: 'A', home: seed(2), away: seed(9) },
-    { id: 'B', home: seed(4), away: seed(7) },
-    { id: 'C', home: seed(3), away: seed(8) },
-    { id: 'D', home: seed(5), away: seed(6) },
-    // Semifinais
-    { id: 'E', home: null, away: null }, // vencedores de A e B
-    { id: 'F', home: null, away: null }, // vencedores de C e D
-    // Final do chaveamento
-    { id: 'G', home: null, away: null }, // vencedores de E e F
-    // Grande final (contra 1º colocado)
-    { id: 'GR', home: seed(1), away: null }
+
+  // Estrutura do chaveamento: cada confronto terá 2 jogos (ida e volta)
+  const bracketStructure = [
+    // 1ª fase - 4 confrontos
+    { bracketId: 'A', phase: '1', home: seed(2), away: seed(9) },
+    { bracketId: 'B', phase: '1', home: seed(4), away: seed(7) },
+    { bracketId: 'C', phase: '1', home: seed(3), away: seed(8) },
+    { bracketId: 'D', phase: '1', home: seed(5), away: seed(6) },
+    // Semifinais - 2 confrontos (times definidos depois)
+    { bracketId: 'E', phase: 'semi', home: null, away: null, dependsOn: ['A', 'B'] },
+    { bracketId: 'F', phase: 'semi', home: null, away: null, dependsOn: ['C', 'D'] },
+    // Final do chaveamento - 1 confronto
+    { bracketId: 'G', phase: 'final', home: null, away: null, dependsOn: ['E', 'F'] },
+    // Grande final - 1 confronto (1º colocado x vencedor do chaveamento)
+    { bracketId: 'GR', phase: 'grand', home: seed(1), away: null, dependsOn: ['G'] }
   ];
 
-  // Helper to map placeholder teams
-  const placeholder = (label) => ({ id: null, name: label, placeholder: true });
-
-  // Cria partidas reais para fase 1 (conhecemos os times)
   let matchId = nextId;
   const created = [];
-  bracketGames.slice(0, 4).forEach(g => {
-    if (!g.home || !g.away) return;
+
+  bracketStructure.forEach(conf => {
+    // Placeholders só quando AMBOS os times são desconhecidos (exceto GR que sempre tem o 1º colocado)
+    const hasHome = conf.home != null;
+    const hasAway = conf.away != null;
+
+    if (!hasHome && !hasAway) {
+      // Confrontos futuros sem times definidos - placeholders para IDA e VOLTA
+      created.push({
+        id: matchId++,
+        home: null,
+        away: null,
+        homeScore: null,
+        awayScore: null,
+        played: false,
+        round: 0,
+        stage: 'mataMata',
+        bracketId: conf.bracketId,
+        leg: 'ida',
+        phase: conf.phase,
+        dependsOn: conf.dependsOn || []
+      });
+      created.push({
+        id: matchId++,
+        home: null,
+        away: null,
+        homeScore: null,
+        awayScore: null,
+        played: false,
+        round: 0,
+        stage: 'mataMata',
+        bracketId: conf.bracketId,
+        leg: 'volta',
+        phase: conf.phase,
+        dependsOn: conf.dependsOn || []
+      });
+      return;
+    }
+
+    // Confronto com ao menos um time conhecido (inclui GR onde home=1º colocado, away=a definir)
+    const homeId = conf.home ? conf.home.id : null;
+    const awayId = conf.away ? conf.away.id : null;
+    // IDA: mando do time melhor colocado
     created.push({
       id: matchId++,
-      home: g.home.id,
-      away: g.away.id,
+      home: homeId,
+      away: awayId,
       homeScore: null,
       awayScore: null,
       played: false,
       round: 0,
       stage: 'mataMata',
-      // placeholders for future rounds (winners)
-      placeholderHome: g.id,
-      placeholderAway: null
+      bracketId: conf.bracketId,
+      leg: 'ida',
+      phase: conf.phase,
+      dependsOn: conf.dependsOn || []
     });
-  });
-  // Os jogos das fases posteriores serão criados dinamicamente quando os vencedores forem conhecidos.
-  // Por enquanto, adicionamos placeholders apenas para que apareçam no admin como pendentes.
-  // Eles terão `home` ou `away` null e serão atualizados ao salvar resultados.
-  const placeholderGames = [
-    { id: 'E', home: null, away: null },
-    { id: 'F', home: null, away: null },
-    { id: 'G', home: null, away: null },
-    { id: 'GR', home: seed(1)?.id ?? null, away: null }
-  ];
-  placeholderGames.forEach(g => {
+    // VOLTA: mando invertido (quando ambos os times já são conhecidos)
     created.push({
       id: matchId++,
-      home: g.home,
-      away: g.away,
+      home: awayId,
+      away: homeId,
       homeScore: null,
       awayScore: null,
       played: false,
       round: 0,
-      stage: 'mataMata'
+      stage: 'mataMata',
+      bracketId: conf.bracketId,
+      leg: 'volta',
+      phase: conf.phase,
+      dependsOn: conf.dependsOn || []
     });
   });
 
@@ -406,7 +458,7 @@ function generateKnockoutMatches() {
   const db = getDatabase(app);
 
   const ADMIN_PASS='admin123';
-  let isAdmin=false, filterRes='todos', filterTeam='todos', selectedTeamId=null, expandedMatchId=null;
+  let isAdmin=false, filterRes='todos', filterTeam='todos', selectedTeamId=null, expandedMatchId=null, selectedBracketId='A';
   
   const TEAMS=[
     {id:1,name:'Imperial',group:'A'},{id:2,name:'Sub-Zero',group:'B'},
@@ -544,11 +596,17 @@ function generateKnockoutMatches() {
       teamId:Number(p.teamId),
       goals:Number(p.goals)||0
     }));
-    normalized.matches=(normalized.matches||[]).filter(m=>m&&teamIds.has(Number(m.home))&&teamIds.has(Number(m.away))).map(m=>({
+    normalized.matches=(normalized.matches||[]).filter(m=>{
+      if(!m) return false;
+      // Jogos do mata-mata podem ter home/away null (placeholders de fases futuras)
+      if(m.stage==='mataMata') return true;
+      // Jogos normais precisam de ambos os times válidos
+      return teamIds.has(Number(m.home))&&teamIds.has(Number(m.away));
+    }).map(m=>({
       ...m,
       id:Number(m.id),
-      home:Number(m.home),
-      away:Number(m.away),
+      home:m.home!=null?Number(m.home):null,
+      away:m.away!=null?Number(m.away):null,
       homeScore:m.homeScore==null?m.homeScore:Number(m.homeScore),
       awayScore:m.awayScore==null?m.awayScore:Number(m.awayScore),
       played:Boolean(m.played),
@@ -599,7 +657,7 @@ function generateKnockoutMatches() {
     ids=ids||state.teams.map(t=>t.id);
     const rows=state.teams.filter(t=>ids.includes(t.id)).map(t=>({id:t.id,name:t.name,group:t.group,pj:0,v:0,e:0,d:0,gp:0,gc:0,pts:0,form:[]}));
     const byId=Object.fromEntries(rows.map(r=>[r.id,r]));
-    state.matches.filter(m=>m.played&&ids.includes(m.home)&&ids.includes(m.away)).forEach(m=>{
+    state.matches.filter(m=>m.played&&m.stage!=='mataMata'&&ids.includes(m.home)&&ids.includes(m.away)).forEach(m=>{
       const h=byId[m.home],a=byId[m.away];if(!h||!a)return;
       h.pj++;a.pj++;h.gp+=m.homeScore;h.gc+=m.awayScore;a.gp+=m.awayScore;a.gc+=m.homeScore;
       if(m.homeScore>m.awayScore){h.v++;h.pts+=3;h.form.push('V');a.d++;a.form.push('D');}
@@ -666,21 +724,137 @@ function generateKnockoutMatches() {
   function renderMataMata(){
     const geral=calcTable();
     const seed=pos=>geral[pos-1]||null;
-    const teamObj=(team,pos)=>team?{name:team.name,seed:`${pos}º`,placeholder:false}:{name:`${pos}º colocado`,seed:`${pos}º`,placeholder:true};
-    const winnerObj=game=>({name:`Vencedor ${game}`,seed:game,placeholder:true});
-    const gameCard=(id,top,bottom,final=false)=>`<div class="bracket-game-container">
-      <div class="bracket-game${final?' game-final':''}">
-        <div class="bracket-game-id"><span>${escapeAttr(id)}</span><span>ida e volta</span></div>
-        <div class="bracket-team-line${top.placeholder?' placeholder':''}">
-          <span class="bracket-team-name">${escapeAttr(top.name)}</span>
-          <span class="bracket-team-seed">${escapeAttr(top.seed)}</span>
+
+    // Busca todos os jogos do mata-mata
+    const mataMataMatches = state.matches.filter(m => m.stage === 'mataMata');
+
+    // Agrupa jogos por bracketId
+    const matchesByBracket = {};
+    mataMataMatches.forEach(m => {
+      if (!matchesByBracket[m.bracketId]) matchesByBracket[m.bracketId] = {ida: null, volta: null};
+      matchesByBracket[m.bracketId][m.leg] = m;
+    });
+
+    // Função para obter o vencedor de um confronto (pelo placar agregado)
+    const getWinner = (bracketId) => {
+      const bracket = matchesByBracket[bracketId];
+      if (!bracket || !bracket.ida || !bracket.volta) return null;
+      if (!bracket.ida.played || !bracket.volta.played) return null;
+
+      const ida = bracket.ida;
+      const volta = bracket.volta;
+
+      // Time da IDA (mandante da ida)
+      const homeTeamId = ida.home;
+      const awayTeamId = ida.away;
+
+      // Placar agregado: time da casa (ida) vs time visitante (ida)
+      const aggHome = (ida.homeScore || 0) + (volta.awayScore || 0); // gols do time da casa na ida + gols do time da casa na volta (que foi visitante)
+      const aggAway = (ida.awayScore || 0) + (volta.homeScore || 0); // gols do time visitante na ida + gols do time visitante na volta (que foi mandante)
+
+      if (aggHome > aggAway) return homeTeamId;
+      if (aggAway > aggHome) return awayTeamId;
+      return 'penalty'; // empate - definir por pênaltis (implementação futura)
+    };
+
+    // Função para criar card do jogo com resultados
+    const gameCard = (bracketId, title, phase, isFinal=false) => {
+      const bracket = matchesByBracket[bracketId];
+      const winnerId = getWinner(bracketId);
+
+      if (!bracket || !bracket.ida) {
+        // Confronto futuro
+        const top = {name: 'A definir', placeholder: true};
+        const bottom = {name: 'A definir', placeholder: true};
+        return `<div class="bracket-game-container">
+          <div class="bracket-game${isFinal?' game-final':''}">
+            <div class="bracket-game-id"><span>${escapeAttr(title)}</span><span>ida e volta</span></div>
+            <div class="bracket-team-line placeholder">
+              <span class="bracket-team-name">${escapeAttr(top.name)}</span>
+              <span class="bracket-team-seed">—</span>
+            </div>
+            <div class="bracket-team-line placeholder">
+              <span class="bracket-team-name">${escapeAttr(bottom.name)}</span>
+              <span class="bracket-team-seed">—</span>
+            </div>
+          </div>
+        </div>`;
+      }
+
+      const ida = bracket.ida;
+      const volta = bracket.volta;
+
+      // Para a Grande Final (GR), o home pode ser o 1º colocado mesmo sem adversário ainda
+      const homeTeam = ida.home ? tById(ida.home) : null;
+      const awayTeam = ida.away ? tById(ida.away) : null;
+
+      const topName = homeTeam?.name || '—';
+      const bottomName = awayTeam?.name || 'A definir';
+
+      // Verifica se tem vencedor
+      const isDecided = winnerId && winnerId !== 'penalty';
+      const winnerName = isDecided ? tById(winnerId)?.name : null;
+
+      // Calcula placares agregados
+      const aggHome = (ida.homeScore || 0) + (volta?.awayScore || 0);
+      const aggAway = (ida.awayScore || 0) + (volta?.homeScore || 0);
+
+      const idaPlayed = ida.played;
+      const voltaPlayed = volta?.played || false;
+      const bothPlayed = idaPlayed && voltaPlayed;
+
+      let scoreDisplay = '';
+      if (bothPlayed) {
+        scoreDisplay = `
+          <div class="bracket-aggregate">
+            <div class="partial-scores" style="justify-content:center;gap:16px">
+              <span>Ida: ${ida.homeScore}×${ida.awayScore}</span>
+              <span>Volta: ${volta.homeScore}×${volta.awayScore}</span>
+            </div>
+          </div>
+        `;
+      } else if (idaPlayed) {
+        scoreDisplay = `
+          <div class="bracket-partial">
+            <div class="partial-scores">
+              <span>Ida: ${ida.homeScore}×${ida.awayScore}</span>
+              <span style="color:var(--text2)">Volta: aguardando</span>
+            </div>
+          </div>
+        `;
+      } else if (voltaPlayed) {
+        scoreDisplay = `
+          <div class="bracket-partial">
+            <div class="partial-scores">
+              <span style="color:var(--text2)">Ida: aguardando</span>
+              <span>Volta: ${volta.homeScore}×${volta.awayScore}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      return `<div class="bracket-game-container">
+        <div class="bracket-game${isFinal?' game-final':''} ${isDecided ? 'decided' : ''}">
+          <div class="bracket-game-id"><span>${escapeAttr(title)}</span><span>${phase}</span></div>
+          <div class="bracket-team-line${winnerId === ida.home ? ' winner' : ''}">
+            <span class="bracket-team-name">${escapeAttr(topName)}</span>
+            <span class="bracket-team-seed">${bothPlayed ? ((ida.homeScore||0)+(volta?.awayScore||0)) : (idaPlayed ? escapeAttr(String(ida.homeScore)) : '—')}</span>
+          </div>
+          <div class="bracket-team-line${winnerId === ida.away ? ' winner' : ''}">
+            <span class="bracket-team-name">${escapeAttr(bottomName)}</span>
+            <span class="bracket-team-seed">${bothPlayed ? ((ida.awayScore||0)+(volta?.homeScore||0)) : (idaPlayed ? escapeAttr(String(ida.awayScore)) : '—')}</span>
+          </div>
+          ${scoreDisplay}
         </div>
-        <div class="bracket-team-line${bottom.placeholder?' placeholder':''}">
-          <span class="bracket-team-name">${escapeAttr(bottom.name)}</span>
-          <span class="bracket-team-seed">${escapeAttr(bottom.seed)}</span>
-        </div>
-      </div>
-    </div>`;
+      </div>`;
+    };
+
+    // Obtém os confrontos já definidos (fase 1)
+    const phase1 = ['A', 'B', 'C', 'D'];
+    const semis = ['E', 'F'];
+    const finalBracket = ['G'];
+    const grandFinal = ['GR'];
+
     document.getElementById('mataMata').innerHTML=`
       <div class="knockout-intro">
         <h2><i class="ti ti-tournament"></i> Mata-Mata</h2>
@@ -690,31 +864,49 @@ function generateKnockoutMatches() {
         <div class="bracket-container" aria-label="Chaveamento da fase final">
           <div class="bracket-column">
             <div class="bracket-stage-title">1ª fase</div>
-            ${gameCard('Jogo A',teamObj(seed(2),2),teamObj(seed(9),9))}
-            ${gameCard('Jogo B',teamObj(seed(4),4),teamObj(seed(7),7))}
-            ${gameCard('Jogo C',teamObj(seed(3),3),teamObj(seed(8),8))}
-            ${gameCard('Jogo D',teamObj(seed(5),5),teamObj(seed(6),6))}
+            ${phase1.map(id => gameCard(id, `Jogo ${id}`, '1ª fase')).join('')}
           </div>
           <div class="bracket-column">
             <div class="bracket-stage-title">Semifinais</div>
-            ${gameCard('Jogo E',winnerObj('A'),winnerObj('B'))}
-            ${gameCard('Jogo F',winnerObj('C'),winnerObj('D'))}
+            ${semis.map((id, i) => gameCard(id, `Jogo ${id}`, 'Semi')).join('')}
           </div>
           <div class="bracket-column">
             <div class="bracket-stage-title">Final do chaveamento</div>
-            ${gameCard('Jogo G',winnerObj('E'),winnerObj('F'))}
+            ${finalBracket.map(id => gameCard(id, `Jogo ${id}`, 'Final')).join('')}
           </div>
           <div class="bracket-column">
             <div class="bracket-stage-title">Grande final</div>
-            ${gameCard('Grande Final',teamObj(seed(1),1),winnerObj('G'),true)}
+            ${grandFinal.map(id => gameCard(id, `Grande Final`, 'Grande Final', true)).join('')}
           </div>
         </div>
-      </div>`;
+      </div>
+      <style>
+        .bracket-aggregate { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border); }
+        .aggregate-label { font-size: 9px; font-weight: 700; color: var(--text2); text-transform: uppercase; margin-bottom: 3px; }
+        .aggregate-score { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 14px; font-weight: 700; }
+        .aggregate-score .winner { color: var(--blue); }
+        .aggregate-sep { color: var(--text2); font-weight: 400; }
+        .aggregate-winner { font-size: 9px; color: var(--green); font-weight: 600; text-align: center; margin-top: 3px; }
+        .bracket-partial { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 10px; color: var(--text2); text-align: center; }
+        .partial-label { font-weight: 700; margin-bottom: 2px; text-transform: uppercase; font-size: 8px; }
+        .partial-scores { display: flex; justify-content: center; gap: 8px; }
+        .bracket-game.decided .bracket-team-line.winner .bracket-team-name { color: var(--blue); }
+      </style>
+      <div class="mm-results-section">
+        <h3 style="margin:32px 0 12px;font-size:15px;display:flex;align-items:center;gap:8px"><i class="ti ti-list-details"></i> Jogos do Mata-Mata</h3>
+        ${renderMataMataResultados()}
+      </div>
+    `;
   }
 
   function renderResultados(){
-    const all=state.matches;
-    let ms; if(filterRes==='todos'){ms=all;} else if(filterRes==='A'){ms=all.filter(m=>tGroup(m.home)==='A'&&tGroup(m.away)==='A');} else if(filterRes==='B'){ms=all.filter(m=>tGroup(m.home)==='B'&&tGroup(m.away)==='B');} else if(filterRes==='mataMata'){ms=all.filter(m=>m.stage==='mataMata');} else {ms=all;}
+    // Jogos do mata-mata ficam só na aba Mata-Mata, não em Resultados
+    const all=state.matches.filter(m=>m.stage!=='mataMata');
+    let ms;
+    if(filterRes==='todos'){ms=all;}
+    else if(filterRes==='A'){ms=all.filter(m=>tGroup(m.home)==='A'&&tGroup(m.away)==='A');}
+    else if(filterRes==='B'){ms=all.filter(m=>tGroup(m.home)==='B'&&tGroup(m.away)==='B');}
+    else{ms=all;}
     if(filterTeam!=='todos'){
       const teamId=Number(filterTeam);
       ms=ms.filter(m=>m.home===teamId||m.away===teamId);
@@ -755,9 +947,488 @@ function generateKnockoutMatches() {
     return `<div class="match-goals-detail">${byTeam}</div>`;
   }
 
+  function renderMataMataResultados(){
+    const phaseOrder = {'1': 1, 'semi': 2, 'final': 3, 'grand': 4};
+    const phaseLabel = {'1':'1ª Fase','semi':'Semifinal','final':'Final do Chaveamento','grand':'Grande Final'};
+    const legLabel = {'ida':'Jogo de Ida','volta':'Jogo de Volta'};
+
+    const mmMatches = state.matches
+      .filter(m => m.stage === 'mataMata' && m.home && m.away)
+      .sort((a, b) => {
+        const po = (phaseOrder[a.phase]||9) - (phaseOrder[b.phase]||9);
+        if(po !== 0) return po;
+        const bo = (a.bracketId||'').localeCompare(b.bracketId||'');
+        if(bo !== 0) return bo;
+        return a.leg === 'ida' ? -1 : 1;
+      });
+
+    if(!mmMatches.length) return `<div class="empty-state"><i class="ti ti-ball-football-off"></i><p>Nenhum jogo registrado no Mata-Mata ainda.</p></div>`;
+
+    // Agrupa por fase
+    const byPhase = {};
+    mmMatches.forEach(m => {
+      const ph = m.phase || '?';
+      if(!byPhase[ph]) byPhase[ph] = [];
+      byPhase[ph].push(m);
+    });
+
+    return Object.entries(byPhase)
+      .sort(([a],[b]) => (phaseOrder[a]||9)-(phaseOrder[b]||9))
+      .map(([phase, matches]) => {
+        const label = phaseLabel[phase] || phase;
+        const rows = matches.map(m => {
+          const homeTeam = tById(m.home);
+          const awayTeam = tById(m.away);
+          const homeName = homeTeam?.name || '—';
+          const awayName = awayTeam?.name || '—';
+          const leg = legLabel[m.leg] || m.leg;
+          const bracket = `Confronto ${m.bracketId}`;
+
+          if(!m.played) return `
+            <div class="match-card">
+              <div class="match-meta">
+                <span class="group-tag" style="background:var(--blue20);color:var(--blue)">${bracket} · ${leg}</span>
+                <span class="badge badge-pend">Pendente${m.date ? ` · ${m.date}` : ''}</span>
+              </div>
+              <div class="match-body">
+                <div class="match-team">${escapeAttr(homeName)}</div>
+                <div class="match-vs">vs</div>
+                <div class="match-team right">${escapeAttr(awayName)}</div>
+              </div>
+            </div>`;
+
+          const w = m.homeScore > m.awayScore ? 'home' : m.homeScore < m.awayScore ? 'away' : 'draw';
+          const hasGoals = Array.isArray(m.goals) && m.goals.length > 0;
+          const isExpanded = expandedMatchId === m.id;
+          const detail = hasGoals && isExpanded ? renderMatchScorersDetail(m) : '';
+          return `
+            <div class="match-card${hasGoals?' clickable':''}" ${hasGoals?`onclick="toggleMmGoals(${m.id})" title="Clique para ver os marcadores"`:''}>
+              <div class="match-meta">
+                <span class="group-tag" style="background:var(--blue20);color:var(--blue)">${bracket} · ${leg}</span>
+                <span class="badge badge-ok">Encerrado${m.date?` · ${m.date}`:''}${hasGoals?` · ${isExpanded?'ocultar gols':'ver gols'}`:''}</span>
+              </div>
+              <div class="match-body">
+                <div class="match-team${w==='home'?' winner':''}">${escapeAttr(homeName)}</div>
+                <div class="score-box">
+                  <span class="score-num${w==='home'?' winner':''}">${m.homeScore}</span>
+                  <span class="score-sep">×</span>
+                  <span class="score-num${w==='away'?' winner':''}">${m.awayScore}</span>
+                </div>
+                <div class="match-team right${w==='away'?' winner':''}">${escapeAttr(awayName)}</div>
+              </div>
+              ${detail}
+            </div>`;
+        }).join('');
+
+        return `<div class="round-section"><div class="round-label">${label}</div>${rows}</div>`;
+      }).join('');
+  }
+
+  function toggleMmGoals(matchId){
+    expandedMatchId = expandedMatchId === matchId ? null : matchId;
+    renderMataMata();
+  }
+  window.toggleMmGoals = toggleMmGoals;
+
   function toggleMatchGoals(matchId){
     expandedMatchId=expandedMatchId===matchId?null:matchId;
     renderResultados();
+  }
+
+  // Função para carregar e gerenciar um confronto específico do Mata-Mata no Admin
+  function loadMataMataBracket(){
+    const select=document.getElementById('mataMata-bracket-select');
+    const detail=document.getElementById('mataMata-bracket-detail');
+    if(!detail) return;
+
+    // Sincroniza o select visualmente se existir
+    if(select) select.value=selectedBracketId;
+
+    const bracketId=selectedBracketId;
+    const mataMataMatches=state.matches.filter(m=>m.stage==='mataMata'&&m.bracketId===bracketId);
+
+    if(mataMataMatches.length===0){
+      detail.innerHTML=`<div class="empty-state"><p>Nenhum jogo encontrado para o confronto ${bracketId}.</p></div>`;
+      return;
+    }
+
+    // Agrupa por leg (ida/volta)
+    const ida=mataMataMatches.find(m=>m.leg==='ida');
+    const volta=mataMataMatches.find(m=>m.leg==='volta');
+
+    const homeTeam=tById(ida?.home);
+    const awayTeam=tById(ida?.away);
+
+    detail.innerHTML=`
+      <div class="mataMata-bracket-form">
+        <h4 style="margin:0 0 12px 0;color:var(--text)">Confronto ${bracketId} - ${ida?.phase || '—'}</h4>
+        <div class="form-row" style="gap:12px;margin-bottom:12px">
+          <div class="form-group" style="flex:1">
+            <label>Time da casa (na Ida)</label>
+            <strong>${homeTeam?.name || 'A definir'}</strong>
+          </div>
+          <div class="form-group" style="flex:1">
+            <label>Time visitante (na Ida)</label>
+            <strong>${awayTeam?.name || 'A definir'}</strong>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          ${renderMataMataLegForm('ida', ida, 'Jogo de Ida', homeTeam, awayTeam, bracketId)}
+          ${renderMataMataLegForm('volta', volta, 'Jogo de Volta', awayTeam, homeTeam, bracketId)}
+        </div>
+
+        ${(ida?.played && volta?.played) ? renderAggregateResult(ida, volta, homeTeam, awayTeam) : ''}
+      </div>
+    `;
+  }
+
+  function renderMataMataLegForm(leg, match, title, homeTeam, awayTeam, bracketId){
+    if(!match) return `<div class="empty-state" style="padding:16px"><p>${title} ainda não gerado.</p></div>`;
+
+    const isPlayed=match.played;
+    const homeScore=match.homeScore;
+    const awayScore=match.awayScore;
+    const matchDate=match.date||'';
+    const homeName=escapeAttr(homeTeam?.name||'Time da casa');
+    const awayName=escapeAttr(awayTeam?.name||'Time visitante');
+
+    const scoreboard = isPlayed ? `
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:10px 0 12px;border-bottom:1px solid var(--border);margin-bottom:12px">
+        <span style="flex:1;text-align:right;font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${homeName}</span>
+        <div style="display:flex;align-items:center;gap:6px;background:var(--bg2);border-radius:8px;padding:6px 14px;flex-shrink:0">
+          <span style="font-size:22px;font-weight:800;color:${homeScore>awayScore?'var(--blue)':'var(--text)'}">${homeScore}</span>
+          <span style="color:var(--text2);font-size:14px">×</span>
+          <span style="font-size:22px;font-weight:800;color:${awayScore>homeScore?'var(--blue)':'var(--text)'}">${awayScore}</span>
+        </div>
+        <span style="flex:1;text-align:left;font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${awayName}</span>
+      </div>` : '';
+
+    // Linhas de gols já cadastrados
+    const homeGoalLines = isPlayed ? formatGoalLines(match, match.home) : '';
+    const awayGoalLines = isPlayed ? formatGoalLines(match, match.away) : '';
+
+    const goalHint = `<p style="font-size:11px;color:var(--text2);margin:4px 0 8px">Uma entrada por linha: <code>Nome do Jogador 2</code> &nbsp;·&nbsp; <code>SR 1</code> para sem registro &nbsp;·&nbsp; <code>GC 1</code> para gol contra</p>`;
+
+    const goalsSection = `
+      <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
+        <h5 style="margin:0 0 6px;font-size:12px;text-transform:uppercase;color:var(--text2);letter-spacing:.5px"><i class="ti ti-shoe-football"></i> Artilharia</h5>
+        ${goalHint}
+        <div class="form-row" style="gap:12px;align-items:flex-start">
+          <div class="form-group" style="flex:1">
+            <label style="font-weight:700">${homeName}</label>
+            <textarea id="mm-${leg}-goals-home" rows="4" placeholder="Jogador 1&#10;SR 1" style="width:100%;resize:vertical;font-size:12px">${homeGoalLines}</textarea>
+          </div>
+          <div class="form-group" style="flex:1">
+            <label style="font-weight:700">${awayName}</label>
+            <textarea id="mm-${leg}-goals-away" rows="4" placeholder="Jogador 2&#10;GC 1" style="width:100%;resize:vertical;font-size:12px">${awayGoalLines}</textarea>
+          </div>
+        </div>
+        <div id="mm-${leg}-goals-preview" style="font-size:12px;color:var(--text2);min-height:20px;margin-top:4px"></div>
+        <div class="form-row" style="margin-top:8px">
+          <button class="btn" onclick="previewMmLegGoals('${bracketId}','${leg}')" style="flex:1;background:var(--bg2);color:var(--text)">Pré-visualizar</button>
+          <button class="btn" onclick="saveMmLegGoals('${bracketId}','${leg}')" style="flex:1">${isPlayed?'Salvar artilharia':'—'}</button>
+        </div>
+      </div>`;
+
+    return `
+      <div class="panel-card" style="border-left:3px solid ${isPlayed?'var(--green)':'var(--blue)'}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${isPlayed?'8':'12'}px">
+          <h4 style="margin:0">${title}</h4>
+          <span class="badge ${isPlayed?'badge-ok':'badge-pend'}">${isPlayed?'Realizado':'Pendente'}</span>
+        </div>
+        ${scoreboard}
+        <div class="form-group" style="margin-bottom:10px">
+          <label>Data do jogo</label>
+          <input type="text" id="mm-${leg}-date" placeholder="DD/MM" value="${escapeAttr(matchDate)}" style="width:90px">
+        </div>
+        <div class="form-row" style="margin-bottom:8px">
+          <div class="form-group" style="flex:1">
+            <label>${homeName}</label>
+            <input type="number" min="0" class="form-input" id="mm-${leg}-home-score" value="${isPlayed?homeScore:''}" placeholder="Gols" style="width:80px">
+          </div>
+          <div class="form-group" style="width:40px;display:flex;align-items:center;justify-content:center;color:var(--text2)">×</div>
+          <div class="form-group" style="flex:1">
+            <label>${awayName}</label>
+            <input type="number" min="0" class="form-input" id="mm-${leg}-away-score" value="${isPlayed?awayScore:''}" placeholder="Gols" style="width:80px">
+          </div>
+        </div>
+        <div class="form-row">
+          <button class="btn" onclick="saveMataMataLeg('${bracketId}','${leg}')" style="flex:1">${isPlayed?'Atualizar placar':'Salvar placar'}</button>
+          ${isPlayed?`<button class="btn" onclick="clearMataMataLeg('${bracketId}','${leg}')" style="flex:1;background:var(--red)">Limpar</button>`:''}
+        </div>
+        ${isPlayed ? goalsSection : ''}
+      </div>
+    `;
+  }
+
+  function renderAggregateResult(ida, volta, homeTeam, awayTeam){
+    const aggHome=(ida.homeScore||0)+(volta.awayScore||0);
+    const aggAway=(ida.awayScore||0)+(volta.homeScore||0);
+    const homeWins=aggHome>aggAway, awayWins=aggAway>aggHome;
+
+    let winner='Empate';
+    let winnerClass='';
+    if(homeWins){ winner=homeTeam?.name||'Time da casa'; winnerClass='winner'; }
+    else if(awayWins){ winner=awayTeam?.name||'Time visitante'; winnerClass='winner'; }
+
+    const homeName=escapeAttr(homeTeam?.name||'—');
+    const awayName=escapeAttr(awayTeam?.name||'—');
+
+    return `
+      <div class="panel-card" style="border-left:3px solid var(--gold);margin-top:16px;background:rgba(250,199,117,0.05)">
+        <h4 style="margin:0 0 14px 0"><i class="ti ti-trophy"></i> Resultado agregado</h4>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;font-size:12px">
+          <div style="background:var(--bg2);border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Jogo de Ida</div>
+            <div style="display:flex;align-items:center;justify-content:center;gap:8px">
+              <span style="font-weight:700;font-size:11px;flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${homeName}</span>
+              <span style="font-size:18px;font-weight:800;background:var(--bg);border-radius:6px;padding:2px 10px;white-space:nowrap">${ida.homeScore} × ${ida.awayScore}</span>
+              <span style="font-weight:700;font-size:11px;flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${awayName}</span>
+            </div>
+          </div>
+          <div style="background:var(--bg2);border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;margin-bottom:6px">Jogo de Volta</div>
+            <div style="display:flex;align-items:center;justify-content:center;gap:8px">
+              <span style="font-weight:700;font-size:11px;flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${awayName}</span>
+              <span style="font-size:18px;font-weight:800;background:var(--bg);border-radius:6px;padding:2px 10px;white-space:nowrap">${volta.homeScore} × ${volta.awayScore}</span>
+              <span style="font-weight:700;font-size:11px;flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${homeName}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:center;gap:16px;padding:12px;background:var(--bg2);border-radius:8px;margin-bottom:12px">
+          <div style="text-align:center;flex:1">
+            <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:2px">${homeName}</div>
+            <div style="font-size:32px;font-weight:800;color:${homeWins?'var(--blue)':'var(--text)'}">${aggHome}</div>
+          </div>
+          <div style="font-size:13px;color:var(--text2);font-weight:700">AGREGADO</div>
+          <div style="text-align:center;flex:1">
+            <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:2px">${awayName}</div>
+            <div style="font-size:32px;font-weight:800;color:${awayWins?'var(--blue)':'var(--text)'}">${aggAway}</div>
+          </div>
+        </div>
+
+        <div style="padding:8px;background:var(--bg);border-radius:6px;text-align:center;border:1px solid var(--border)">
+          <i class="ti ti-award" style="color:var(--gold)"></i>
+          <span style="font-weight:700"> Classificado: </span>
+          <span style="font-weight:800;color:${winnerClass?'var(--blue)':'var(--text2)'}">${escapeAttr(winner)}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  // Remove undefined de todos os campos dos matches antes de salvar no Firebase
+  // (Firebase rejeita undefined; usa null como valor vazio)
+  function sanitizeMatches(matches){
+    return matches.map(m=>{
+      const s={};
+      const defaults={id:0,home:null,away:null,homeScore:null,awayScore:null,played:false,round:0,stage:null,bracketId:null,leg:null,phase:null,dependsOn:null,date:null,goals:[]};
+      for(const key of Object.keys({...defaults,...m})){
+        const val=m[key]!==undefined?m[key]:defaults[key]!==undefined?defaults[key]:null;
+        s[key]=val===undefined?null:val;
+      }
+      // garante que arrays não contenham undefined
+      if(Array.isArray(s.goals)) s.goals=s.goals.filter(Boolean);
+      if(Array.isArray(s.dependsOn)) s.dependsOn=s.dependsOn.filter(v=>v!=null);
+      else if(s.dependsOn==null) delete s.dependsOn; // omite se nulo para economizar espaço
+      if(s.stage==null) delete s.stage;
+      if(s.bracketId==null) delete s.bracketId;
+      if(s.leg==null) delete s.leg;
+      if(s.phase==null) delete s.phase;
+      if(s.date==null) delete s.date;
+      return s;
+    });
+  }
+
+  function buildMmLegGoalPayload(bracketId, leg){
+    const matchIndex = state.matches.findIndex(m => m.stage==='mataMata' && m.bracketId===bracketId && m.leg===leg);
+    const match = state.matches[matchIndex];
+    if(!match) return {errors:['Jogo não encontrado.']};
+    const home = parseTeamGoalLines(match.home, document.getElementById(`mm-${leg}-goals-home`)?.value);
+    const away = parseTeamGoalLines(match.away, document.getElementById(`mm-${leg}-goals-away`)?.value);
+    const goals = [...home.entries, ...away.entries];
+    return {matchIndex, match, home, away, goals, errors:[...home.errors, ...away.errors]};
+  }
+
+  function previewMmLegGoals(bracketId, leg){
+    const payload = buildMmLegGoalPayload(bracketId, leg);
+    const el = document.getElementById(`mm-${leg}-goals-preview`);
+    if(!el) return;
+    if(payload.errors?.length){
+      el.innerHTML=`<div style="color:var(--red)"><strong>Corrija antes de enviar:</strong><ul style="margin:4px 0 0 16px">${payload.errors.map(e=>`<li>${escapeAttr(e)}</li>`).join('')}</ul></div>`;
+      return;
+    }
+    if(!payload.goals.length){
+      el.innerHTML=`<span style="color:var(--text2)">Nenhum gol para registrar.</span>`;
+      return;
+    }
+    const rows = payload.goals.map(g=>`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>${escapeAttr(goalDisplayName(g))} <span style="color:var(--text2);font-size:10px">(${escapeAttr(tName(g.teamId))})</span></span><strong>${g.goals} gol${g.goals>1?'s':''}</strong></div>`).join('');
+    el.innerHTML=`<div style="background:var(--bg2);border-radius:6px;padding:8px;margin-top:4px">${rows}</div>`;
+  }
+  window.previewMmLegGoals = previewMmLegGoals;
+
+  async function saveMmLegGoals(bracketId, leg){
+    const payload = buildMmLegGoalPayload(bracketId, leg);
+    if(payload.errors?.length){
+      previewMmLegGoals(bracketId, leg);
+      showToast('Corrija os erros antes de salvar.');
+      return;
+    }
+    const btn = document.querySelector(`button[onclick="saveMmLegGoals('${bracketId}','${leg}')"]`);
+    try{
+      if(btn){btn.disabled=true;btn.textContent='Salvando...';}
+
+      // Atualiza contadores de gols dos jogadores (desfaz gols antigos, aplica novos)
+      const players = state.players.map(p=>({...p, goals:Number(p.goals)||0}));
+      if(Array.isArray(payload.match.goals) && payload.match.goals.length) applyGoalDelta(players, payload.match.goals, -1);
+      applyGoalDelta(players, payload.goals, 1);
+
+      // Salva no Firebase
+      const matchRef = ref(db, `campeonato/matches/${payload.matchIndex}`);
+      await update(matchRef, {goals: payload.goals});
+      await set(ref(db,'campeonato/players'), players);
+
+      // Atualiza state local
+      state.matches[payload.matchIndex] = {...payload.match, goals: payload.goals};
+      state.players = players;
+
+      showToast('Artilharia salva!');
+      renderMataMata();
+      loadMataMataBracket();
+    }catch(error){
+      console.error('Erro ao salvar artilharia do mata-mata:', error);
+      showToast(error?.message||'Erro ao salvar artilharia');
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent='Salvar artilharia';}
+    }
+  }
+  window.saveMmLegGoals = saveMmLegGoals;
+
+  async function saveMataMataLeg(bracketId, leg){
+    const btn=document.querySelector(`button[onclick="saveMataMataLeg('${bracketId}','${leg}')"]`);
+    try{
+      if(btn){btn.disabled=true;btn.textContent='Salvando...';}
+      const homeInput=document.getElementById(`mm-${leg}-home-score`);
+      const awayInput=document.getElementById(`mm-${leg}-away-score`);
+      const dateInput=document.getElementById(`mm-${leg}-date`);
+      const homeScoreRaw=homeInput?.value;
+      const awayScoreRaw=awayInput?.value;
+      if(homeScoreRaw===''||homeScoreRaw===null||homeScoreRaw===undefined||awayScoreRaw===''||awayScoreRaw===null||awayScoreRaw===undefined){
+        return showToast('Informe o placar dos dois times');
+      }
+      const homeScore=parseInt(homeScoreRaw);
+      const awayScore=parseInt(awayScoreRaw);
+      if(isNaN(homeScore)||isNaN(awayScore)){
+        return showToast('Placar inválido');
+      }
+      const matchDate=(dateInput?.value||'').trim();
+
+      const matchIndex=state.matches.findIndex(m=>m.stage==='mataMata'&&m.bracketId===bracketId&&m.leg===leg);
+      if(matchIndex===-1) return showToast('Jogo não encontrado');
+
+      // Aplica localmente
+      state.matches[matchIndex].homeScore=homeScore;
+      state.matches[matchIndex].awayScore=awayScore;
+      state.matches[matchIndex].played=true;
+      if(matchDate) state.matches[matchIndex].date=matchDate;
+
+      // Verifica se ambos os jogos estão realizados e avança o vencedor
+      const idaM=state.matches.find(m=>m.stage==='mataMata'&&m.bracketId===bracketId&&m.leg==='ida');
+      const voltaM=state.matches.find(m=>m.stage==='mataMata'&&m.bracketId===bracketId&&m.leg==='volta');
+      if(idaM&&voltaM&&idaM.played&&voltaM.played){
+        advanceWinner(bracketId);
+      }
+
+      // Persiste todos os matches no Firebase (sem undefined)
+      await set(ref(db,'campeonato/matches'), sanitizeMatches(state.matches));
+      renderMataMata();
+      loadMataMataBracket();
+      showToast('Resultado salvo!');
+    }catch(error){
+      console.error('Erro ao salvar jogo do mata-mata:', error);
+      showToast(error?.message||'Erro ao salvar resultado');
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent=state.matches.find(m=>m.stage==='mataMata'&&m.bracketId===bracketId&&m.leg===leg)?.played?'Atualizar resultado':'Salvar resultado';}
+    }
+  }
+
+  // Avança o vencedor para a próxima fase
+  function advanceWinner(bracketId){
+    const ida=state.matches.find(m=>m.stage==='mataMata'&&m.bracketId===bracketId&&m.leg==='ida');
+    const volta=state.matches.find(m=>m.stage==='mataMata'&&m.bracketId===bracketId&&m.leg==='volta');
+    if(!ida || !volta) return;
+
+    const homeTeamId=ida.home;
+    const awayTeamId=ida.away;
+
+    const aggHome=(ida.homeScore||0)+(volta.awayScore||0);
+    const aggAway=(ida.awayScore||0)+(volta.homeScore||0);
+
+    let winnerId=null;
+    if(aggHome>aggAway) winnerId=homeTeamId;
+    else if(aggAway>aggHome) winnerId=awayTeamId;
+    else return; // empate - não avança automaticamente (pênaltis)
+
+    // Mapeia qual bracket recebe o vencedor e qual posição (home ou away)
+    // O vencedor de G vai para GR como VISITANTE (away), pois o 1º colocado é o mandante
+    const nextBracketMap={
+      'A': { next:'E', pos:'home' },
+      'B': { next:'E', pos:'away' },
+      'C': { next:'F', pos:'home' },
+      'D': { next:'F', pos:'away' },
+      'E': { next:'G', pos:'home' },
+      'F': { next:'G', pos:'away' },
+      'G': { next:'GR', pos:'away' }  // 1º colocado já é o home do GR
+    };
+
+    const mapping=nextBracketMap[bracketId];
+    if(!mapping) return;
+    const nextBracketId=mapping.next;
+    const pos=mapping.pos;
+
+    // Encontra os jogos (ida e volta) do próximo bracket
+    const nextMatches=state.matches.filter(m=>m.stage==='mataMata'&&m.bracketId===nextBracketId);
+    if(nextMatches.length!==2) return;
+
+    nextMatches.forEach(nextMatch => {
+      if(pos==='home'){
+        nextMatch.home=winnerId;
+      } else {
+        nextMatch.away=winnerId;
+      }
+    });
+
+    // Se o próximo bracket agora tem ambos os times definidos, garante mando invertido na volta
+    const nextIda=nextMatches.find(m=>m.leg==='ida');
+    const nextVolta=nextMatches.find(m=>m.leg==='volta');
+    if(nextIda && nextVolta && nextIda.home && nextIda.away){
+      // Garante que o mando na volta seja invertido em relação à ida
+      nextVolta.home=nextIda.away;
+      nextVolta.away=nextIda.home;
+    }
+  }
+
+  async function clearMataMataLeg(bracketId, leg){
+    if(!confirm('Tem certeza que deseja limpar este resultado?')) return;
+    try{
+      const matchIndex=state.matches.findIndex(m=>m.stage==='mataMata'&&m.bracketId===bracketId&&m.leg===leg);
+      if(matchIndex===-1) return showToast('Jogo não encontrado');
+
+      state.matches[matchIndex].homeScore=null;
+      state.matches[matchIndex].awayScore=null;
+      state.matches[matchIndex].played=false;
+
+      // Persiste no Firebase (sem undefined)
+      await set(ref(db,'campeonato/matches'), sanitizeMatches(state.matches));
+      renderMataMata();
+      loadMataMataBracket();
+      showToast('Resultado limpo!');
+    }catch(error){
+      console.error('Erro ao limpar resultado do mata-mata:', error);
+      showToast(error?.message||'Erro ao limpar resultado');
+    }
   }
 
   function renderTimes(){
@@ -803,7 +1474,7 @@ function generateKnockoutMatches() {
   }
 
   function renderEstatisticas(){
-    const played=state.matches.filter(m=>m.played);
+    const played=state.matches.filter(m=>m.played&&m.stage!=='mataMata');
     const totalGols=played.reduce((s,m)=>s+m.homeScore+m.awayScore,0);
     const topMatch=played.reduce((b,m)=>{const t=m.homeScore+m.awayScore;return t>b.g?{g:t,label:`${tName(m.home)} ${m.homeScore}×${m.awayScore} ${tName(m.away)}`}:b;},{g:0,label:''});
     const top=[...state.players].sort((a,b)=>b.goals-a.goals).filter(p=>p.goals>0).slice(0,10);
@@ -827,15 +1498,16 @@ function generateKnockoutMatches() {
       document.getElementById('admin').innerHTML=`<div class="admin-gate"><div class="lock-icon"><i class="ti ti-lock"></i></div><h3>Acesso restrito</h3><input type="password" id="pw-input" placeholder="Senha" style="width:100%;margin-bottom:10px" onkeydown="if(event.key==='Enter')tryLogin()"/><button class="btn btn-full" onclick="tryLogin()">Entrar</button><p id="pw-err" style="color:#d63b3a;margin-top:10px"></p></div>`;
       return;
     }
-    const pendingMatches = state.matches.filter(m => !m.played).sort((a,b)=>a.round-b.round);
-    const playedMatches = state.matches.filter(m => m.played).sort((a,b)=>b.round-a.round);
-    const allMatchesForGoals = [...state.matches].sort((a,b)=>a.played-b.played||a.round-b.round||a.id-b.id);
+    const pendingMatches = state.matches.filter(m => !m.played && m.stage!=='mataMata').sort((a,b)=>a.round-b.round);
+    const playedMatches = state.matches.filter(m => m.played && m.stage!=='mataMata').sort((a,b)=>b.round-a.round);
+    const allMatchesForGoals = [...state.matches].filter(m=>m.stage!=='mataMata').sort((a,b)=>a.played-b.played||a.round-b.round||a.id-b.id);
     const firstMatchForGoals = allMatchesForGoals[0];
 
     const adminMenu=`
       <div class="admin-menu">
         <button class="admin-menu-btn ${adminSection==='jogos'?'active':''}" onclick="setAdminSection('jogos')"><i class="ti ti-calendar-event"></i> Jogos</button>
         <button class="admin-menu-btn ${adminSection==='gols'?'active':''}" onclick="setAdminSection('gols')"><i class="ti ti-shoe-football"></i> Gols/Artilharia</button>
+        <button class="admin-menu-btn ${adminSection==='mataMata'?'active':''}" onclick="setAdminSection('mataMata')"><i class="ti ti-tournament"></i> Mata-Mata</button>
         <button class="admin-menu-btn ${adminSection==='times'?'active':''}" onclick="setAdminSection('times')"><i class="ti ti-users-group"></i> Gerenciar Times</button>
         <button class="admin-menu-btn ${adminSection==='site'?'active':''}" onclick="setAdminSection('site')"><i class="ti ti-settings"></i> Gerenciar Site</button>
       </div>`;
@@ -926,6 +1598,44 @@ function generateKnockoutMatches() {
         <button class="btn" onclick="applyOfficialPlayers()">Atualizar jogadores oficiais</button>
       </div>`;
 
+    // Seção Mata-Mata no Admin
+    // Monta as opções do select com nomes dos times
+    const phaseLabel={1:'1ª Fase',semi:'Semifinal',final:'Final do Chaveamento',grand:'Grande Final'};
+    const bracketIds=['A','B','C','D','E','F','G','GR'];
+    const bracketSelectOptions=bracketIds.map(bid=>{
+      const idaM=state.matches.find(m=>m.stage==='mataMata'&&m.bracketId===bid&&m.leg==='ida');
+      const phase=idaM?phaseLabel[idaM.phase]||idaM.phase:'—';
+      const hasTeams=idaM&&idaM.home&&idaM.away;
+      const teamsLabel=hasTeams?` · ${tName(idaM.home)} × ${tName(idaM.away)}`:'';
+      const statusDot=idaM?.played?'✓ ':' ';
+      return `<option value="${bid}" ${bid===selectedBracketId?'selected':''}>${statusDot}${bid} — ${phase}${teamsLabel}</option>`;
+    }).join('');
+
+    const hasMataMatMatches=state.matches.some(m=>m.stage==='mataMata');
+
+    const mataMataSection=`
+      <div class="panel-card">
+        <h3><i class="ti ti-magic-wand"></i> Gerar/Atualizar chaveamento automático</h3>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Gera os confrontos da 1ª fase baseados na classificação atual. ${hasMataMatMatches?'<strong>Chaveamento já gerado.</strong> Clique para recriar e atualizar os times da 1ª fase (resultados já lançados serão mantidos).':''}</p>
+        <button class="btn" onclick="gerarChaveamento()">${hasMataMatMatches?'Recriar chaveamento':'Gerar chaveamento'}</button>
+      </div>
+      <div class="panel-card">
+        <h3><i class="ti ti-tournament"></i> Registrar resultados do Mata-Mata</h3>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:10px">Cada confronto tem Ida e Volta. O vencedor (placar agregado) avança automaticamente para a fase seguinte.</p>
+        ${hasMataMatMatches?`
+        <div class="form-row" style="margin-bottom:12px">
+          <div class="form-group" style="flex:1;min-width:200px">
+            <label>Selecione o confronto</label>
+            <select id="mataMata-bracket-select" onchange="setSelectedBracket(this.value)">
+              ${bracketSelectOptions}
+            </select>
+          </div>
+        </div>
+        <div id="mataMata-bracket-detail" style="min-height:80px">
+          <div class="empty-state"><p>Selecione um confronto acima para registrar os resultados.</p></div>
+        </div>`:`<div class="empty-state"><i class="ti ti-tournament"></i><p>Gere o chaveamento primeiro clicando no botão acima.</p></div>`}
+      </div>`;
+
     const siteSection=`
       <div class="panel-card">
         <h3><i class="ti ti-ad-2"></i> Banner de anúncio</h3>
@@ -938,7 +1648,7 @@ function generateKnockoutMatches() {
         </div>
       </div>`;
 
-    const sectionContent={jogos:jogosSection,gols:golsSection,times:timesSection,site:siteSection}[adminSection]||jogosSection;
+    const sectionContent={jogos:jogosSection,gols:golsSection,mataMata:mataMataSection,times:timesSection,site:siteSection}[adminSection]||jogosSection;
     document.getElementById('admin').innerHTML=`
       <div class="admin-panel">
         <div class="admin-header"><div class="admin-status"><i class="ti ti-shield-check"></i> Modo administrador</div><button class="logout-btn" onclick="logout()">Sair</button></div>
@@ -948,6 +1658,7 @@ function generateKnockoutMatches() {
     if(adminSection==='gols')updateGoalPlayers();
     if(adminSection==='jogos')updateMatchGoalTeams();
     if(adminSection==='times')updateRemovePlayers();
+    if(adminSection==='mataMata'&&state.matches.some(m=>m.stage==='mataMata'))loadMataMataBracket();
   }
 
   // 4. FUNÇÕES DE AÇÃO COM FIREBASE APLICADO
@@ -1385,6 +2096,19 @@ async function resetMatch(){
     }
   }
 
+  async function gerarChaveamento(){
+    try{
+      generateKnockoutMatches(true);
+      await set(ref(db,'campeonato/matches'), sanitizeMatches(state.matches));
+      renderMataMata();
+      renderAdmin();
+      showToast('Chaveamento gerado/atualizado!');
+    }catch(error){
+      console.error('Erro ao gerar chaveamento:', error);
+      showToast(error?.message||'Erro ao gerar chaveamento');
+    }
+  }
+
   function showToast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2500);}
   
   function openTeam(id){selectedTeamId=id;renderTimes();}
@@ -1427,6 +2151,11 @@ async function resetMatch(){
   window.addBulkGoals = addBulkGoals;
   window.openTeam = openTeam;
   window.backToTeams = backToTeams;
+  window.saveMataMataLeg = saveMataMataLeg;
+  window.clearMataMataLeg = clearMataMataLeg;
+  window.loadMataMataBracket = loadMataMataBracket;
+  window.gerarChaveamento = gerarChaveamento;
+  window.setSelectedBracket = function(val){ selectedBracketId = val; loadMataMataBracket(); };
 
 </script>
 </body>
