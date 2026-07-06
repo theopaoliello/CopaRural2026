@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recebimento — Nuvem Voadora</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .scanbox { font-size: 22px; padding: 14px 16px; letter-spacing: 1px; }
+    #feedback { font-size: 18px; font-weight: 600; }
+    .prog { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .chip { padding: 4px 10px; border-radius: 6px; font-size: 13px; border: 1px solid var(--borda); }
+    .chip.RECEBIDA, .chip.CONSOLIDADA { background: #d7f0e0; border-color: #9bd7b3; }
+    .chip.AGUARDANDO { background: #fff; color: var(--suave); }
+    .liberou { background: var(--ok); color: #fff; padding: 14px; border-radius: 8px; font-size: 20px; text-align: center; }
+    .flash { animation: fl .5s; }
+    @keyframes fl { from { transform: scale(1.02); } to { transform: scale(1); } }
+  </style>
+</head>
+<body>
+  <header class="topo">
+    <h1>☁️ Nuvem Voadora — HUB</h1>
+    <nav>
+      <a href="index.html">Início</a>
+      <a href="recebimento.html">Recebimento</a>
+      <a href="separacao.html">Separação</a>
+      <a href="atrasos.html">Atrasos</a>
+      <a href="nova-os.html">Nova OS</a>
+      <a href="lojas.html">Lojas</a>
+    </nav>
+  </header>
+  <main>
+    <h2>Estação de Recebimento</h2>
+    <div class="card">
+      <div class="linha">
+        <div style="flex:3;">
+          <label>Escaneie o código de barras da parte</label>
+          <input id="scan" class="scanbox mono" autocomplete="off" placeholder="NV-2600001-A" autofocus>
+        </div>
+        <div style="flex:1;">
+          <label>Operador</label>
+          <input id="operador" placeholder="seu nome">
+        </div>
+      </div>
+    </div>
+
+    <div id="resultado"></div>
+
+    <div class="card">
+      <h2>Últimos scans</h2>
+      <table>
+        <thead><tr><th>Hora</th><th>Código</th><th>Resultado</th><th>OS</th></tr></thead>
+        <tbody id="log"><tr><td colspan="4" class="suave">Nenhum scan ainda.</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    const scan = document.getElementById('scan');
+    const operadorEl = document.getElementById('operador');
+    operadorEl.value = localStorage.getItem('operador') || '';
+    operadorEl.onchange = () => localStorage.setItem('operador', operadorEl.value);
+
+    const logRows = [];
+
+    function progressoOS(os) {
+      if (!os) return '';
+      const chips = os.partes.map((p) =>
+        `<span class="chip ${p.status}">${p.letra} · ${esc(p.loja_nome)} · ${p.status}</span>`).join('');
+      return `<div class="prog">${chips}</div>`;
+    }
+
+    function render(r) {
+      const cls = r.resultado === 'OK' ? 'ok' : 'erro';
+      let html = `<div class="card flash">`;
+      if (r.liberou) {
+        html += `<div class="liberou">✅ OS ${r.os.codigo} COMPLETA — liberada para separação!</div>`;
+      }
+      html += `<div id="feedback" class="msg ${cls}">${r.resultado === 'OK' ? '✔' : (r.resultado === 'DUPLICADO' ? '⚠' : '✖')} ${esc(r.mensagem)}</div>`;
+      if (r.os) {
+        html += `<div><b class="mono">${r.os.codigo}</b> — ${esc(r.os.cliente_nome)} — ${r.os.recebidas}/${r.os.total_partes} partes ${badge(r.os.status)}</div>`;
+        html += progressoOS(r.os);
+      }
+      html += `</div>`;
+      document.getElementById('resultado').innerHTML = html;
+    }
+
+    function addLog(codigo, r) {
+      const os = r.os ? r.os.codigo : '—';
+      logRows.unshift(`<tr>
+        <td class="suave">${new Date().toLocaleTimeString('pt-BR')}</td>
+        <td class="mono">${esc(codigo)}</td>
+        <td><span class="badge ${r.resultado === 'OK' ? 'RECEBIDA' : 'RECUSADA'}">${r.resultado}</span></td>
+        <td class="mono">${os}</td></tr>`);
+      document.getElementById('log').innerHTML = logRows.slice(0, 15).join('');
+    }
+
+    async function processar(codigo) {
+      try {
+        const r = await api('/recebimento/scan', {
+          method: 'POST',
+          body: JSON.stringify({ codigo, operador: operadorEl.value || null }),
+        });
+        render(r);
+        addLog(codigo, r);
+        if (r.resultado === 'OK') beep(880); else beep(220);
+      } catch (e) {
+        render({ resultado: 'ERRO', mensagem: e.message });
+      }
+    }
+
+    let audioCtx;
+    function beep(freq) {
+      try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+        o.frequency.value = freq; o.connect(g); g.connect(audioCtx.destination);
+        g.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        o.start(); o.stop(audioCtx.currentTime + 0.12);
+      } catch (_) { /* audio opcional */ }
+    }
+
+    // Scanner USB "digita" o codigo + Enter.
+    scan.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        const codigo = scan.value.trim();
+        scan.value = '';
+        if (codigo) processar(codigo);
+        scan.focus();
+      }
+    });
+    // Mantem o foco no campo de scan.
+    document.addEventListener('click', () => scan.focus());
+  </script>
+</body>
+</html>

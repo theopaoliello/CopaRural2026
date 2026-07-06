@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nova OS — Nuvem Voadora</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topo">
+    <h1>☁️ Nuvem Voadora — HUB</h1>
+    <nav>
+      <a href="index.html">Início</a>
+      <a href="recebimento.html">Recebimento</a>
+      <a href="separacao.html">Separação</a>
+      <a href="atrasos.html">Atrasos</a>
+      <a href="nova-os.html">Nova OS</a>
+      <a href="lojas.html">Lojas</a>
+    </nav>
+  </header>
+  <main>
+    <h2>Abrir nova Ordem de Serviço</h2>
+    <div id="msg"></div>
+
+    <form id="form">
+      <div class="card">
+        <div class="linha">
+          <div><label>Cliente *</label><input id="cliente_nome" required></div>
+          <div style="max-width:120px;"><label>UF</label><input id="cliente_uf" maxlength="2"></div>
+          <div style="max-width:160px;"><label>CEP</label><input id="cliente_cep"></div>
+        </div>
+        <div class="linha">
+          <div><label>Fechamento da janela (opcional)</label><input id="janela_fecha_em" type="date"></div>
+          <div><label>Escaninho (opcional)</label><input id="escaninho" placeholder="ex: A-12"></div>
+        </div>
+        <p class="suave">Sem data de janela, o prazo de cada parte usa a janela padrão da loja (7/15 dias).</p>
+      </div>
+
+      <div class="card">
+        <div class="linha" style="align-items:center;">
+          <h2 style="margin:0;">Partes (lojas)</h2>
+          <div style="flex:0;"><button type="button" class="sec" id="addParte">+ Parte</button></div>
+        </div>
+        <div id="partes"></div>
+        <p class="suave">Uma OS precisa de ao menos 2 lojas distintas (consolidação).</p>
+      </div>
+
+      <button type="submit">Abrir OS e gerar etiquetas</button>
+    </form>
+
+    <div id="resultado"></div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    let lojas = [];
+    const partesEl = document.getElementById('partes');
+
+    function opcoesLojas() {
+      return lojas.map((l) => `<option value="${l.id}">${esc(l.nome)}${l.cidade_uf ? ' — ' + esc(l.cidade_uf) : ''} (janela ${l.janela_dias}d)</option>`).join('');
+    }
+
+    function addParte() {
+      const div = document.createElement('div');
+      div.className = 'card';
+      div.style.background = '#fafbfe';
+      div.innerHTML = `
+        <div class="linha" style="align-items:flex-end;">
+          <div><label>Loja</label><select class="loja">${opcoesLojas()}</select></div>
+          <div style="flex:0;"><button type="button" class="sec mini rm">remover</button></div>
+        </div>
+        <label>Itens (um por linha — ex: "2x Pikachu")</label>
+        <textarea class="itens" placeholder="1x Elsa - Snow Queen&#10;2x Mickey Mouse"></textarea>`;
+      div.querySelector('.rm').onclick = () => div.remove();
+      partesEl.appendChild(div);
+    }
+
+    function parseItens(txt) {
+      return txt.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+        const m = /^(\d+)\s*x\s*(.+)$/i.exec(l);
+        return m ? { quantidade: Number(m[1]), descricao: m[2].trim() } : { quantidade: 1, descricao: l };
+      });
+    }
+
+    document.getElementById('addParte').onclick = addParte;
+
+    document.getElementById('form').onsubmit = async (ev) => {
+      ev.preventDefault();
+      document.getElementById('msg').innerHTML = '';
+      const partes = [...partesEl.querySelectorAll('.card')].map((c) => ({
+        loja_id: Number(c.querySelector('.loja').value),
+        itens: parseItens(c.querySelector('.itens').value),
+      }));
+      const dados = {
+        cliente: {
+          nome: document.getElementById('cliente_nome').value,
+          uf: document.getElementById('cliente_uf').value || null,
+          cep: document.getElementById('cliente_cep').value || null,
+        },
+        janela_fecha_em: document.getElementById('janela_fecha_em').value || null,
+        escaninho: document.getElementById('escaninho').value || null,
+        partes,
+      };
+      try {
+        const os = await api('/os', { method: 'POST', body: JSON.stringify(dados) });
+        mostrarResultado(os);
+        document.getElementById('form').reset();
+        partesEl.innerHTML = ''; addParte(); addParte();
+      } catch (e) {
+        document.getElementById('msg').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
+        window.scrollTo(0, 0);
+      }
+    };
+
+    function mostrarResultado(os) {
+      const links = os.partes.map((p) =>
+        `<li>Parte <b>${p.letra}</b> — ${esc(p.loja_nome)} —
+         <a href="etiqueta.html?codigo=${p.codigo_barras}" target="_blank" class="mono">${p.codigo_barras}</a>
+         (imprimir etiqueta)</li>`).join('');
+      document.getElementById('resultado').innerHTML = `
+        <div class="card">
+          <div class="msg ok">OS <b class="mono">${os.codigo}</b> criada com ${os.total_partes} partes.</div>
+          <p>Etiquetas para as lojas imprimirem:</p>
+          <ul>${links}</ul>
+          <a class="botao" href="os.html?codigo=${os.codigo}"><button class="sec">Ver OS</button></a>
+        </div>`;
+      document.getElementById('resultado').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    (async () => {
+      lojas = await api('/lojas');
+      addParte(); addParte();
+    })().catch((e) => {
+      document.getElementById('msg').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
+    });
+  </script>
+</body>
+</html>

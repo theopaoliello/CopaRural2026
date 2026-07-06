@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Separar OS — Nuvem Voadora</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .scanbox { font-size: 22px; padding: 14px 16px; letter-spacing: 1px; }
+    .parte-row { display: flex; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--borda); border-radius: 8px; margin-bottom: 8px; }
+    .parte-row.CONSOLIDADA { background: #d7f0e0; border-color: #9bd7b3; }
+    .parte-row .letra { font-size: 28px; font-weight: 800; width: 40px; text-align: center; }
+    .parte-row .check { margin-left: auto; font-size: 22px; }
+    .alerta-box { background: var(--alerta); color: #fff; padding: 16px; border-radius: 8px; font-size: 20px; text-align: center; margin: 10px 0; }
+    .completo-box { background: var(--ok); color: #fff; padding: 16px; border-radius: 8px; font-size: 20px; text-align: center; }
+    .flash { animation: fl .5s; } @keyframes fl { from { transform: scale(1.02); } to { transform: scale(1); } }
+  </style>
+</head>
+<body>
+  <header class="topo">
+    <h1>☁️ Nuvem Voadora — HUB</h1>
+    <nav>
+      <a href="index.html">Início</a>
+      <a href="recebimento.html">Recebimento</a>
+      <a href="separacao.html">Separação</a>
+      <a href="atrasos.html">Atrasos</a>
+      <a href="nova-os.html">Nova OS</a>
+      <a href="lojas.html">Lojas</a>
+    </nav>
+  </header>
+  <main id="conteudo"><p class="suave">Carregando…</p></main>
+
+  <script src="app.js"></script>
+  <script>
+    const codigoOS = qs('codigo');
+    let osAtual = null;
+
+    function render(os, feedback) {
+      osAtual = os;
+      const consolidadas = os.partes.filter((p) => p.status === 'CONSOLIDADA').length;
+      const completo = consolidadas === os.total_partes;
+      const partes = os.partes.map((p) => `
+        <div class="parte-row ${p.status}">
+          <div class="letra">${p.letra}</div>
+          <div>
+            <div>${esc(p.loja_nome)}</div>
+            <div class="suave">${p.itens.map((i) => `${i.quantidade}× ${esc(i.descricao)}`).join(', ') || '—'}</div>
+          </div>
+          <div class="check">${p.status === 'CONSOLIDADA' ? '✅' : '⬜'}</div>
+        </div>`).join('');
+
+      document.getElementById('conteudo').innerHTML = `
+        <h2 class="mono">${os.codigo} — separação</h2>
+        <p>${esc(os.cliente_nome)} ${os.cliente_uf ? '/' + esc(os.cliente_uf) : ''} · escaninho <b>${esc(os.escaninho || '—')}</b></p>
+        <div class="card">
+          <label>Escaneie cada parte ao colocar na caixa</label>
+          <input id="scan" class="scanbox mono" autocomplete="off" placeholder="${os.codigo}-A" autofocus>
+          <div id="feedback"></div>
+        </div>
+        <div class="card">
+          <h2>Partes na caixa (${consolidadas}/${os.total_partes})</h2>
+          ${partes}
+          ${completo
+            ? `<div class="completo-box">Todas as partes conferidas — pronto para fechar!</div>
+               <br><button onclick="finalizar()">📦 Fechar caixa e marcar PRONTA</button>`
+            : `<p class="suave">Faltam ${os.total_partes - consolidadas} parte(s). O fechamento fica bloqueado até 100%.</p>`}
+        </div>
+        <div id="fimbox"></div>`;
+
+      if (feedback) mostrarFeedback(feedback);
+      const scan = document.getElementById('scan');
+      scan.addEventListener('keydown', onScan);
+      scan.focus();
+    }
+
+    function mostrarFeedback(r) {
+      const fb = document.getElementById('feedback');
+      if (!fb) return;
+      if (r.resultado === 'ALERTA') {
+        fb.innerHTML = `<div class="alerta-box flash">${esc(r.mensagem)}</div>`;
+        beep(180, 0.4);
+      } else {
+        const cls = r.resultado === 'OK' ? 'ok' : 'erro';
+        fb.innerHTML = `<div class="msg ${cls} flash">${r.resultado === 'OK' ? '✔' : '⚠'} ${esc(r.mensagem)}</div>`;
+        beep(r.resultado === 'OK' ? 880 : 300);
+      }
+    }
+
+    async function onScan(ev) {
+      if (ev.key !== 'Enter') return;
+      ev.preventDefault();
+      const el = ev.target;
+      const codigo = el.value.trim();
+      el.value = '';
+      if (!codigo) return;
+      try {
+        const r = await api('/separacao/' + encodeURIComponent(codigoOS) + '/scan', {
+          method: 'POST',
+          body: JSON.stringify({ codigo, operador: localStorage.getItem('operador') || null }),
+        });
+        if (r.os) render(r.os, r); else mostrarFeedback(r);
+      } catch (e) {
+        mostrarFeedback({ resultado: 'ERRO', mensagem: e.message });
+      }
+    }
+
+    async function finalizar() {
+      try {
+        const os = await api('/separacao/' + encodeURIComponent(codigoOS) + '/finalizar', { method: 'POST' });
+        document.getElementById('conteudo').innerHTML = `
+          <div class="completo-box">✅ OS <span class="mono">${os.codigo}</span> PRONTA PARA DESPACHO</div>
+          <br><a class="botao" href="separacao.html"><button class="sec">Voltar à fila</button></a>`;
+      } catch (e) {
+        document.getElementById('fimbox').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
+      }
+    }
+
+    let audioCtx;
+    function beep(freq, dur = 0.12) {
+      try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+        o.frequency.value = freq; o.connect(g); g.connect(audioCtx.destination);
+        g.gain.setValueAtTime(0.08, audioCtx.currentTime);
+        o.start(); o.stop(audioCtx.currentTime + dur);
+      } catch (_) {}
+    }
+
+    document.addEventListener('click', () => { const s = document.getElementById('scan'); if (s) s.focus(); });
+
+    (async () => {
+      const os = await api('/os/' + encodeURIComponent(codigoOS));
+      render(os);
+    })().catch((e) => {
+      document.getElementById('conteudo').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
+    });
+  </script>
+</body>
+</html>

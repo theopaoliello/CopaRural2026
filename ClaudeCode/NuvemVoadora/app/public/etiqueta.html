@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Etiqueta — Nuvem Voadora</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .etiqueta {
+      width: 360px; margin: 20px auto; padding: 16px; border: 2px solid #000;
+      border-radius: 8px; background: #fff; text-align: center;
+    }
+    .etiqueta .marca { font-weight: 700; color: var(--azul); letter-spacing: .5px; }
+    .etiqueta .letra { font-size: 46px; font-weight: 800; line-height: 1; margin: 6px 0; }
+    .etiqueta .linha-info { font-size: 13px; text-align: left; margin: 4px 0; }
+    .etiqueta svg { max-width: 100%; }
+    .acoes { text-align: center; margin: 16px; }
+    @media print {
+      header.topo, .acoes { display: none; }
+      body { background: #fff; }
+      .etiqueta { margin: 0 auto; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topo">
+    <h1>☁️ Nuvem Voadora — HUB</h1>
+    <nav><a href="index.html">Início</a><a href="nova-os.html">Nova OS</a><a href="lojas.html">Lojas</a></nav>
+  </header>
+
+  <div id="alvo"><p class="suave" style="text-align:center;">Carregando…</p></div>
+  <div class="acoes"><button onclick="window.print()">Imprimir</button></div>
+
+  <script src="vendor/jsbarcode.min.js"></script>
+  <script src="app.js"></script>
+  <script>
+    async function carregar() {
+      const codigo = qs('codigo');
+      const p = await api('/parte/' + encodeURIComponent(codigo));
+      const itens = p.itens.map((i) => `${i.quantidade}× ${esc(i.descricao)}`).join('<br>') || '—';
+      document.getElementById('alvo').innerHTML = `
+        <div class="etiqueta">
+          <div class="marca">☁️ NUVEM VOADORA — HUB SP</div>
+          <div class="linha-info"><b>OS:</b> <span class="mono">${p.os_codigo}</span></div>
+          <div class="letra">${p.letra}</div>
+          <div class="linha-info"><b>Loja:</b> ${esc(p.loja_nome)}</div>
+          <div class="linha-info"><b>Cliente:</b> ${esc(p.cliente_nome)}</div>
+          <svg id="barcode"></svg>
+          <div class="linha-info"><b>Conteúdo:</b><br>${itens}</div>
+        </div>`;
+      JsBarcode('#barcode', p.codigo_barras, {
+        format: 'CODE128', displayValue: true, fontSize: 16, height: 60, margin: 6,
+      });
+    }
+    carregar().catch((e) => {
+      document.getElementById('alvo').innerHTML = `<div class="msg erro" style="max-width:400px;margin:20px auto;">${esc(e.message)}</div>`;
+    });
+  </script>
+</body>
+</html>

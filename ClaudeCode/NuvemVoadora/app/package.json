@@ -1,0 +1,15 @@
+{
+  "name": "nuvemvoadora-hub",
+  "version": "0.1.0",
+  "description": "Sistema local do HUB de consolidacao Nuvem Voadora (MVP)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "jsbarcode": "^3.12.3"
+  }
+}

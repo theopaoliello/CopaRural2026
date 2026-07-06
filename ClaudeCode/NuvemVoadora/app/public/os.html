@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OS — Nuvem Voadora</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topo">
+    <h1>☁️ Nuvem Voadora — HUB</h1>
+    <nav>
+      <a href="index.html">Início</a>
+      <a href="recebimento.html">Recebimento</a>
+      <a href="separacao.html">Separação</a>
+      <a href="atrasos.html">Atrasos</a>
+      <a href="nova-os.html">Nova OS</a>
+      <a href="lojas.html">Lojas</a>
+    </nav>
+  </header>
+  <main id="conteudo">
+    <p class="suave">Carregando…</p>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    async function carregar() {
+      const codigo = qs('codigo');
+      const os = await api('/os/' + encodeURIComponent(codigo));
+      const atraso = os.atrasada ? ' <span class="tag-atraso">ATRASADA</span>' : '';
+      const partes = os.partes.map((p) => `
+        <tr>
+          <td><b>${p.letra}</b></td>
+          <td>${esc(p.loja_nome)}<div class="suave">${esc(p.loja_cidade_uf || '')}</div></td>
+          <td>${badge(p.status)} ${p.atrasada ? '<span class="tag-atraso">atraso</span>' : ''}</td>
+          <td class="suave">${fmtDia(p.prazo_limite)}</td>
+          <td>${p.itens.map((i) => `${i.quantidade}× ${esc(i.descricao)}`).join('<br>') || '<span class="suave">—</span>'}</td>
+          <td><a href="etiqueta.html?codigo=${p.codigo_barras}" target="_blank" class="mono">${p.codigo_barras}</a></td>
+        </tr>`).join('');
+
+      document.getElementById('conteudo').innerHTML = `
+        <h2 class="mono">${os.codigo} ${badge(os.status)}${atraso}</h2>
+        <div class="card">
+          <div class="grid">
+            <div><div class="l suave">CLIENTE</div><div>${esc(os.cliente_nome)} ${os.cliente_uf ? '/' + esc(os.cliente_uf) : ''}</div></div>
+            <div><div class="l suave">PARTES RECEBIDAS</div><div>${os.recebidas}/${os.total_partes}</div></div>
+            <div><div class="l suave">ESCANINHO</div><div>${esc(os.escaninho || '—')}</div></div>
+            <div><div class="l suave">ABERTA EM</div><div>${fmtData(os.aberta_em)}</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Partes</h2>
+          <table>
+            <thead><tr><th>Parte</th><th>Loja</th><th>Status</th><th>Prazo p/ HUB</th><th>Itens</th><th>Código</th></tr></thead>
+            <tbody>${partes}</tbody>
+          </table>
+        </div>`;
+    }
+    carregar().catch((e) => {
+      document.getElementById('conteudo').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
+    });
+  </script>
+</body>
+</html>

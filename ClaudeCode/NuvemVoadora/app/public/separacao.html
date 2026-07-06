@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Separação — Nuvem Voadora</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topo">
+    <h1>☁️ Nuvem Voadora — HUB</h1>
+    <nav>
+      <a href="index.html">Início</a>
+      <a href="recebimento.html">Recebimento</a>
+      <a href="separacao.html">Separação</a>
+      <a href="atrasos.html">Atrasos</a>
+      <a href="nova-os.html">Nova OS</a>
+      <a href="lojas.html">Lojas</a>
+    </nav>
+  </header>
+  <main>
+    <h2>Fila de separação</h2>
+    <p class="suave">Ordens completas, liberadas automaticamente quando todas as partes chegaram. Mais antigas primeiro.</p>
+    <div id="msg"></div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Código</th><th>Cliente</th><th>Partes</th><th>Escaninho</th><th>Liberada em</th><th></th></tr></thead>
+        <tbody id="fila"><tr><td colspan="6" class="suave">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    async function carregar() {
+      const fila = await api('/fila-separacao');
+      const tb = document.getElementById('fila');
+      if (!fila.length) { tb.innerHTML = '<tr><td colspan="6" class="suave">Nenhuma OS na fila.</td></tr>'; return; }
+      tb.innerHTML = fila.map((o) => `
+        <tr>
+          <td class="mono">${o.codigo}</td>
+          <td>${esc(o.cliente_nome)} ${o.cliente_uf ? '/' + esc(o.cliente_uf) : ''}</td>
+          <td>${o.total_partes}</td>
+          <td>${esc(o.escaninho || '—')}</td>
+          <td class="suave">${fmtData(o.liberada_em)}</td>
+          <td><button class="mini" onclick="separar('${o.codigo}')">Separar ▶</button></td>
+        </tr>`).join('');
+    }
+    async function separar(codigo) {
+      try {
+        await api('/separacao/' + encodeURIComponent(codigo) + '/iniciar', { method: 'POST' });
+        location.href = 'separar.html?codigo=' + encodeURIComponent(codigo);
+      } catch (e) {
+        document.getElementById('msg').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
+        carregar();
+      }
+    }
+    carregar().catch((e) => {
+      document.getElementById('msg').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
+    });
+  </script>
+</body>
+</html>

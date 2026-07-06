@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Atrasos — Nuvem Voadora</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .resp { display: inline-block; background: #fff; border: 1px solid var(--borda); border-radius: 6px; padding: 2px 8px; margin: 2px; font-size: 13px; }
+    .dias { font-weight: 700; color: var(--alerta); }
+  </style>
+</head>
+<body>
+  <header class="topo">
+    <h1>☁️ Nuvem Voadora — HUB</h1>
+    <nav>
+      <a href="index.html">Início</a>
+      <a href="recebimento.html">Recebimento</a>
+      <a href="separacao.html">Separação</a>
+      <a href="atrasos.html">Atrasos</a>
+      <a href="nova-os.html">Nova OS</a>
+      <a href="lojas.html">Lojas</a>
+    </nav>
+  </header>
+  <main>
+    <h2>Painel de atrasos</h2>
+    <div id="msg"></div>
+
+    <div class="card">
+      <h2>🔴 Ordens atrasadas</h2>
+      <table>
+        <thead><tr><th>OS</th><th>Cliente</th><th>Atraso</th><th>Parte(s) e loja responsável</th></tr></thead>
+        <tbody id="atrasadas"><tr><td colspan="4" class="suave">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>🟡 Em risco (vencem em ≤ 2 dias)</h2>
+      <table>
+        <thead><tr><th>OS</th><th>Parte</th><th>Loja</th><th>Prazo</th></tr></thead>
+        <tbody id="risco"><tr><td colspan="4" class="suave">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>📉 Lojas com atraso (para SLA)</h2>
+      <table>
+        <thead><tr><th>Loja</th><th>Cidade/UF</th><th>Partes atrasadas</th></tr></thead>
+        <tbody id="lojas"><tr><td colspan="3" class="suave">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    function diasTxt(d) { return d <= 0 ? 'hoje' : `há ${d} dia${d > 1 ? 's' : ''}`; }
+
+    async function carregar() {
+      const r = await api('/atrasos');
+
+      const at = document.getElementById('atrasadas');
+      at.innerHTML = r.atrasadas.length ? r.atrasadas.map((o) => `
+        <tr>
+          <td><a href="os.html?codigo=${o.codigo}" class="mono">${o.codigo}</a></td>
+          <td>${esc(o.cliente_nome)}</td>
+          <td><span class="dias">${diasTxt(o.max_dias_atraso)}</span></td>
+          <td>${o.partes_atrasadas.map((p) => `<span class="resp"><b>${p.letra}</b> — ${esc(p.loja_nome)}${p.loja_cidade_uf ? ' (' + esc(p.loja_cidade_uf) + ')' : ''} · ${diasTxt(p.dias_atraso)}</span>`).join('')}</td>
+        </tr>`).join('') : '<tr><td colspan="4" class="suave">Nenhuma OS atrasada 🎉</td></tr>';
+
+      const ri = document.getElementById('risco');
+      ri.innerHTML = r.em_risco.length ? r.em_risco.map((p) => `
+        <tr>
+          <td><a href="os.html?codigo=${p.os_codigo}" class="mono">${p.os_codigo}</a></td>
+          <td><b>${p.letra}</b></td>
+          <td>${esc(p.loja_nome)}</td>
+          <td class="suave">${fmtDia(p.prazo_limite)} (${p.dias_restantes <= 0 ? 'amanhã' : 'em ' + p.dias_restantes + ' dias'})</td>
+        </tr>`).join('') : '<tr><td colspan="4" class="suave">Nada em risco.</td></tr>';
+
+      const lo = document.getElementById('lojas');
+      lo.innerHTML = r.lojas.length ? r.lojas.map((l) => `
+        <tr><td>${esc(l.loja_nome)}</td><td>${esc(l.cidade_uf || '—')}</td><td><b>${l.partes_atrasadas}</b></td></tr>`).join('')
+        : '<tr><td colspan="3" class="suave">Nenhuma loja em atraso.</td></tr>';
+    }
+    carregar().catch((e) => {
+      document.getElementById('msg').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
+    });
+  </script>
+</body>
+</html>

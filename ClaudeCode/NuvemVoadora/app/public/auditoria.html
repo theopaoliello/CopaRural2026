@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auditoria — Nuvem Voadora</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .t-ENTRADA { color: var(--azul2); font-weight: 600; }
+    .t-SAIDA { color: var(--ok); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header class="topo"></header>
+  <main>
+    <h2>Auditoria de scans</h2>
+    <p class="suave">Todo scan de entrada (recebimento) e saída (consolidação) fica registrado com operador e hora — RNF-02.</p>
+    <div id="msg"></div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Hora</th><th>Tipo</th><th>Código lido</th><th>OS</th><th>Resultado</th><th>Operador</th><th>Obs.</th></tr></thead>
+        <tbody id="lista"><tr><td colspan="7" class="suave">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    const cor = { OK: 'RECEBIDA', DUPLICADO: 'AGUARDANDO', ALERTA: 'RECUSADA', ERRO: 'RECUSADA' };
+    async function carregar() {
+      const evs = await api('/eventos');
+      const tb = document.getElementById('lista');
+      tb.innerHTML = evs.length ? evs.map((e) => `
+        <tr>
+          <td class="suave">${fmtData(e.criado_em)}</td>
+          <td class="t-${e.tipo}">${e.tipo}</td>
+          <td class="mono">${esc(e.codigo_lido)}</td>
+          <td class="mono">${e.os_codigo || '—'}</td>
+          <td><span class="badge ${cor[e.resultado] || 'AGUARDANDO'}">${e.resultado}</span></td>
+          <td>${esc(e.operador || '—')}</td>
+          <td class="suave">${esc(e.mensagem || '')}</td>
+        </tr>`).join('') : '<tr><td colspan="7" class="suave">Nenhum evento ainda.</td></tr>';
+    }
+    carregar().catch((e) => {
+      document.getElementById('msg').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
+    });
+  </script>
+</body>
+</html>

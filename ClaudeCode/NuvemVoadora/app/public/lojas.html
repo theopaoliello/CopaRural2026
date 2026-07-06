@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lojas — Nuvem Voadora</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topo">
+    <h1>☁️ Nuvem Voadora — HUB</h1>
+    <nav>
+      <a href="index.html">Início</a>
+      <a href="recebimento.html">Recebimento</a>
+      <a href="separacao.html">Separação</a>
+      <a href="atrasos.html">Atrasos</a>
+      <a href="nova-os.html">Nova OS</a>
+      <a href="lojas.html">Lojas</a>
+    </nav>
+  </header>
+  <main>
+    <h2>Lojas parceiras</h2>
+    <div id="msg"></div>
+
+    <div class="card">
+      <h2>Nova loja</h2>
+      <form id="form">
+        <div class="linha">
+          <div><label>Nome *</label><input id="nome" required></div>
+          <div><label>Cidade/UF</label><input id="cidade_uf" placeholder="ex: São Paulo/SP"></div>
+          <div style="max-width:160px;"><label>Janela</label>
+            <select id="janela_dias"><option value="15">15 dias</option><option value="7">7 dias</option></select>
+          </div>
+        </div>
+        <br><button type="submit">Adicionar loja</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <table>
+        <thead><tr><th>Nome</th><th>Cidade/UF</th><th>Janela</th></tr></thead>
+        <tbody id="lista"><tr><td colspan="3" class="suave">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+  <script>
+    async function listar() {
+      const lojas = await api('/lojas');
+      document.getElementById('lista').innerHTML = lojas.length
+        ? lojas.map((l) => `<tr><td>${esc(l.nome)}</td><td>${esc(l.cidade_uf || '—')}</td><td>${l.janela_dias} dias</td></tr>`).join('')
+        : '<tr><td colspan="3" class="suave">Nenhuma loja.</td></tr>';
+    }
+    document.getElementById('form').onsubmit = async (ev) => {
+      ev.preventDefault();
+      try {
+        await api('/lojas', { method: 'POST', body: JSON.stringify({
+          nome: document.getElementById('nome').value,
+          cidade_uf: document.getElementById('cidade_uf').value || null,
+          janela_dias: Number(document.getElementById('janela_dias').value),
+        }) });
+        document.getElementById('form').reset();
+        document.getElementById('msg').innerHTML = '<div class="msg ok">Loja adicionada.</div>';
+        listar();
+      } catch (e) {
+        document.getElementById('msg').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
+      }
+    };
+    listar().catch((e) => {
+      document.getElementById('msg').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
+    });
+  </script>
+</body>
+</html>
