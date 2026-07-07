@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { tokenLoja } from '../src/codigos.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = join(__dirname, 'schema.sql');
@@ -18,9 +19,39 @@ export function abrirBanco(caminho = CAMINHO_PADRAO) {
   return db;
 }
 
+function tabelaExiste(db, tabela) {
+  return !!db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tabela);
+}
+
+function colunaExiste(db, tabela, coluna) {
+  return db.prepare(`PRAGMA table_info(${tabela})`).all().some((c) => c.name === coluna);
+}
+
+// Migracoes aditivas: bancos criados antes destas colunas ganham-nas via ALTER.
+// Precisa rodar ANTES do schema.sql (que cria indices sobre elas).
+function migrarColunas(db) {
+  const addSeFaltar = (tabela, ddl) => {
+    const coluna = ddl.split(' ')[0];
+    if (tabelaExiste(db, tabela) && !colunaExiste(db, tabela, coluna)) {
+      db.exec(`ALTER TABLE ${tabela} ADD COLUMN ${ddl}`);
+    }
+  };
+  addSeFaltar('loja', 'token TEXT');
+  addSeFaltar('ordem_servico', 'despachada_em TEXT');
+  addSeFaltar('ordem_servico', 'rastreio_postagem TEXT');
+}
+
 // Cria as tabelas (idempotente).
 export function migrar(db) {
+  migrarColunas(db);
   db.exec(readFileSync(SCHEMA_PATH, 'utf8'));
+  // Toda loja precisa de um codigo de acesso ao Portal da Loja.
+  const semToken = db.prepare('SELECT id FROM loja WHERE token IS NULL').all();
+  for (const { id } of semToken) {
+    db.prepare('UPDATE loja SET token = ? WHERE id = ?').run(tokenLoja(), id);
+  }
   return db;
 }
 

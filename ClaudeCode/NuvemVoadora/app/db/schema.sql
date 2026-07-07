@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS loja (
   nome        TEXT NOT NULL,
   cidade_uf   TEXT,
   janela_dias INTEGER NOT NULL DEFAULT 15,
+  token       TEXT,               -- codigo de acesso ao Portal da Loja
   ativo       INTEGER NOT NULL DEFAULT 1,
   criado_em   TEXT NOT NULL
 );
@@ -23,6 +24,8 @@ CREATE TABLE IF NOT EXISTS ordem_servico (
   aberta_em       TEXT NOT NULL,
   liberada_em     TEXT,
   pronta_em       TEXT,
+  despachada_em   TEXT,
+  rastreio_postagem TEXT,          -- codigo de rastreio da transportadora (pos-despacho)
   atualizado_em   TEXT NOT NULL
 );
 
@@ -80,6 +83,7 @@ CREATE TABLE IF NOT EXISTS atraso_historico (
   UNIQUE(parte_id)
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_loja_token ON loja(token);
 CREATE INDEX IF NOT EXISTS idx_parte_os     ON parte(os_id);
 CREATE INDEX IF NOT EXISTS idx_parte_status ON parte(status);
 CREATE INDEX IF NOT EXISTS idx_os_status    ON ordem_servico(status);

@@ -1,10 +1,14 @@
 // Rotas HTTP da API. Todas as respostas em JSON.
 import express from 'express';
-import { criarOS, obterOS, obterParte, listarOS } from '../src/os.js';
+import { criarOS, obterOS, obterParte, listarOS, despacharOS, encerrarOS } from '../src/os.js';
 import { listarLojas, criarLoja } from '../src/lojas.js';
 import { registrarRecebimento } from '../src/recebimento.js';
 import { filaSeparacao, iniciarSeparacao, scanConsolidacao, finalizarSeparacao } from '../src/separacao.js';
 import { osAtrasadas, partesEmRisco, desempenhoLojas, historicoAtrasos } from '../src/atrasos.js';
+import { autenticarLoja, painelLoja } from '../src/portal.js';
+import { rastrearPedido } from '../src/rastreio.js';
+import { indicadores, RELATORIOS } from '../src/gerencial.js';
+import { gerarXlsx } from '../src/xlsx.js';
 import { OS, PARTE } from '../src/estados.js';
 import { agoraISO } from '../src/datas.js';
 import { ErroValidacao } from '../src/erros.js';
@@ -30,8 +34,39 @@ export function montarRotas(db) {
   r.get('/os', h((req, res) => res.json(listarOS(db, { status: req.query.status ?? null }))));
   r.get('/os/:codigo', h((req, res) => res.json(obterOS(db, req.params.codigo))));
 
+  // --- Despacho / encerramento (M8) ---
+  r.post('/os/:codigo/despachar', h((req, res) => {
+    res.json(despacharOS(db, req.params.codigo, req.body ?? {}));
+  }));
+  r.post('/os/:codigo/encerrar', h((req, res) => res.json(encerrarOS(db, req.params.codigo))));
+
   // --- Partes ---
   r.get('/parte/:codigo', h((req, res) => res.json(obterParte(db, req.params.codigo))));
+
+  // --- Portal da Loja (autenticado por token no header x-loja-token) ---
+  r.post('/portal/login', h((req, res) => {
+    res.json(autenticarLoja(db, (req.body ?? {}).token));
+  }));
+  r.get('/portal/painel', h((req, res) => {
+    const loja = autenticarLoja(db, req.headers['x-loja-token']);
+    res.json({ loja, ...painelLoja(db, loja.id) });
+  }));
+
+  // --- Rastreio publico do cliente final (resposta sanitizada) ---
+  r.get('/rastreio/:codigo', h((req, res) => res.json(rastrearPedido(db, req.params.codigo))));
+
+  // --- Gerencial: indicadores do dashboard + relatorios .xlsx ---
+  r.get('/gerencial/indicadores', h((req, res) => res.json(indicadores(db))));
+  r.get('/relatorios/:nome', h((req, res) => {
+    const nome = req.params.nome.replace(/\.xlsx$/i, '');
+    const gerar = RELATORIOS[nome];
+    if (!gerar) throw new ErroValidacao(`Relatório inexistente: ${nome}. Disponíveis: ${Object.keys(RELATORIOS).join(', ')}.`);
+    const rel = gerar(db);
+    res
+      .set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .set('Content-Disposition', `attachment; filename="${rel.arquivo}"`)
+      .send(gerarXlsx(rel.abas));
+  }));
 
   // --- Recebimento (scan de entrada) ---
   r.post('/recebimento/scan', h((req, res) => {

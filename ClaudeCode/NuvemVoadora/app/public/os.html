@@ -54,8 +54,13 @@
             <div><div class="l suave">PARTES RECEBIDAS</div><div>${os.recebidas}/${os.total_partes}</div></div>
             <div><div class="l suave">ESCANINHO</div><div>${esc(os.escaninho || '—')}</div></div>
             <div><div class="l suave">ABERTA EM</div><div>${fmtData(os.aberta_em)}</div></div>
+            ${os.despachada_em ? `<div><div class="l suave">DESPACHADA EM</div><div>${fmtData(os.despachada_em)}</div></div>` : ''}
+            ${os.rastreio_postagem ? `<div><div class="l suave">RASTREIO TRANSPORTADORA</div><div class="mono">${esc(os.rastreio_postagem)}</div></div>` : ''}
           </div>
+          <p class="suave">Visão do cliente: <a href="rastreio.html?codigo=${os.codigo}" target="_blank" class="mono">rastreio.html?codigo=${os.codigo}</a></p>
         </div>
+        ${cardDespacho(os)}
+        <div id="msg"></div>
         <div class="card">
           <h2>Partes</h2>
           <table>
@@ -63,6 +68,48 @@
             <tbody>${partes}</tbody>
           </table>
         </div>`;
+      ligarAcoes(os);
+    }
+
+    // Fecha o ciclo da OS: despacho (com rastreio da transportadora) e encerramento.
+    function cardDespacho(os) {
+      if (os.status === 'PRONTA_DESPACHO') return `
+        <div class="card">
+          <h2>Despachar 📦</h2>
+          <div class="linha">
+            <div><label>Código de rastreio da transportadora (opcional)</label>
+              <input id="rastreio-postagem" class="mono" placeholder="ex.: AA123456789BR"></div>
+            <div style="max-width:200px; align-self:flex-end;"><button id="btn-despachar">Despachar pacote</button></div>
+          </div>
+          <p class="suave">O cliente passa a ver "Enviado" no rastreio público.</p>
+        </div>`;
+      if (os.status === 'DESPACHADA') return `
+        <div class="card">
+          <h2>Encerrar</h2>
+          <button id="btn-encerrar" class="sec">Confirmar entrega e encerrar OS</button>
+        </div>`;
+      return '';
+    }
+
+    function ligarAcoes(os) {
+      const msg = (html) => { document.getElementById('msg').innerHTML = html; };
+      const despachar = document.getElementById('btn-despachar');
+      if (despachar) despachar.onclick = async () => {
+        try {
+          await api('/os/' + os.codigo + '/despachar', {
+            method: 'POST',
+            body: JSON.stringify({ rastreio_postagem: document.getElementById('rastreio-postagem').value || null }),
+          });
+          carregar();
+        } catch (e) { msg(`<div class="msg erro">${esc(e.message)}</div>`); }
+      };
+      const encerrar = document.getElementById('btn-encerrar');
+      if (encerrar) encerrar.onclick = async () => {
+        try {
+          await api('/os/' + os.codigo + '/encerrar', { method: 'POST' });
+          carregar();
+        } catch (e) { msg(`<div class="msg erro">${esc(e.message)}</div>`); }
+      };
     }
     carregar().catch((e) => {
       document.getElementById('conteudo').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;

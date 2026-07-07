@@ -41,12 +41,15 @@ function qs(nome) {
 // Navegacao centralizada: injeta o topo em qualquer pagina que tenha <header class="topo">.
 const NAV = [
   ['index.html', 'Início'],
+  ['gerencial.html', 'Gerencial'],
   ['recebimento.html', 'Recebimento'],
   ['separacao.html', 'Separação'],
   ['atrasos.html', 'Atrasos'],
   ['auditoria.html', 'Auditoria'],
   ['nova-os.html', 'Nova OS'],
   ['lojas.html', 'Lojas'],
+  ['portal.html', 'Portal Loja'],
+  ['rastreio.html', 'Rastreio'],
 ];
 
 function montarTopo() {

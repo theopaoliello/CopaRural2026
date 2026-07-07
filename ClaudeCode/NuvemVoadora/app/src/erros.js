@@ -16,6 +16,14 @@ export class NaoEncontrado extends Error {
   }
 }
 
+export class NaoAutorizado extends Error {
+  constructor(mensagem) {
+    super(mensagem);
+    this.name = 'NaoAutorizado';
+    this.statusCode = 401;
+  }
+}
+
 export class Conflito extends Error {
   constructor(mensagem) {
     super(mensagem);

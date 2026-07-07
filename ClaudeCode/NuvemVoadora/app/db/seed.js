@@ -1,6 +1,7 @@
 // Seed de lojas para desenvolvimento. So insere se a tabela estiver vazia.
 // Baseado no pedido real de exemplo (LigaLorcana) do projeto.
 import { agoraISO } from '../src/datas.js';
+import { tokenLoja } from '../src/codigos.js';
 
 const LOJAS_EXEMPLO = [
   ['Barao Geek House', 'Campinas/SP', 15],
@@ -20,8 +21,8 @@ export function seedLojas(db) {
   if (n > 0) return 0;
   const agora = agoraISO();
   const stmt = db.prepare(
-    'INSERT INTO loja (nome, cidade_uf, janela_dias, ativo, criado_em) VALUES (?, ?, ?, 1, ?)',
+    'INSERT INTO loja (nome, cidade_uf, janela_dias, token, ativo, criado_em) VALUES (?, ?, ?, ?, 1, ?)',
   );
-  for (const [nome, cidade, janela] of LOJAS_EXEMPLO) stmt.run(nome, cidade, janela, agora);
+  for (const [nome, cidade, janela] of LOJAS_EXEMPLO) stmt.run(nome, cidade, janela, tokenLoja(), agora);
   return LOJAS_EXEMPLO.length;
 }

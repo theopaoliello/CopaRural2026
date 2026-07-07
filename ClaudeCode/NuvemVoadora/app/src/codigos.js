@@ -3,6 +3,8 @@
 //   OS    -> "NV-2600042"      (AA=ano 2 digitos, SEQ=5 digitos)
 //   Parte -> "NV-2600042-A"    (letra sequencial da parte na OS)
 
+import { randomBytes } from 'node:crypto';
+
 const PREFIXO = 'NV';
 
 function anoDoisDigitos(ano) {
@@ -39,6 +41,12 @@ export function gerarLetras(n) {
 // Codigo da parte a partir do codigo da OS + letra.
 export function codigoParte(codOS, letra) {
   return `${codOS}-${letra}`;
+}
+
+// Codigo de acesso da loja ao portal (formato LJ-<10 hex>). Aleatorio e nao
+// sequencial de proposito: funciona como credencial simples do MVP.
+export function tokenLoja() {
+  return 'LJ-' + randomBytes(5).toString('hex').toUpperCase();
 }
 
 // Interpreta um codigo lido (de OS ou de parte). Retorna null se nao casar.

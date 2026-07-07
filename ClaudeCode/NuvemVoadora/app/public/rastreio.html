@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rastreie seu pedido — Nuvem Voadora</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    header.externo {
+      background: linear-gradient(120deg, var(--azul), var(--azul2));
+      color: #fff; padding: 26px 20px; text-align: center;
+    }
+    header.externo h1 { margin: 0; font-size: 22px; letter-spacing: .3px; }
+    header.externo p { margin: 6px 0 0; color: var(--azul-claro); font-size: 14px; }
+    .busca { max-width: 560px; margin: 26px auto 0; display: flex; gap: 10px; }
+    .busca input { font-size: 16px; text-transform: uppercase; }
+    .busca button { white-space: nowrap; }
+    main { max-width: 760px; }
+
+    /* Linha do tempo (stepper) */
+    .stepper { display: flex; margin: 18px 0 6px; }
+    .step { flex: 1; text-align: center; position: relative; }
+    .step .dot {
+      width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 6px;
+      background: #fff; border: 3px solid var(--borda); color: var(--suave);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700; position: relative; z-index: 1;
+    }
+    .step::before {
+      content: ''; position: absolute; top: 13px; left: -50%; width: 100%;
+      height: 3px; background: var(--borda);
+    }
+    .step:first-child::before { display: none; }
+    .step.feita .dot { background: var(--ok); border-color: var(--ok); color: #fff; }
+    .step.feita::before { background: var(--ok); }
+    .step.atual .dot { background: var(--azul2); border-color: var(--azul2); color: #fff; box-shadow: 0 0 0 4px #dde7fb; }
+    .step .rotulo { font-size: 12px; color: var(--suave); padding: 0 4px; }
+    .step.atual .rotulo { color: var(--azul); font-weight: 600; }
+
+    .situacao { text-align: center; font-size: 17px; color: var(--azul); font-weight: 600; margin: 14px 0 4px; }
+    .progresso { text-align: center; color: var(--suave); font-size: 14px; margin-bottom: 6px; }
+    .pacotes li { margin: 6px 0; font-size: 14px; }
+    .rodape { text-align: center; color: var(--suave); font-size: 13px; margin: 30px 0; }
+  </style>
+</head>
+<body>
+  <header class="externo">
+    <h1>☁️ Nuvem Voadora</h1>
+    <p>Suas cartas de várias lojas, um único frete.</p>
+    <form class="busca" id="form">
+      <input id="codigo" class="mono" placeholder="Código do pedido — ex.: NV-2600001" autocomplete="off" autofocus>
+      <button type="submit">Rastrear</button>
+    </form>
+  </header>
+  <main id="resultado"></main>
+  <p class="rodape">Dúvidas? Fale com o HUB Nuvem Voadora — São Paulo/SP.</p>
+
+  <script src="app.js"></script>
+  <script>
+    function stepper(r) {
+      return '<div class="stepper">' + r.etapas.map((rotulo, i) => {
+        const n = i + 1;
+        const cls = n < r.etapa ? 'feita' : (n === r.etapa ? (r.entregue ? 'feita' : 'atual') : '');
+        return `<div class="step ${cls}"><div class="dot">${n < r.etapa || (n === r.etapa && r.entregue) ? '✓' : n}</div><div class="rotulo">${rotulo}</div></div>`;
+      }).join('') + '</div>';
+    }
+
+    function render(r) {
+      const alvo = document.getElementById('resultado');
+      if (r.cancelado) {
+        alvo.innerHTML = `<div class="card"><div class="msg erro"><b>${r.codigo}</b> — ${esc(r.situacao)}</div></div>`;
+        return;
+      }
+      const pacotes = r.partes.map((p) => `
+        <li>${p.no_hub ? '✅' : (p.atrasado ? '⚠️' : '📦')}
+            <b>${esc(p.loja_nome)}</b> — ${esc(p.situacao)}</li>`).join('');
+      const atraso = r.atrasado
+        ? '<div class="msg erro">Um ou mais pacotes estão atrasados. Já estamos em contato com a(s) loja(s) para resolver — você não precisa fazer nada.</div>'
+        : '';
+      const postagem = r.rastreio_postagem
+        ? `<p class="progresso">Rastreio da transportadora: <b class="mono">${esc(r.rastreio_postagem)}</b></p>`
+        : '';
+      alvo.innerHTML = `
+        <div class="card">
+          <h2 style="text-align:center;">Pedido <span class="mono">${r.codigo}</span>${r.cliente ? ' — olá, ' + esc(r.cliente) + '!' : ''}</h2>
+          ${stepper(r)}
+          <div class="situacao">${esc(r.situacao)}</div>
+          <div class="progresso">${r.partes_no_hub} de ${r.total_partes} pacotes já chegaram ao HUB</div>
+          ${postagem}
+          ${atraso}
+        </div>
+        <div class="card">
+          <h2>Pacotes do seu pedido</h2>
+          <ul class="pacotes">${pacotes}</ul>
+          <p class="suave">Cada loja envia a parte dela ao nosso HUB em São Paulo.
+             Quando todas chegam, juntamos tudo em um pacote único e enviamos para você com um só frete.</p>
+        </div>`;
+    }
+
+    async function buscar(codigo) {
+      const alvo = document.getElementById('resultado');
+      alvo.innerHTML = '<div class="card suave">Buscando…</div>';
+      try {
+        render(await api('/rastreio/' + encodeURIComponent(codigo)));
+        history.replaceState(null, '', '?codigo=' + encodeURIComponent(codigo));
+      } catch (e) {
+        alvo.innerHTML = `<div class="card"><div class="msg erro">${esc(e.message)}</div></div>`;
+      }
+    }
+
+    document.getElementById('form').onsubmit = (ev) => {
+      ev.preventDefault();
+      const c = document.getElementById('codigo').value.trim();
+      if (c) buscar(c);
+    };
+
+    const inicial = qs('codigo');
+    if (inicial) {
+      document.getElementById('codigo').value = inicial;
+      buscar(inicial);
+    }
+  </script>
+</body>
+</html>

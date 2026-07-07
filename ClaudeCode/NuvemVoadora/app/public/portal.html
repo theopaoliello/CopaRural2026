@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portal da Loja — Nuvem Voadora</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    header.externo {
+      background: var(--azul); color: #fff; padding: 14px 20px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    }
+    header.externo h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
+    header.externo .loja-logada { display: flex; align-items: center; gap: 12px; font-size: 14px; color: var(--azul-claro); }
+    header.externo button { background: transparent; border: 1px solid var(--azul-claro); color: #fff; padding: 5px 12px; font-size: 13px; }
+    header.externo button:hover { background: var(--azul2); }
+    .login-box { max-width: 420px; margin: 60px auto; text-align: center; }
+    .login-box .nuvem { font-size: 52px; }
+    .login-box p { color: var(--suave); font-size: 14px; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .chip-f { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--borda); background: #fff; cursor: pointer; font-size: 13px; }
+    .chip-f.ativo { background: var(--azul); color: #fff; border-color: var(--azul); }
+    .aviso-prazo { color: var(--alerta); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header class="externo">
+    <h1>☁️ Nuvem Voadora — Portal da Loja</h1>
+    <div class="loja-logada" id="quem"></div>
+  </header>
+  <main id="conteudo"></main>
+
+  <script src="app.js"></script>
+  <script>
+    const CHAVE = 'nv_loja_token';
+    let painel = null;
+    let filtro = 'PENDENTES';
+
+    function telaLogin(msg) {
+      document.getElementById('quem').innerHTML = '';
+      document.getElementById('conteudo').innerHTML = `
+        <div class="card login-box">
+          <div class="nuvem">☁️</div>
+          <h2>Acesso da loja parceira</h2>
+          <p>Informe o código de acesso fornecido pelo HUB Nuvem Voadora
+             (formato <span class="mono">LJ-XXXXXXXXXX</span>).</p>
+          ${msg ? `<div class="msg erro">${esc(msg)}</div>` : ''}
+          <form id="form-login">
+            <input id="token" class="mono" placeholder="LJ-..." autocomplete="off" autofocus>
+            <br><br><button type="submit" style="width:100%;">Entrar</button>
+          </form>
+        </div>`;
+      document.getElementById('form-login').onsubmit = async (ev) => {
+        ev.preventDefault();
+        const token = document.getElementById('token').value.trim().toUpperCase();
+        try {
+          await api('/portal/login', { method: 'POST', body: JSON.stringify({ token }) });
+          localStorage.setItem(CHAVE, token);
+          carregar();
+        } catch (e) {
+          telaLogin(e.message);
+        }
+      };
+    }
+
+    function sair() {
+      localStorage.removeItem(CHAVE);
+      telaLogin();
+    }
+
+    function statusPacote(p) {
+      let extra = '';
+      if (p.atrasada) extra = ` <span class="tag-atraso">atrasado · ${p.dias_atraso}d</span>`;
+      else if (p.recebida_atrasada) extra = ` <span class="tag-atraso-hist">chegou c/ atraso · ${p.dias_atraso}d</span>`;
+      return badge(p.status) + extra;
+    }
+
+    function linhasPacotes(partes) {
+      if (!partes.length) return '<tr><td colspan="6" class="suave">Nenhum pacote neste filtro.</td></tr>';
+      return partes.map((p) => `
+        <tr>
+          <td><a href="etiqueta.html?codigo=${p.codigo_barras}" target="_blank" class="mono">${p.codigo_barras}</a></td>
+          <td>${esc(p.cliente_nome)}</td>
+          <td>${p.itens.map((i) => `${i.quantidade}× ${esc(i.descricao)}`).join('<br>') || '<span class="suave">—</span>'}</td>
+          <td class="${p.atrasada ? 'aviso-prazo' : 'suave'}">${fmtDia(p.prazo_limite)}</td>
+          <td>${statusPacote(p)}</td>
+          <td>${p.status === 'AGUARDANDO'
+            ? `<a class="botao" href="etiqueta.html?codigo=${p.codigo_barras}" target="_blank"><button class="mini sec" type="button">🖨 Etiqueta</button></a>`
+            : `<span class="suave">${fmtDia(p.recebida_em)}</span>`}</td>
+        </tr>`).join('');
+    }
+
+    function filtrar(f) {
+      filtro = f;
+      document.querySelectorAll('.chip-f').forEach((c) => c.classList.toggle('ativo', c.dataset.f === f));
+      const partes = painel.partes.filter((p) => {
+        if (f === 'PENDENTES') return p.status === 'AGUARDANDO';
+        if (f === 'NO_HUB') return p.status === 'RECEBIDA' || p.status === 'CONSOLIDADA';
+        return true;
+      });
+      document.getElementById('lista').innerHTML = linhasPacotes(partes);
+    }
+
+    function telaPainel() {
+      const { loja, resumo } = painel;
+      document.getElementById('quem').innerHTML =
+        `<span>${esc(loja.nome)}${loja.cidade_uf ? ' · ' + esc(loja.cidade_uf) : ''}</span><button id="sair">Sair</button>`;
+      document.getElementById('sair').onclick = sair;
+      document.getElementById('conteudo').innerHTML = `
+        <h2>Seus pacotes no HUB</h2>
+        <div class="card">
+          <div class="grid">
+            <div class="metric"><div class="n">${resumo.aguardando}</div><div class="l">A enviar ao HUB</div></div>
+            <div class="metric ${resumo.atrasadas ? 'alerta' : ''}"><div class="n">${resumo.atrasadas}</div><div class="l">Atrasados</div></div>
+            <div class="metric"><div class="n">${resumo.no_hub}</div><div class="l">Já no HUB</div></div>
+            <div class="metric ${resumo.atrasos_registrados ? 'alerta' : ''}"><div class="n">${resumo.atrasos_registrados}</div><div class="l">Atrasos no histórico</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="chips">
+            <span class="chip-f" data-f="PENDENTES">A enviar</span>
+            <span class="chip-f" data-f="NO_HUB">Já no HUB</span>
+            <span class="chip-f" data-f="TODOS">Todos</span>
+          </div>
+          <table>
+            <thead><tr><th>Pacote</th><th>Cliente</th><th>Conteúdo</th><th>Prazo p/ chegar ao HUB</th><th>Status</th><th>Ação / Recebido em</th></tr></thead>
+            <tbody id="lista"></tbody>
+          </table>
+          <p class="suave">Imprima a etiqueta, cole no pacote e envie ao HUB SP dentro do prazo.
+             O prazo em <b class="aviso-prazo">vermelho</b> já venceu — envie o quanto antes.</p>
+        </div>`;
+      document.querySelector('.chips').addEventListener('click', (e) => {
+        if (e.target.classList.contains('chip-f')) filtrar(e.target.dataset.f);
+      });
+      filtrar(filtro);
+    }
+
+    async function carregar() {
+      const token = localStorage.getItem(CHAVE);
+      if (!token) return telaLogin();
+      try {
+        painel = await api('/portal/painel', { headers: { 'Content-Type': 'application/json', 'x-loja-token': token } });
+        telaPainel();
+      } catch (e) {
+        localStorage.removeItem(CHAVE);
+        telaLogin(e.message);
+      }
+    }
+
+    carregar();
+  </script>
+</body>
+</html>

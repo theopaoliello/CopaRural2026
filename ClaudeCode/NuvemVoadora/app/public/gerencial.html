@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gerencial — Nuvem Voadora</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Paleta dos gráficos (validada p/ daltonismo contra superfície branca).
+       Séries de status: azul = em dia/no prazo, vermelho = atraso.
+       Categórico (lojas): 5 slots + cinza para "Outras". */
+    .viz {
+      --s-ok: #2E5496; --s-atraso: #b23b1e;
+      --c1: #2a78d6; --c2: #1baf7a; --c3: #eda100; --c4: #008300; --c5: #4a3aa7;
+      --c-outras: #898781;
+      --ink-2: #5b6470; --hairline: #e4e7ec;
+    }
+    main { max-width: 1100px; }
+    .kpis { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+    .tile { background: var(--card); border: 1px solid var(--borda); border-radius: 10px; padding: 14px 16px; }
+    .tile .l { font-size: 12px; color: var(--suave); text-transform: uppercase; letter-spacing: .5px; }
+    .tile .v { font-size: 32px; font-weight: 600; color: var(--azul); margin-top: 2px; }
+    .tile.alerta .v { color: var(--alerta); }
+    .tile .sub { font-size: 12px; color: var(--suave); }
+
+    .card-h { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .card-h h2 { margin-bottom: 4px; }
+    .card-h .sub { color: var(--suave); font-size: 13px; margin: 0 0 10px; }
+
+    .legenda { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--ink-2); margin: 4px 0 12px; }
+    .legenda .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: baseline; }
+
+    /* Barras horizontais */
+    .hbars .linha-b { display: grid; grid-template-columns: 170px 1fr 52px; align-items: center; gap: 10px; margin: 7px 0; }
+    .hbars .rotulo { font-size: 13px; color: var(--ink-2); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hbars .trilho { display: flex; height: 18px; }
+    .hbars .seg { height: 18px; }
+    .hbars .seg + .seg { margin-left: 2px; }               /* gap de superfície */
+    .hbars .seg.fim { border-radius: 0 4px 4px 0; }        /* ponta arredondada no lado do dado */
+    .hbars .valor { font-size: 13px; color: var(--texto); font-variant-numeric: tabular-nums; }
+
+    /* Colunas empilhadas */
+    .cols { display: flex; align-items: flex-end; height: 170px; border-bottom: 1px solid var(--hairline); }
+    .cols .slot { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; min-width: 0; }
+    .cols .pilha { width: min(22px, 80%); display: flex; flex-direction: column-reverse; }
+    .cols .seg { width: 100%; }
+    .cols .seg + .seg { margin-bottom: 2px; }              /* gap de superfície */
+    .cols .seg.topo { border-radius: 4px 4px 0 0; }
+    .cols .max-label { font-size: 12px; color: var(--ink-2); margin-bottom: 3px; font-variant-numeric: tabular-nums; }
+    .eixo-x { display: flex; margin-top: 6px; }
+    .eixo-x .tick { flex: 1; text-align: center; font-size: 11px; color: var(--suave); min-width: 0; white-space: nowrap; }
+
+    .vazio { color: var(--suave); font-size: 14px; padding: 18px 0; text-align: center; }
+    table.tv td, table.tv th { font-variant-numeric: tabular-nums; }
+
+    /* Tooltip compartilhado */
+    #tip {
+      position: fixed; z-index: 10; pointer-events: none; display: none;
+      background: #22272e; color: #fff; font-size: 12.5px; line-height: 1.5;
+      padding: 7px 10px; border-radius: 7px; max-width: 260px; box-shadow: 0 4px 14px rgba(0,0,0,.25);
+    }
+    #tip b { color: #fff; }
+
+    .relatorios { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+    .rel { border: 1px solid var(--borda); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .rel b { color: var(--azul); }
+    .rel p { margin: 0; font-size: 13px; color: var(--suave); flex: 1; }
+  </style>
+</head>
+<body>
+  <header class="topo"></header>
+  <main class="viz">
+    <h2>Gerencial</h2>
+    <div class="kpis" id="kpis"></div>
+
+    <br>
+    <div class="card">
+      <div class="card-h"><h2>Relatórios (.xlsx)</h2></div>
+      <div class="relatorios">
+        <div class="rel"><b>📦 Inventário no HUB</b>
+          <p>Todas as partes fisicamente dentro do HUB (recebidas ou já na caixa), com loja, cliente, conteúdo, escaninho e dias em estoque.</p>
+          <a class="botao" href="/api/relatorios/inventario.xlsx"><button style="width:100%">Baixar</button></a></div>
+        <div class="rel"><b>🚚 Partes a receber</b>
+          <p>Tudo que as lojas ainda precisam enviar, com prazo-limite e situação (no prazo, em risco, atrasada).</p>
+          <a class="botao" href="/api/relatorios/partes-a-receber.xlsx"><button style="width:100%">Baixar</button></a></div>
+        <div class="rel"><b>📋 Ordens de Serviço</b>
+          <p>Visão completa das OSs: status, partes, atrasos, datas de cada etapa e lead time de consolidação.</p>
+          <a class="botao" href="/api/relatorios/ordens.xlsx"><button style="width:100%">Baixar</button></a></div>
+        <div class="rel"><b>⏱ Atrasos por loja (SLA)</b>
+          <p>Duas abas: resumo de atrasos por loja (total, maior, médio) e o detalhe pacote a pacote.</p>
+          <a class="botao" href="/api/relatorios/atrasos-lojas.xlsx"><button style="width:100%">Baixar</button></a></div>
+      </div>
+    </div>
+
+    <div class="card" id="card-status"></div>
+    <div class="card" id="card-20d"></div>
+    <div class="card" id="card-lojas-pend"></div>
+    <div class="card" id="card-lojas-mes"></div>
+  </main>
+  <div id="tip"></div>
+
+  <script src="app.js"></script>
+  <script>
+    const NOME_STATUS = {
+      ABERTA: 'Aberta', PENDENTE: 'Pendente', LIBERADA_SEPARACAO: 'Na fila de separação',
+      EM_SEPARACAO: 'Em separação', PRONTA_DESPACHO: 'Pronta p/ despacho',
+      DESPACHADA: 'Despachada', ENCERRADA: 'Encerrada', CANCELADA: 'Cancelada',
+    };
+    const fmtDiaCurto = (iso) => iso.slice(8, 10) + '/' + iso.slice(5, 7);
+    const MESES_PT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+    const fmtMes = (m) => MESES_PT[Number(m.slice(5, 7)) - 1] + '/' + m.slice(2, 4);
+
+    // --- Tooltip compartilhado (camada de hover de todos os gráficos) ---
+    const tip = document.getElementById('tip');
+    document.addEventListener('mouseover', (e) => {
+      const el = e.target.closest('[data-tip]');
+      if (!el) { tip.style.display = 'none'; return; }
+      tip.innerHTML = el.dataset.tip;
+      tip.style.display = 'block';
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (tip.style.display !== 'block') return;
+      const x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 10);
+      const y = Math.min(e.clientY + 14, window.innerHeight - tip.offsetHeight - 10);
+      tip.style.left = x + 'px'; tip.style.top = y + 'px';
+    });
+
+    // --- Cartão com alternância gráfico ⇄ tabela (canal acessível) ---
+    function cartao(id, titulo, sub, graficoHtml, tabelaHtml, legendaHtml = '') {
+      const card = document.getElementById(id);
+      card.innerHTML = `
+        <div class="card-h"><h2>${titulo}</h2>
+          <button class="mini sec" data-alt>Ver tabela</button></div>
+        ${sub ? `<p class="sub">${sub}</p>` : ''}
+        ${legendaHtml}
+        <div data-vis="grafico">${graficoHtml}</div>
+        <div data-vis="tabela" style="display:none">${tabelaHtml}</div>`;
+      const btn = card.querySelector('[data-alt]');
+      btn.onclick = () => {
+        const mostraTabela = btn.textContent === 'Ver tabela';
+        card.querySelector('[data-vis="grafico"]').style.display = mostraTabela ? 'none' : '';
+        card.querySelector('[data-vis="tabela"]').style.display = mostraTabela ? '' : 'none';
+        btn.textContent = mostraTabela ? 'Ver gráfico' : 'Ver tabela';
+      };
+    }
+
+    const legenda = (itens) =>
+      `<div class="legenda">${itens.map(([cor, nome]) =>
+        `<span><span class="sw" style="background:${cor}"></span>${esc(nome)}</span>`).join('')}</div>`;
+
+    const tabela = (colunas, linhas) =>
+      `<table class="tv"><thead><tr>${colunas.map((c) => `<th>${c}</th>`).join('')}</tr></thead>
+       <tbody>${linhas.map((l) => `<tr>${l.map((v) => `<td>${v}</td>`).join('')}</tr>`).join('')
+         || `<tr><td colspan="${colunas.length}" class="suave">Sem dados.</td></tr>`}</tbody></table>`;
+
+    // --- KPIs ---
+    function kpis(k) {
+      document.getElementById('kpis').innerHTML = `
+        <div class="tile"><div class="l">Ordens ativas</div><div class="v">${k.ordens_ativas}</div><div class="sub">no fluxo do HUB</div></div>
+        <div class="tile ${k.atrasadas ? 'alerta' : ''}"><div class="l">Ordens atrasadas</div><div class="v">${k.atrasadas}</div><div class="sub">com pacote vencido</div></div>
+        <div class="tile"><div class="l">Partes no HUB</div><div class="v">${k.partes_no_hub}</div><div class="sub">inventário físico</div></div>
+        <div class="tile"><div class="l">Partes a receber</div><div class="v">${k.partes_a_receber}</div><div class="sub">aguardando lojas</div></div>
+        <div class="tile"><div class="l">Lead time médio</div><div class="v">${k.lead_time_medio ?? '—'}</div><div class="sub">dias até pronta p/ despacho</div></div>`;
+    }
+
+    // --- 1) Ordens por status: barras horizontais, série única ---
+    function graficoStatus(dados) {
+      const max = Math.max(...dados.map((d) => d.total), 1);
+      const barras = dados.map((d) => `
+        <div class="linha-b" data-tip="<b>${NOME_STATUS[d.status] ?? d.status}</b><br>${d.total} orden${d.total === 1 ? 'm' : 's'}">
+          <div class="rotulo">${NOME_STATUS[d.status] ?? d.status}</div>
+          <div class="trilho"><div class="seg fim" style="width:${(d.total / max) * 100}%; background:var(--s-ok)"></div></div>
+          <div class="valor">${d.total}</div>
+        </div>`).join('');
+      cartao('card-status', 'Ordens por status', 'Situação atual de todas as OSs.',
+        dados.length ? `<div class="hbars">${barras}</div>` : '<div class="vazio">Sem ordens.</div>',
+        tabela(['Status', 'Total'], dados.map((d) => [NOME_STATUS[d.status] ?? d.status, d.total])));
+    }
+
+    // --- 2) Finalizadas nos últimos 20 dias: colunas empilhadas (em dia × com atraso) ---
+    function grafico20d(dias) {
+      const totais = dias.map((d) => d.em_dia + d.com_atraso);
+      const max = Math.max(...totais, 1);
+      const idxMax = totais.indexOf(Math.max(...totais));
+      const slots = dias.map((d, i) => {
+        const t = d.em_dia + d.com_atraso;
+        const seg = (v, cor, topo) => v
+          ? `<div class="seg ${topo ? 'topo' : ''}" style="height:${(v / max) * 150}px; background:${cor}"></div>`
+          : '';
+        return `
+          <div class="slot" data-tip="<b>${fmtDiaCurto(d.dia)}</b><br>Em dia: ${d.em_dia}<br>Com atraso: ${d.com_atraso}<br>Total: ${t}">
+            ${t && i === idxMax ? `<div class="max-label">${t}</div>` : ''}
+            <div class="pilha">${seg(d.em_dia, 'var(--s-ok)', d.com_atraso === 0)}${seg(d.com_atraso, 'var(--s-atraso)', true)}</div>
+          </div>`;
+      }).join('');
+      const ticks = dias.map((d, i) =>
+        `<div class="tick">${i % 4 === 0 ? fmtDiaCurto(d.dia) : ''}</div>`).join('');
+      const temDados = totais.some((t) => t > 0);
+      cartao('card-20d', 'Ordens finalizadas — últimos 20 dias',
+        'OSs que ficaram prontas para despacho por dia; em vermelho, as que tiveram pacote de loja recebido com atraso.',
+        temDados
+          ? `<div class="cols">${slots}</div><div class="eixo-x">${ticks}</div>`
+          : '<div class="vazio">Nenhuma OS finalizada no período.</div>',
+        tabela(['Dia', 'Em dia', 'Com atraso', 'Total'],
+          dias.filter((d) => d.em_dia + d.com_atraso > 0)
+              .map((d) => [fmtDiaCurto(d.dia), d.em_dia, d.com_atraso, d.em_dia + d.com_atraso])),
+        legenda([['var(--s-ok)', 'Em dia'], ['var(--s-atraso)', 'Com atraso']]));
+    }
+
+    // --- 3) Partes a receber por loja: barras horizontais empilhadas ---
+    function graficoPendencias(lojas) {
+      const max = Math.max(...lojas.map((l) => l.total), 1);
+      const barras = lojas.map((l) => `
+        <div class="linha-b" data-tip="<b>${esc(l.loja)}</b>${l.cidade_uf ? ' · ' + esc(l.cidade_uf) : ''}<br>No prazo: ${l.no_prazo}<br>Atrasadas: ${l.atrasadas}<br>Total: ${l.total}">
+          <div class="rotulo">${esc(l.loja)}</div>
+          <div class="trilho">
+            ${l.no_prazo ? `<div class="seg ${l.atrasadas ? '' : 'fim'}" style="width:${(l.no_prazo / max) * 100}%; background:var(--s-ok)"></div>` : ''}
+            ${l.atrasadas ? `<div class="seg fim" style="width:${(l.atrasadas / max) * 100}%; background:var(--s-atraso)"></div>` : ''}
+          </div>
+          <div class="valor">${l.total}</div>
+        </div>`).join('');
+      cartao('card-lojas-pend', 'Partes a receber por loja',
+        'Lojas com mais envios pendentes ao HUB (top 8).',
+        lojas.length ? `<div class="hbars">${barras}</div>` : '<div class="vazio">Nenhuma pendência. 🎉</div>',
+        tabela(['Loja', 'No prazo', 'Atrasadas', 'Total'],
+          lojas.map((l) => [esc(l.loja), l.no_prazo, l.atrasadas, l.total])),
+        lojas.length ? legenda([['var(--s-ok)', 'No prazo'], ['var(--s-atraso)', 'Atrasadas']]) : '');
+    }
+
+    // --- 5) Top lojas por mês: colunas empilhadas, categórico (top 5 + Outras) ---
+    function graficoLojasMes({ meses, series }) {
+      const CORES = ['var(--c1)', 'var(--c2)', 'var(--c3)', 'var(--c4)', 'var(--c5)'];
+      const corDe = (s, i) => (s.loja === 'Outras' ? 'var(--c-outras)' : CORES[i]);
+      const totais = meses.map((_, m) => series.reduce((soma, s) => soma + s.valores[m], 0));
+      const max = Math.max(...totais, 1);
+      const slots = meses.map((mes, m) => {
+        const linhasTip = series
+          .filter((s) => s.valores[m] > 0)
+          .map((s) => `${esc(s.loja)}: ${s.valores[m]}`).join('<br>');
+        let topoVisto = false;
+        const segs = [...series].reverse().map((s, ri) => {
+          const i = series.length - 1 - ri;
+          const v = s.valores[m];
+          if (!v) return '';
+          const topo = !topoVisto; topoVisto = true;
+          return `<div class="seg ${topo ? 'topo' : ''}" style="height:${(v / max) * 150}px; background:${corDe(s, i)}"></div>`;
+        }).reverse().join('');
+        return `
+          <div class="slot" data-tip="<b>${fmtMes(mes)}</b><br>${linhasTip || 'Sem partes'}<br><b>Total: ${totais[m]}</b>">
+            ${totais[m] === Math.max(...totais) && totais[m] ? `<div class="max-label">${totais[m]}</div>` : ''}
+            <div class="pilha">${segs}</div>
+          </div>`;
+      }).join('');
+      const ticks = meses.map((mes) => `<div class="tick">${fmtMes(mes)}</div>`).join('');
+      cartao('card-lojas-mes', 'Top lojas por mês',
+        'Número de partes por loja nos últimos 6 meses (5 maiores lojas do período; demais em "Outras").',
+        meses.length
+          ? `<div class="cols">${slots}</div><div class="eixo-x">${ticks}</div>`
+          : '<div class="vazio">Sem partes no período.</div>',
+        tabela(['Loja', ...meses.map(fmtMes), 'Total'],
+          series.map((s, i) => [
+            `<span class="sw legenda" style="background:${corDe(s, i)}; display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:6px;"></span>${esc(s.loja)}`,
+            ...s.valores, s.valores.reduce((a, b) => a + b, 0),
+          ])),
+        series.length ? legenda(series.map((s, i) => [corDe(s, i), s.loja])) : '');
+    }
+
+    async function carregar() {
+      const d = await api('/gerencial/indicadores');
+      kpis(d.kpis);
+      graficoStatus(d.por_status);
+      grafico20d(d.finalizadas_20d);
+      graficoPendencias(d.a_receber_por_loja);
+      graficoLojasMes(d.lojas_por_mes);
+    }
+    carregar().catch((e) => {
+      document.getElementById('kpis').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
+    });
+  </script>
+</body>
+</html>

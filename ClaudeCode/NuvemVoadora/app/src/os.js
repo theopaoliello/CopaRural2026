@@ -1,7 +1,7 @@
 // Ordem de Servico: criacao (M1/M2), leitura e listagem.
 import { incrementarSeqOS } from '../db/db.js';
 import { codigoOS, codigoParte, gerarLetras, parseCodigo } from './codigos.js';
-import { OS, PARTE, parteEstaAtrasada } from './estados.js';
+import { OS, PARTE, parteEstaAtrasada, validarTransicaoOS } from './estados.js';
 import { agoraISO, addDiasISO } from './datas.js';
 import { obterLoja } from './lojas.js';
 import { ErroValidacao, NaoEncontrado } from './erros.js';
@@ -146,6 +146,35 @@ export function obterOS(db, codigo) {
     atrasada: partes.some((p) => p.atrasada) || historicoAtraso.length > 0,
     teve_atraso: historicoAtraso.length > 0,
   };
+}
+
+// Despacho (M8): PRONTA_DESPACHO -> DESPACHADA, com codigo de rastreio da
+// transportadora opcional. E o que o cliente ve no rastreio publico.
+export function despacharOS(db, codigo, { rastreio_postagem = null } = {}) {
+  const os = db.prepare('SELECT * FROM ordem_servico WHERE codigo = ?').get(codigo);
+  if (!os) throw new NaoEncontrado(`OS nao encontrada: ${codigo}`);
+  validarTransicaoOS(os.status, OS.DESPACHADA);
+  const agora = agoraISO();
+  db.prepare(
+    `UPDATE ordem_servico
+        SET status = ?, despachada_em = ?, rastreio_postagem = ?, atualizado_em = ?
+      WHERE id = ?`,
+  ).run(OS.DESPACHADA, agora, rastreio_postagem?.trim() || null, agora, os.id);
+  return obterOS(db, codigo);
+}
+
+// Encerramento: DESPACHADA -> ENCERRADA (cliente recebeu; fecha o ciclo).
+export function encerrarOS(db, codigo) {
+  const os = db.prepare('SELECT * FROM ordem_servico WHERE codigo = ?').get(codigo);
+  if (!os) throw new NaoEncontrado(`OS nao encontrada: ${codigo}`);
+  validarTransicaoOS(os.status, OS.ENCERRADA);
+  const agora = agoraISO();
+  db.prepare('UPDATE ordem_servico SET status = ?, atualizado_em = ? WHERE id = ?').run(
+    OS.ENCERRADA,
+    agora,
+    os.id,
+  );
+  return obterOS(db, codigo);
 }
 
 export function obterParte(db, codigoBarras) {

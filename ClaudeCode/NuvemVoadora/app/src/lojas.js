@@ -1,5 +1,6 @@
 // Cadastro de lojas parceiras.
 import { agoraISO } from './datas.js';
+import { tokenLoja } from './codigos.js';
 import { ErroValidacao } from './erros.js';
 
 export function listarLojas(db, { incluirInativas = false } = {}) {
@@ -17,7 +18,7 @@ export function criarLoja(db, { nome, cidade_uf = null, janela_dias = 15 }) {
     throw new ErroValidacao('janela_dias deve ser 7 ou 15.');
   }
   const info = db
-    .prepare('INSERT INTO loja (nome, cidade_uf, janela_dias, ativo, criado_em) VALUES (?, ?, ?, 1, ?)')
-    .run(nome.trim(), cidade_uf, Number(janela_dias), agoraISO());
+    .prepare('INSERT INTO loja (nome, cidade_uf, janela_dias, token, ativo, criado_em) VALUES (?, ?, ?, ?, 1, ?)')
+    .run(nome.trim(), cidade_uf, Number(janela_dias), tokenLoja(), agoraISO());
   return obterLoja(db, info.lastInsertRowid);
 }

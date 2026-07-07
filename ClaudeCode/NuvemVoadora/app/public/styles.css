@@ -72,6 +72,9 @@ a.botao { display: inline-block; text-decoration: none; }
 .badge.LIBERADA_SEPARACAO { background: #dde7fb; color: var(--azul2); }
 .badge.EM_SEPARACAO { background: #dde7fb; color: var(--azul2); }
 .badge.PRONTA_DESPACHO { background: #cfeadd; color: var(--ok); }
+.badge.DESPACHADA { background: #d7f0e0; color: var(--ok); }
+.badge.ENCERRADA { background: #e4e7ec; color: var(--suave); }
+.badge.CANCELADA { background: #fAD6CE; color: var(--alerta); }
 .badge.AGUARDANDO { background: #f0f1f4; color: var(--suave); }
 .badge.RECEBIDA { background: #d7f0e0; color: var(--ok); }
 .badge.CONSOLIDADA { background: #cfeadd; color: var(--ok); }

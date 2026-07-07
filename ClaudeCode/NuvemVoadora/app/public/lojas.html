@@ -38,9 +38,11 @@
 
     <div class="card">
       <table>
-        <thead><tr><th>Nome</th><th>Cidade/UF</th><th>Janela</th></tr></thead>
-        <tbody id="lista"><tr><td colspan="3" class="suave">Carregando…</td></tr></tbody>
+        <thead><tr><th>Nome</th><th>Cidade/UF</th><th>Janela</th><th>Acesso ao portal</th></tr></thead>
+        <tbody id="lista"><tr><td colspan="4" class="suave">Carregando…</td></tr></tbody>
       </table>
+      <p class="suave">O <b>código de acesso</b> é a credencial da loja no
+        <a href="portal.html" target="_blank">Portal da Loja</a> — envie-o à loja parceira por canal seguro.</p>
     </div>
   </main>
 
@@ -49,8 +51,19 @@
     async function listar() {
       const lojas = await api('/lojas');
       document.getElementById('lista').innerHTML = lojas.length
-        ? lojas.map((l) => `<tr><td>${esc(l.nome)}</td><td>${esc(l.cidade_uf || '—')}</td><td>${l.janela_dias} dias</td></tr>`).join('')
-        : '<tr><td colspan="3" class="suave">Nenhuma loja.</td></tr>';
+        ? lojas.map((l) => `<tr>
+            <td>${esc(l.nome)}</td><td>${esc(l.cidade_uf || '—')}</td><td>${l.janela_dias} dias</td>
+            <td><span class="mono">${esc(l.token || '—')}</span>
+                ${l.token ? `<button class="mini sec" type="button" onclick="copiar('${l.token}', this)">Copiar</button>` : ''}</td>
+          </tr>`).join('')
+        : '<tr><td colspan="4" class="suave">Nenhuma loja.</td></tr>';
+    }
+    async function copiar(token, btn) {
+      try {
+        await navigator.clipboard.writeText(token);
+        btn.textContent = 'Copiado!';
+        setTimeout(() => { btn.textContent = 'Copiar'; }, 1500);
+      } catch (_) { /* clipboard indisponivel (http) — o codigo esta visivel ao lado */ }
     }
     document.getElementById('form').onsubmit = async (ev) => {
       ev.preventDefault();
