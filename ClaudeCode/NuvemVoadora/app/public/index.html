@@ -33,8 +33,8 @@
         <span class="chip-f" data-s="PRONTA_DESPACHO">Prontas</span>
       </div>
       <table>
-        <thead><tr><th>Código</th><th>Cliente</th><th>Partes</th><th>Status</th><th>Aberta</th></tr></thead>
-        <tbody id="lista"><tr><td colspan="5" class="suave">Carregando…</td></tr></tbody>
+        <thead><tr><th>Código</th><th>Cliente</th><th>Partes</th><th>Status</th><th>Atraso</th><th>Aberta</th></tr></thead>
+        <tbody id="lista"><tr><td colspan="6" class="suave">Carregando…</td></tr></tbody>
       </table>
     </div>
   </main>
@@ -63,8 +63,15 @@
           <td>${esc(o.cliente_nome)}</td>
           <td>${o.recebidas}/${o.total_partes}</td>
           <td>${badge(o.status)}</td>
+          <td>${tagAtraso(o)}</td>
           <td class="suave">${fmtData(o.aberta_em)}</td>
-        </tr>`).join('') : '<tr><td colspan="5" class="suave">Nenhuma OS neste filtro.</td></tr>';
+        </tr>`).join('') : '<tr><td colspan="6" class="suave">Nenhuma OS neste filtro.</td></tr>';
+    }
+
+    function tagAtraso(o) {
+      if (o.atraso_aberto) return '<span class="tag-atraso">ATRASADA</span>';
+      if (o.teve_atraso) return '<span class="tag-atraso-hist">teve atraso</span>';
+      return '<span class="suave">—</span>';
     }
 
     function filtrar(status) {
@@ -78,7 +85,7 @@
 
     Promise.all([metricas(), listar('')]).catch((e) => {
       document.getElementById('lista').innerHTML =
-        `<tr><td colspan="5"><span class="msg erro">${esc(e.message)}</span></td></tr>`;
+        `<tr><td colspan="6"><span class="msg erro">${esc(e.message)}</span></td></tr>`;
     });
   </script>
 </body>

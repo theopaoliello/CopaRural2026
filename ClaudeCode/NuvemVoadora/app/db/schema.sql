@@ -64,6 +64,24 @@ CREATE TABLE IF NOT EXISTS contador_os (
   ultimo INTEGER NOT NULL
 );
 
+-- Historico de atrasos por loja (RF-07.3). Gravado no recebimento quando a
+-- parte chega depois do prazo_limite. Persiste o atraso mesmo apos a entrega,
+-- guardando o numero do pacote (codigo_parte) e a loja responsavel.
+CREATE TABLE IF NOT EXISTS atraso_historico (
+  id            INTEGER PRIMARY KEY,
+  os_id         INTEGER NOT NULL REFERENCES ordem_servico(id),
+  parte_id      INTEGER NOT NULL REFERENCES parte(id),
+  loja_id       INTEGER NOT NULL REFERENCES loja(id),
+  codigo_parte  TEXT NOT NULL,
+  prazo_limite  TEXT,
+  recebida_em   TEXT,
+  dias_atraso   INTEGER NOT NULL,
+  registrado_em TEXT NOT NULL,
+  UNIQUE(parte_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_parte_os     ON parte(os_id);
 CREATE INDEX IF NOT EXISTS idx_parte_status ON parte(status);
 CREATE INDEX IF NOT EXISTS idx_os_status    ON ordem_servico(status);
+CREATE INDEX IF NOT EXISTS idx_atraso_os    ON atraso_historico(os_id);
+CREATE INDEX IF NOT EXISTS idx_atraso_loja  ON atraso_historico(loja_id);

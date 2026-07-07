@@ -27,6 +27,22 @@ test('fila mostra apenas OS liberadas', () => {
   assert.equal(fila[0].total_partes, 2);
 });
 
+test('OS EM_SEPARACAO continua na fila até ser fechada (retomável)', () => {
+  const db = migrar(abrirBanco(':memory:'));
+  const os = osLiberada(db, 2);
+  iniciarSeparacao(db, os.codigo);
+  // ainda visivel na fila, agora com status EM_SEPARACAO e progresso
+  const fila = filaSeparacao(db);
+  assert.equal(fila.length, 1);
+  assert.equal(fila[0].status, OS.EM_SEPARACAO);
+  assert.equal(fila[0].consolidadas, 0);
+  // apos fechar, sai da fila
+  scanConsolidacao(db, os.codigo, os.partes[0].codigo_barras, 'op');
+  scanConsolidacao(db, os.codigo, os.partes[1].codigo_barras, 'op');
+  finalizarSeparacao(db, os.codigo);
+  assert.equal(filaSeparacao(db).length, 0);
+});
+
 test('iniciarSeparacao move para EM_SEPARACAO e trava segundo inicio', () => {
   const db = migrar(abrirBanco(':memory:'));
   const os = osLiberada(db, 2);

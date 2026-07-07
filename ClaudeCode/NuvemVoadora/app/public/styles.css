@@ -69,7 +69,7 @@ a.botao { display: inline-block; text-decoration: none; }
   font-size: 12px; font-weight: 600;
 }
 .badge.PENDENTE { background: #fff3d6; color: var(--amarelo); }
-.badge.LIBERADA_SEPARACAO { background: #d7f0e0; color: var(--ok); }
+.badge.LIBERADA_SEPARACAO { background: #dde7fb; color: var(--azul2); }
 .badge.EM_SEPARACAO { background: #dde7fb; color: var(--azul2); }
 .badge.PRONTA_DESPACHO { background: #cfeadd; color: var(--ok); }
 .badge.AGUARDANDO { background: #f0f1f4; color: var(--suave); }
@@ -77,6 +77,7 @@ a.botao { display: inline-block; text-decoration: none; }
 .badge.CONSOLIDADA { background: #cfeadd; color: var(--ok); }
 .badge.RECUSADA, .badge.QUARENTENA { background: #fAD6CE; color: var(--alerta); }
 .tag-atraso { background: var(--alerta); color: #fff; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+.tag-atraso-hist { background: #fff3d6; color: var(--amarelo); border: 1px solid #e6cf8f; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
 .msg { padding: 10px 14px; border-radius: 8px; margin: 12px 0; font-size: 14px; }
 .msg.ok { background: #d7f0e0; color: var(--ok); }
 .msg.erro { background: #fAD6CE; color: var(--alerta); }

@@ -49,6 +49,15 @@
         <tbody id="lojas"><tr><td colspan="3" class="suave">Carregando…</td></tr></tbody>
       </table>
     </div>
+
+    <div class="card">
+      <h2>🗂️ Histórico de atrasos por loja</h2>
+      <p class="suave">Pacotes que chegaram fora do prazo. Permanece registrado mesmo após o recebimento.</p>
+      <table>
+        <thead><tr><th>Loja</th><th>Total</th><th>Pior atraso</th><th>Pacotes atrasados (nº · OS · dias)</th></tr></thead>
+        <tbody id="historico"><tr><td colspan="4" class="suave">Carregando…</td></tr></tbody>
+      </table>
+    </div>
   </main>
 
   <script src="app.js"></script>
@@ -80,6 +89,15 @@
       lo.innerHTML = r.lojas.length ? r.lojas.map((l) => `
         <tr><td>${esc(l.loja_nome)}</td><td>${esc(l.cidade_uf || '—')}</td><td><b>${l.partes_atrasadas}</b></td></tr>`).join('')
         : '<tr><td colspan="3" class="suave">Nenhuma loja em atraso.</td></tr>';
+
+      const hi = document.getElementById('historico');
+      hi.innerHTML = (r.historico && r.historico.length) ? r.historico.map((l) => `
+        <tr>
+          <td>${esc(l.loja_nome)}<div class="suave">${esc(l.loja_cidade_uf || '')}</div></td>
+          <td><b>${l.total_atrasos}</b></td>
+          <td><span class="dias">${l.max_dias_atraso}d</span></td>
+          <td>${l.pacotes.map((p) => `<span class="resp"><b class="mono">${esc(p.codigo_parte)}</b> · <a href="os.html?codigo=${p.os_codigo}" class="mono">${p.os_codigo}</a> · <span class="dias">${p.dias_atraso}d</span></span>`).join('')}</td>
+        </tr>`).join('') : '<tr><td colspan="4" class="suave">Nenhum atraso registrado ainda.</td></tr>';
     }
     carregar().catch((e) => {
       document.getElementById('msg').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;

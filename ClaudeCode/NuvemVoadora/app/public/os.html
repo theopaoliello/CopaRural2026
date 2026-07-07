@@ -27,12 +27,20 @@
     async function carregar() {
       const codigo = qs('codigo');
       const os = await api('/os/' + encodeURIComponent(codigo));
-      const atraso = os.atrasada ? ' <span class="tag-atraso">ATRASADA</span>' : '';
+      const atrasoAberto = os.partes.some((p) => p.atrasada);
+      const atraso = atrasoAberto
+        ? ' <span class="tag-atraso">ATRASADA</span>'
+        : (os.teve_atraso ? ' <span class="tag-atraso-hist">TEVE ATRASO</span>' : '');
+      const tagAtrasoParte = (p) => {
+        if (p.atrasada) return '<span class="tag-atraso">atraso</span>';
+        if (p.recebida_atrasada) return `<span class="tag-atraso-hist">recebida c/ atraso · ${p.dias_atraso}d</span>`;
+        return '';
+      };
       const partes = os.partes.map((p) => `
         <tr>
           <td><b>${p.letra}</b></td>
           <td>${esc(p.loja_nome)}<div class="suave">${esc(p.loja_cidade_uf || '')}</div></td>
-          <td>${badge(p.status)} ${p.atrasada ? '<span class="tag-atraso">atraso</span>' : ''}</td>
+          <td>${badge(p.status)} ${tagAtrasoParte(p)}</td>
           <td class="suave">${fmtDia(p.prazo_limite)}</td>
           <td>${p.itens.map((i) => `${i.quantidade}× ${esc(i.descricao)}`).join('<br>') || '<span class="suave">—</span>'}</td>
           <td><a href="etiqueta.html?codigo=${p.codigo_barras}" target="_blank" class="mono">${p.codigo_barras}</a></td>

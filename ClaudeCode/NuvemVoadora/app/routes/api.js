@@ -4,7 +4,7 @@ import { criarOS, obterOS, obterParte, listarOS } from '../src/os.js';
 import { listarLojas, criarLoja } from '../src/lojas.js';
 import { registrarRecebimento } from '../src/recebimento.js';
 import { filaSeparacao, iniciarSeparacao, scanConsolidacao, finalizarSeparacao } from '../src/separacao.js';
-import { osAtrasadas, partesEmRisco, desempenhoLojas } from '../src/atrasos.js';
+import { osAtrasadas, partesEmRisco, desempenhoLojas, historicoAtrasos } from '../src/atrasos.js';
 import { OS, PARTE } from '../src/estados.js';
 import { agoraISO } from '../src/datas.js';
 import { ErroValidacao } from '../src/erros.js';
@@ -55,6 +55,7 @@ export function montarRotas(db) {
     atrasadas: osAtrasadas(db),
     em_risco: partesEmRisco(db),
     lojas: desempenhoLojas(db),
+    historico: historicoAtrasos(db),
   })));
 
   // --- Auditoria de scans (RNF-02) ---

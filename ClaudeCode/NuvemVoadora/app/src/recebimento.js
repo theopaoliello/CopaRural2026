@@ -3,7 +3,7 @@
 // as partes chegam, a OS e liberada automaticamente para separacao (RN-05.1).
 import { parseCodigo } from './codigos.js';
 import { OS, PARTE, validarTransicaoParte, validarTransicaoOS, statusPorCompletude } from './estados.js';
-import { agoraISO } from './datas.js';
+import { agoraISO, diffDias } from './datas.js';
 import { obterOS } from './os.js';
 import { ErroValidacao } from './erros.js';
 
@@ -39,6 +39,21 @@ export function reavaliarOS(db, osId) {
     return OS.LIBERADA_SEPARACAO;
   }
   return os.status;
+}
+
+// Registra no historico se a parte chegou depois do prazo_limite (RF-07.3).
+// Persiste o atraso para que ele nao "suma" quando a parte deixa de estar
+// AGUARDANDO. Idempotente por parte (UNIQUE(parte_id)). Chamada dentro da
+// transacao de recebimento.
+function registrarAtrasoSeHouver(db, parte, recebidaEm) {
+  if (!parte.prazo_limite) return;
+  if (new Date(recebidaEm).getTime() <= new Date(parte.prazo_limite).getTime()) return;
+  const dias = Math.max(1, diffDias(recebidaEm, parte.prazo_limite));
+  db.prepare(
+    `INSERT OR IGNORE INTO atraso_historico
+       (os_id, parte_id, loja_id, codigo_parte, prazo_limite, recebida_em, dias_atraso, registrado_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(parte.os_pk, parte.id, parte.loja_id, parte.codigo_barras, parte.prazo_limite, recebidaEm, dias, agoraISO());
 }
 
 // Processa um scan de entrada. Nunca lanca para casos de negocio: retorna
@@ -84,6 +99,7 @@ export function registrarRecebimento(db, codigoLido, operador = null) {
     const agora = agoraISO();
     db.prepare('UPDATE parte SET status = ?, recebida_em = ?, recebida_por = ? WHERE id = ?')
       .run(PARTE.RECEBIDA, agora, operador, parte.id);
+    registrarAtrasoSeHouver(db, parte, agora);
     registrarEvento(db, { tipo: 'ENTRADA', codigo_lido: codParte, os_id: parte.os_pk, parte_id: parte.id, operador, resultado: 'OK' });
     const statusOS = reavaliarOS(db, parte.os_pk);
     db.exec('COMMIT');

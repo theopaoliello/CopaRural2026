@@ -20,12 +20,12 @@
   </header>
   <main>
     <h2>Fila de separação</h2>
-    <p class="suave">Ordens completas, liberadas automaticamente quando todas as partes chegaram. Mais antigas primeiro.</p>
+    <p class="suave">Ordens liberadas quando todas as partes chegaram, e as que já estão em separação (permanecem até serem fechadas). Mais antigas primeiro.</p>
     <div id="msg"></div>
     <div class="card">
       <table>
-        <thead><tr><th>Código</th><th>Cliente</th><th>Partes</th><th>Escaninho</th><th>Liberada em</th><th></th></tr></thead>
-        <tbody id="fila"><tr><td colspan="6" class="suave">Carregando…</td></tr></tbody>
+        <thead><tr><th>Código</th><th>Cliente</th><th>Status</th><th>Partes</th><th>Escaninho</th><th>Liberada em</th><th></th></tr></thead>
+        <tbody id="fila"><tr><td colspan="7" class="suave">Carregando…</td></tr></tbody>
       </table>
     </div>
   </main>
@@ -35,16 +35,24 @@
     async function carregar() {
       const fila = await api('/fila-separacao');
       const tb = document.getElementById('fila');
-      if (!fila.length) { tb.innerHTML = '<tr><td colspan="6" class="suave">Nenhuma OS na fila.</td></tr>'; return; }
-      tb.innerHTML = fila.map((o) => `
+      if (!fila.length) { tb.innerHTML = '<tr><td colspan="7" class="suave">Nenhuma OS na fila.</td></tr>'; return; }
+      tb.innerHTML = fila.map((o) => {
+        const emSeparacao = o.status === 'EM_SEPARACAO';
+        const partes = emSeparacao ? `${o.consolidadas}/${o.total_partes}` : o.total_partes;
+        const botao = emSeparacao
+          ? `<button class="mini" onclick="continuar('${o.codigo}')">Continuar ▶</button>`
+          : `<button class="mini" onclick="separar('${o.codigo}')">Separar ▶</button>`;
+        return `
         <tr>
           <td class="mono">${o.codigo}</td>
           <td>${esc(o.cliente_nome)} ${o.cliente_uf ? '/' + esc(o.cliente_uf) : ''}</td>
-          <td>${o.total_partes}</td>
+          <td>${badge(o.status)}</td>
+          <td>${partes}</td>
           <td>${esc(o.escaninho || '—')}</td>
           <td class="suave">${fmtData(o.liberada_em)}</td>
-          <td><button class="mini" onclick="separar('${o.codigo}')">Separar ▶</button></td>
-        </tr>`).join('');
+          <td>${botao}</td>
+        </tr>`;
+      }).join('');
     }
     async function separar(codigo) {
       try {
@@ -54,6 +62,10 @@
         document.getElementById('msg').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
         carregar();
       }
+    }
+    // Retoma uma separação já iniciada: vai direto à tela, sem reiniciar.
+    function continuar(codigo) {
+      location.href = 'separar.html?codigo=' + encodeURIComponent(codigo);
     }
     carregar().catch((e) => {
       document.getElementById('msg').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;

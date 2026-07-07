@@ -64,6 +64,49 @@ export function partesEmRisco(db, agora = agoraISO(), diasLimite = 2) {
     .map((r) => ({ ...r, dias_restantes: diffDias(r.prazo_limite, agora) }));
 }
 
+// Historico persistente de atrasos por loja (RF-07.3). Diferente de osAtrasadas
+// (que so mostra o que ainda esta pendente), este mantem o registro mesmo apos
+// a parte ser recebida, com o numero do pacote atrasado. Alimenta o SLA da loja.
+export function historicoAtrasos(db) {
+  const linhas = db
+    .prepare(
+      `SELECT h.codigo_parte, h.dias_atraso, h.prazo_limite, h.recebida_em, h.registrado_em,
+              o.codigo AS os_codigo, o.cliente_nome,
+              l.id AS loja_id, l.nome AS loja_nome, l.cidade_uf AS loja_cidade_uf
+         FROM atraso_historico h
+         JOIN ordem_servico o ON o.id = h.os_id
+         JOIN loja l ON l.id = h.loja_id
+        ORDER BY h.registrado_em DESC`,
+    )
+    .all();
+
+  const porLoja = new Map();
+  for (const r of linhas) {
+    if (!porLoja.has(r.loja_id)) {
+      porLoja.set(r.loja_id, {
+        loja_id: r.loja_id,
+        loja_nome: r.loja_nome,
+        loja_cidade_uf: r.loja_cidade_uf,
+        total_atrasos: 0,
+        max_dias_atraso: 0,
+        pacotes: [],
+      });
+    }
+    const g = porLoja.get(r.loja_id);
+    g.total_atrasos += 1;
+    g.max_dias_atraso = Math.max(g.max_dias_atraso, r.dias_atraso);
+    g.pacotes.push({
+      codigo_parte: r.codigo_parte,
+      os_codigo: r.os_codigo,
+      cliente_nome: r.cliente_nome,
+      dias_atraso: r.dias_atraso,
+      prazo_limite: r.prazo_limite,
+      recebida_em: r.recebida_em,
+    });
+  }
+  return [...porLoja.values()].sort((a, b) => b.total_atrasos - a.total_atrasos);
+}
+
 // Ranking de lojas com partes atualmente atrasadas (alimenta SLA/penalidades, RF-07.3).
 export function desempenhoLojas(db, agora = agoraISO()) {
   return db

@@ -15,19 +15,22 @@ function registrarEvento(db, e) {
   ).run(e.tipo, e.codigo_lido, e.os_id ?? null, e.parte_id ?? null, e.operador ?? null, e.resultado, e.mensagem ?? null, agoraISO());
 }
 
-// M6: fila de OS liberadas para separacao, mais antigas primeiro.
+// M6: fila de separacao. Inclui OS liberadas E as ja EM_SEPARACAO, para que uma
+// separacao iniciada e nao concluida continue visivel e possa ser retomada.
+// A OS so sai da fila quando vira PRONTA_DESPACHO. Mais antigas primeiro.
 export function filaSeparacao(db) {
   return db
     .prepare(
-      `SELECT o.codigo, o.cliente_nome, o.cliente_uf, o.escaninho, o.liberada_em,
-              COUNT(p.id) AS total_partes
+      `SELECT o.codigo, o.cliente_nome, o.cliente_uf, o.status, o.escaninho, o.liberada_em,
+              COUNT(p.id) AS total_partes,
+              SUM(CASE WHEN p.status = 'CONSOLIDADA' THEN 1 ELSE 0 END) AS consolidadas
          FROM ordem_servico o
          JOIN parte p ON p.os_id = o.id
-        WHERE o.status = ?
+        WHERE o.status IN (?, ?)
         GROUP BY o.id
         ORDER BY o.liberada_em ASC`,
     )
-    .all(OS.LIBERADA_SEPARACAO);
+    .all(OS.LIBERADA_SEPARACAO, OS.EM_SEPARACAO);
 }
 
 // M6.3: inicia a separacao. Update condicional evita que dois operadores

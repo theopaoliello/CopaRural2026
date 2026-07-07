@@ -117,12 +117,21 @@ export function obterOS(db, codigo) {
     )
     .all(os.id);
 
+  // Atrasos ja consolidados no historico (parte que chegou apos o prazo).
+  const historicoAtraso = db
+    .prepare('SELECT parte_id, codigo_parte, dias_atraso, prazo_limite, recebida_em FROM atraso_historico WHERE os_id = ?')
+    .all(os.id);
+  const atrasoPorParte = new Map(historicoAtraso.map((h) => [h.parte_id, h]));
+
   const agora = agoraISO();
   for (const parte of partes) {
     parte.itens = db
       .prepare('SELECT id, descricao, quantidade FROM item WHERE parte_id = ? ORDER BY id')
       .all(parte.id);
     parte.atrasada = parteEstaAtrasada(parte.status, parte.prazo_limite, agora);
+    const hist = atrasoPorParte.get(parte.id);
+    parte.recebida_atrasada = !!hist;               // chegou, mas fora do prazo
+    parte.dias_atraso = hist ? hist.dias_atraso : 0; // atraso registrado no recebimento
   }
 
   const recebidas = partes.filter((p) => p.status !== PARTE.AGUARDANDO).length;
@@ -132,7 +141,10 @@ export function obterOS(db, codigo) {
     total_partes: partes.length,
     recebidas,
     faltam: partes.length - recebidas,
-    atrasada: partes.some((p) => p.atrasada),
+    // ATRASADA cobre tanto o que ainda esta pendente e vencido quanto o que ja
+    // chegou atrasado: o status de atraso permanece na ordem (RF-07.3).
+    atrasada: partes.some((p) => p.atrasada) || historicoAtraso.length > 0,
+    teve_atraso: historicoAtraso.length > 0,
   };
 }
 
@@ -157,20 +169,31 @@ export function obterParte(db, codigoBarras) {
 }
 
 // Lista OSs com contagem de partes recebidas; filtro opcional por status.
+// Deriva o atraso: "em aberto" (parte AGUARDANDO vencida) e/ou "histórico"
+// (parte que ja chegou fora do prazo) — o status de atraso permanece na ordem.
 export function listarOS(db, { status = null } = {}) {
   const where = status ? 'WHERE o.status = ?' : '';
-  const params = status ? [status] : [];
+  const params = status ? [agoraISO(), status] : [agoraISO()];
   return db
     .prepare(
       `SELECT o.codigo, o.cliente_nome, o.cliente_uf, o.status, o.escaninho,
               o.aberta_em, o.liberada_em,
               COUNT(p.id) AS total_partes,
-              SUM(CASE WHEN p.status <> 'AGUARDANDO' THEN 1 ELSE 0 END) AS recebidas
+              SUM(CASE WHEN p.status <> 'AGUARDANDO' THEN 1 ELSE 0 END) AS recebidas,
+              SUM(CASE WHEN p.status = 'AGUARDANDO' AND p.prazo_limite IS NOT NULL
+                            AND p.prazo_limite < ? THEN 1 ELSE 0 END) AS partes_atrasadas,
+              (SELECT COUNT(*) FROM atraso_historico h WHERE h.os_id = o.id) AS atrasos_historico
          FROM ordem_servico o
          LEFT JOIN parte p ON p.os_id = o.id
          ${where}
         GROUP BY o.id
         ORDER BY o.aberta_em DESC`,
     )
-    .all(...params);
+    .all(...params)
+    .map((o) => ({
+      ...o,
+      atraso_aberto: o.partes_atrasadas > 0,
+      teve_atraso: o.atrasos_historico > 0,
+      atrasada: o.partes_atrasadas > 0 || o.atrasos_historico > 0,
+    }));
 }
