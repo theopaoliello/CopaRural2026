@@ -10,7 +10,9 @@ import {
 } from '../src/posse.js';
 import {
   criarCampeonato, classificacaoDoCampeonato, gerarMataDoCampeonato, slugificar, slugDisponivel,
+  textoLimitado, validarCorTema,
 } from '../src/campeonatos.js';
+import { criarLimitador } from '../src/ratelimit.js';
 import { registrarResultado, apagarResultado } from '../src/jogos.js';
 import { inserirLoteJogadores } from '../src/jogadores.js';
 import { parsearResultadoTexto } from '../src/resultado-texto.js';
@@ -21,19 +23,41 @@ import { CRITERIOS_VALIDOS } from '../src/classificacao.js';
 
 const MAX_BANNERS = 5;
 
-export function montarRotas(db) {
+// Links de banner aparecem como <a href> na pagina publica: apenas http(s),
+// senao um organizador poderia plantar javascript: para os visitantes.
+function validarLink(valor) {
+  if (valor == null || valor === '') return null;
+  const texto = String(valor).trim();
+  if (texto.length > 500) throw erroValidacao('Link muito longo (limite: 500 caracteres).');
+  let url;
+  try {
+    url = new URL(texto);
+  } catch {
+    throw erroValidacao('Link invalido. Use um endereco completo, ex.: https://exemplo.com');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw erroValidacao('Link invalido. Apenas enderecos http:// ou https://.');
+  }
+  return texto;
+}
+
+export function montarRotas(db, { limites = {} } = {}) {
   const rotas = Router();
   const logado = exigirLogin(db);
 
   // ---------- autenticacao ----------
 
-  rotas.post('/auth/registrar', (req, res) => {
+  // Janela deslizante por IP: forca bruta de senha e criacao de contas em massa.
+  const limiteLogin = criarLimitador({ max: 10, janelaMs: 10 * 60_000, ...limites.login });
+  const limiteRegistro = criarLimitador({ max: 10, janelaMs: 60 * 60_000, ...limites.registro });
+
+  rotas.post('/auth/registrar', limiteRegistro.middleware, (req, res) => {
     const conta = registrarConta(db, req.body ?? {});
     res.append('Set-Cookie', cookieDeSessao(criarSessao(db, conta.id)));
     res.status(201).json(conta);
   });
 
-  rotas.post('/auth/login', (req, res) => {
+  rotas.post('/auth/login', limiteLogin.middleware, (req, res) => {
     const conta = autenticar(db, req.body ?? {});
     res.append('Set-Cookie', cookieDeSessao(criarSessao(db, conta.id)));
     res.json(conta);
@@ -114,12 +138,12 @@ export function montarRotas(db) {
   rotas.patch('/master/contas/:id', logado, mestre, (req, res) => {
     const alvo = contaAlvo(req.params.id);
     const b = req.body ?? {};
-    const nome = b.nome !== undefined ? String(b.nome).trim() : alvo.nome;
+    const nome = b.nome !== undefined ? textoLimitado(b.nome, 80, 'Nome') : alvo.nome;
     if (!nome) throw erroValidacao('O nome nao pode ficar vazio.');
     let email = alvo.email;
     if (b.email !== undefined) {
       email = String(b.email).trim().toLowerCase();
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw erroValidacao('E-mail invalido.');
+      if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw erroValidacao('E-mail invalido.');
       const outro = db.prepare('SELECT id FROM contas WHERE email = ? AND id != ?').get(email, alvo.id);
       if (outro) throw erroConflito('Ja existe outra conta com este e-mail.');
     }
@@ -229,7 +253,7 @@ export function montarRotas(db) {
   rotas.patch('/campeonatos/:id', logado, (req, res) => {
     const c = campeonatoDaConta(db, req.conta.id, req.params.id);
     const b = req.body ?? {};
-    const nome = b.nome !== undefined ? String(b.nome).trim() : c.nome;
+    const nome = b.nome !== undefined ? textoLimitado(b.nome, 120, 'Nome do campeonato') : c.nome;
     if (!nome) throw erroValidacao('O nome nao pode ficar vazio.');
     let slug = c.slug;
     if (b.slug !== undefined && slugificar(b.slug) !== c.slug) {
@@ -247,10 +271,10 @@ export function montarRotas(db) {
        slug = ?, criterios_desempate = ?, publicado = ?, status = ? WHERE id = ?`,
     ).run(
       nome,
-      b.temporada !== undefined ? (b.temporada ? String(b.temporada) : null) : c.temporada,
-      b.modalidade !== undefined ? String(b.modalidade) : c.modalidade,
-      b.descricao !== undefined ? (b.descricao ? String(b.descricao) : null) : c.descricao,
-      b.cor_tema !== undefined ? String(b.cor_tema) : c.cor_tema,
+      b.temporada !== undefined ? textoLimitado(b.temporada, 40, 'Temporada') : c.temporada,
+      b.modalidade !== undefined ? (textoLimitado(b.modalidade, 40, 'Modalidade') ?? c.modalidade) : c.modalidade,
+      b.descricao !== undefined ? textoLimitado(b.descricao, 2000, 'Descricao') : c.descricao,
+      b.cor_tema !== undefined ? validarCorTema(b.cor_tema) : c.cor_tema,
       slug,
       criterios,
       b.publicado !== undefined ? (b.publicado ? 1 : 0) : c.publicado,
@@ -289,7 +313,7 @@ export function montarRotas(db) {
     if (temJogos) {
       throw erroConflito('A tabela ja foi gerada; nao e possivel adicionar times a este campeonato.');
     }
-    const nome = String(req.body?.nome ?? '').trim();
+    const nome = textoLimitado(req.body?.nome, 80, 'Nome do time');
     if (!nome) throw erroValidacao('Informe o nome do time.');
     const info = db
       .prepare('INSERT INTO times (campeonato_id, grupo_id, nome) VALUES (?, ?, ?)')
@@ -299,7 +323,7 @@ export function montarRotas(db) {
 
   rotas.patch('/times/:id', logado, (req, res) => {
     const t = timeDaConta(db, req.conta.id, req.params.id);
-    const nome = req.body?.nome !== undefined ? String(req.body.nome).trim() : t.nome;
+    const nome = req.body?.nome !== undefined ? textoLimitado(req.body.nome, 80, 'Nome do time') : t.nome;
     if (!nome) throw erroValidacao('O nome do time nao pode ficar vazio.');
     db.prepare('UPDATE times SET nome = ? WHERE id = ?').run(nome, t.id);
     res.json(db.prepare('SELECT * FROM times WHERE id = ?').get(t.id));
@@ -323,7 +347,7 @@ export function montarRotas(db) {
 
   rotas.post('/times/:id/jogadores', logado, (req, res) => {
     const t = timeDaConta(db, req.conta.id, req.params.id);
-    const nome = String(req.body?.nome ?? '').trim();
+    const nome = textoLimitado(req.body?.nome, 80, 'Nome do jogador');
     if (!nome) throw erroValidacao('Informe o nome do jogador.');
     const numero = req.body?.numero != null && req.body.numero !== '' ? Number(req.body.numero) : null;
     const info = db
@@ -335,12 +359,14 @@ export function montarRotas(db) {
   // Cadastro em lote: texto com um jogador por linha ("nome,numero", numero opcional).
   rotas.post('/times/:id/jogadores/lote', logado, (req, res) => {
     const t = timeDaConta(db, req.conta.id, req.params.id);
-    res.status(201).json(inserirLoteJogadores(db, t.id, req.body?.texto));
+    const texto = String(req.body?.texto ?? '');
+    if (texto.length > 20_000) throw erroValidacao('Texto do lote muito longo (limite: 20 mil caracteres).');
+    res.status(201).json(inserirLoteJogadores(db, t.id, texto));
   });
 
   rotas.patch('/jogadores/:id', logado, (req, res) => {
     const j = jogadorDaConta(db, req.conta.id, req.params.id);
-    const nome = req.body?.nome !== undefined ? String(req.body.nome).trim() : j.nome;
+    const nome = req.body?.nome !== undefined ? textoLimitado(req.body.nome, 80, 'Nome do jogador') : j.nome;
     if (!nome) throw erroValidacao('O nome do jogador nao pode ficar vazio.');
     const numero =
       req.body?.numero !== undefined
@@ -362,9 +388,9 @@ export function montarRotas(db) {
   rotas.patch('/jogos/:id/agenda', logado, (req, res) => {
     const j = jogoDaConta(db, req.conta.id, req.params.id);
     db.prepare('UPDATE jogos SET data = ?, local = ?, obs = ? WHERE id = ?').run(
-      req.body?.data !== undefined ? (req.body.data ? String(req.body.data) : null) : j.data,
-      req.body?.local !== undefined ? (req.body.local ? String(req.body.local) : null) : j.local,
-      req.body?.obs !== undefined ? (req.body.obs ? String(req.body.obs) : null) : j.obs,
+      req.body?.data !== undefined ? textoLimitado(req.body.data, 40, 'Data') : j.data,
+      req.body?.local !== undefined ? textoLimitado(req.body.local, 200, 'Local') : j.local,
+      req.body?.obs !== undefined ? textoLimitado(req.body.obs, 1000, 'Observacoes') : j.obs,
       j.id,
     );
     res.json(db.prepare('SELECT * FROM jogos WHERE id = ?').get(j.id));
@@ -424,17 +450,18 @@ export function montarRotas(db) {
     const c = campeonatoDaConta(db, req.conta.id, req.params.id);
     const n = db.prepare('SELECT COUNT(*) AS n FROM banners WHERE campeonato_id = ?').get(c.id).n;
     if (n >= MAX_BANNERS) throw erroConflito(`Limite de ${MAX_BANNERS} banners por campeonato.`);
+    const link = validarLink(req.body?.link);
     const caminho = salvarImagem(req.body?.imagem, 'banner');
     const info = db
       .prepare('INSERT INTO banners (campeonato_id, imagem, link, ordem) VALUES (?, ?, ?, ?)')
-      .run(c.id, caminho, req.body?.link ? String(req.body.link) : null, n);
+      .run(c.id, caminho, link, n);
     res.status(201).json(db.prepare('SELECT * FROM banners WHERE id = ?').get(Number(info.lastInsertRowid)));
   });
 
   rotas.patch('/banners/:id', logado, (req, res) => {
     const b = bannerDaConta(db, req.conta.id, req.params.id);
     db.prepare('UPDATE banners SET link = ?, ordem = ?, ativo = ? WHERE id = ?').run(
-      req.body?.link !== undefined ? (req.body.link ? String(req.body.link) : null) : b.link,
+      req.body?.link !== undefined ? validarLink(req.body.link) : b.link,
       req.body?.ordem !== undefined ? Number(req.body.ordem) : b.ordem,
       req.body?.ativo !== undefined ? (req.body.ativo ? 1 : 0) : b.ativo,
       b.id,

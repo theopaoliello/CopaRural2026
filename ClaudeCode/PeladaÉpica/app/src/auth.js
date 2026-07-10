@@ -27,8 +27,10 @@ export function registrarConta(db, { nome, email, senha }) {
   email = String(email ?? '').trim().toLowerCase();
   senha = String(senha ?? '');
   if (!nome) throw erroValidacao('Informe seu nome.');
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw erroValidacao('E-mail invalido.');
+  if (nome.length > 80) throw erroValidacao('Nome muito longo (limite: 80 caracteres).');
+  if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw erroValidacao('E-mail invalido.');
   if (senha.length < 6) throw erroValidacao('A senha deve ter pelo menos 6 caracteres.');
+  if (senha.length > 200) throw erroValidacao('A senha deve ter no maximo 200 caracteres.');
   const existente = db.prepare('SELECT id FROM contas WHERE email = ?').get(email);
   if (existente) throw erroConflito('Ja existe uma conta com este e-mail.');
   const info = db
@@ -37,13 +39,16 @@ export function registrarConta(db, { nome, email, senha }) {
   return { id: Number(info.lastInsertRowid), nome, email };
 }
 
+// Hash de sacrificio: quando o e-mail nao existe, conferimos a senha contra ele
+// mesmo assim, para o tempo de resposta nao revelar quais e-mails tem conta.
+const HASH_FANTASMA = hashSenha(randomBytes(16).toString('hex'));
+
 export function autenticar(db, { email, senha }) {
   email = String(email ?? '').trim().toLowerCase();
   const conta = db.prepare('SELECT * FROM contas WHERE email = ?').get(email);
+  const senhaOk = conferirSenha(String(senha ?? '').slice(0, 200), conta?.senha_hash ?? HASH_FANTASMA);
   // Mensagem unica para email ou senha errados: nao revela quais e-mails existem.
-  if (!conta || !conferirSenha(String(senha ?? ''), conta.senha_hash)) {
-    throw erroNaoAutenticado('E-mail ou senha incorretos.');
-  }
+  if (!conta || !senhaOk) throw erroNaoAutenticado('E-mail ou senha incorretos.');
   return { id: conta.id, nome: conta.nome, email: conta.email };
 }
 
@@ -109,12 +114,17 @@ export function lerCookie(req, nome) {
   return null;
 }
 
+// Em producao (HTTPS), defina COOKIE_SEGURO=1 para o navegador nunca enviar a
+// sessao por HTTP puro. Lido a cada chamada para os testes poderem alternar.
+const flagsCookie = () =>
+  `Path=/; HttpOnly; SameSite=Lax${process.env.COOKIE_SEGURO ? '; Secure' : ''}`;
+
 export function cookieDeSessao(token) {
   const maxAge = DIAS_SESSAO * 24 * 60 * 60;
-  return `${NOME_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+  return `${NOME_COOKIE}=${token}; ${flagsCookie()}; Max-Age=${maxAge}`;
 }
 
-export const cookieDeSaida = () => `${NOME_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+export const cookieDeSaida = () => `${NOME_COOKIE}=; ${flagsCookie()}; Max-Age=0`;
 
 // Middleware: exige sessao valida. req.conta = conta efetiva (tenant, quando o
 // master escolheu uma); req.contaReal = quem realmente fez login.

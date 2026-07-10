@@ -15,3 +15,5 @@ export const erroProibido = (msg = 'Voce nao tem acesso a este recurso.') =>
 export const erroNaoEncontrado = (msg = 'Recurso nao encontrado.') =>
   new ErroDominio(msg, 404, 'ErroNaoEncontrado');
 export const erroConflito = (msg) => new ErroDominio(msg, 409, 'ErroConflito');
+export const erroMuitasRequisicoes = (msg = 'Muitas tentativas. Aguarde um instante e tente de novo.') =>
+  new ErroDominio(msg, 429, 'ErroMuitasRequisicoes');

@@ -13,6 +13,25 @@ import { calcularClassificacao, cartoesPorTime, CRITERIOS_VALIDOS } from './clas
 const FORMATOS = ['pontos', 'mata', 'grupos_mata'];
 const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
+// ---------- validacao de campos livres ----------
+
+// Campos de texto tem teto de tamanho: o JSON aceita ate 5 MB (por causa das
+// imagens) e sem teto qualquer string desse porte iria parar no banco.
+export function textoLimitado(valor, max, campo) {
+  if (valor == null) return null;
+  const texto = String(valor).trim();
+  if (!texto) return null;
+  if (texto.length > max) throw erroValidacao(`${campo} muito longo (limite: ${max} caracteres).`);
+  return texto;
+}
+
+// A cor do tema vai para contexto CSS na pagina publica: so aceita hex.
+export function validarCorTema(valor) {
+  const cor = String(valor ?? '').trim();
+  if (!/^#[0-9a-fA-F]{3,8}$/.test(cor)) throw erroValidacao('Cor do tema invalida. Use hexadecimal, ex.: #0b5c3f.');
+  return cor;
+}
+
 // ---------- slug ----------
 
 export function slugificar(texto) {
@@ -37,13 +56,16 @@ export function slugDisponivel(db, base) {
 // ---------- criacao (wizard) ----------
 
 export function criarCampeonato(db, contaId, dados) {
-  const nome = String(dados.nome ?? '').trim();
+  const nome = textoLimitado(dados.nome, 120, 'Nome do campeonato');
   if (!nome) throw erroValidacao('Informe o nome do campeonato.');
 
   const formato = dados.formato;
   if (!FORMATOS.includes(formato)) throw erroValidacao('Formato invalido.');
 
   const nomesTimes = (dados.times ?? []).map((t) => String(t?.nome ?? t ?? '').trim()).filter(Boolean);
+  if (nomesTimes.some((n) => n.length > 80)) {
+    throw erroValidacao('Nome de time muito longo (limite: 80 caracteres).');
+  }
   const nomesUnicos = new Set(nomesTimes.map((n) => n.toLowerCase()));
   if (nomesUnicos.size !== nomesTimes.length) throw erroValidacao('Ha times com nomes repetidos.');
   if (nomesTimes.length < 2) throw erroValidacao('Cadastre pelo menos 2 times.');
@@ -88,10 +110,10 @@ export function criarCampeonato(db, contaId, dados) {
     .run(
       contaId,
       nome,
-      dados.temporada ? String(dados.temporada) : null,
-      String(dados.modalidade ?? 'Futebol'),
-      dados.descricao ? String(dados.descricao) : null,
-      String(dados.cor_tema ?? '#0b5c3f'),
+      textoLimitado(dados.temporada, 40, 'Temporada'),
+      textoLimitado(dados.modalidade, 40, 'Modalidade') ?? 'Futebol',
+      textoLimitado(dados.descricao, 2000, 'Descricao'),
+      validarCorTema(dados.cor_tema ?? '#0b5c3f'),
       slug,
       formato,
       numGrupos,

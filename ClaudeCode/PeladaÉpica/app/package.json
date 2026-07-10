@@ -4,10 +4,14 @@
   "description": "Pelada Epica - plataforma de gestao de campeonatos esportivos (MVP)",
   "type": "module",
   "private": true,
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "master": "node scripts/promover-master.js"
+    "master": "node scripts/promover-master.js",
+    "backup": "node scripts/backup-db.js"
   },
   "dependencies": {
     "express": "^5.2.1"

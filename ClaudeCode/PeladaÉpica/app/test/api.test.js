@@ -13,7 +13,8 @@ function montarApp() {
   const db = prepararBanco(':memory:');
   const app = express();
   app.use(express.json({ limit: '5mb' }));
-  app.use('/api', montarRotas(db));
+  // Limites folgados: este arquivo registra/loga dezenas de vezes do mesmo IP.
+  app.use('/api', montarRotas(db, { limites: { login: { max: 1000 }, registro: { max: 1000 } } }));
   app.use((err, req, res, _next) => {
     const status = err.statusCode ?? 500;
     if (status >= 500) console.error(err);

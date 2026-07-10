@@ -660,9 +660,9 @@ async function telaMaster() {
         </div>
         <div class="linha-flex" style="margin-top:8px">
           <button class="botao secundario mini" onclick="modalEditarConta(${cta.id})">✏️ Editar</button>
-          <button class="botao secundario mini" onclick="resetarSenha(${cta.id}, '${esc(cta.nome)}')">🔑 Resetar senha</button>
-          <button class="botao secundario mini" onclick="encerrarSessoes(${cta.id}, '${esc(cta.nome)}')">🚪 Encerrar sessões</button>
-          ${cta.papel !== 'master' ? `<button class="botao perigo mini" onclick="excluirConta(${cta.id}, '${esc(cta.nome)}', ${cta.n_campeonatos})">🗑️ Excluir</button>` : ''}
+          <button class="botao secundario mini" onclick="resetarSenha(${cta.id})">🔑 Resetar senha</button>
+          <button class="botao secundario mini" onclick="encerrarSessoes(${cta.id})">🚪 Encerrar sessões</button>
+          ${cta.papel !== 'master' ? `<button class="botao perigo mini" onclick="excluirConta(${cta.id})">🗑️ Excluir</button>` : ''}
         </div>
       </div>`).join('')}
   `;
@@ -706,7 +706,12 @@ async function salvarConta(contaId) {
     fecharModal(); telaMaster();
   } catch (e) { avisar(e.message); }
 }
-async function resetarSenha(contaId, nome) {
+// Dados da conta sempre buscados pela lista em memória: interpolar o nome
+// dentro de um atributo onclick permitiria injetar código via nome da conta.
+const contaMaster = (contaId) => window._contasMaster.find((x) => x.id === contaId);
+
+async function resetarSenha(contaId) {
+  const nome = contaMaster(contaId)?.nome ?? 'esta conta';
   if (!confirm(`Resetar a senha de ${nome}? A senha atual deixa de valer e todas as sessões serão encerradas.`)) return;
   try {
     const r = await api(`/api/master/contas/${contaId}/resetar-senha`, 'POST');
@@ -719,14 +724,18 @@ async function resetarSenha(contaId, nome) {
     `);
   } catch (e) { avisar(e.message); }
 }
-async function encerrarSessoes(contaId, nome) {
+async function encerrarSessoes(contaId) {
+  const nome = contaMaster(contaId)?.nome ?? 'esta conta';
   if (!confirm(`Encerrar todas as sessões de ${nome}? A pessoa precisará fazer login de novo.`)) return;
   try {
     const r = await api(`/api/master/contas/${contaId}/encerrar-sessoes`, 'POST');
     avisar(`${r.sessoes_encerradas} sessão(ões) encerrada(s).`);
   } catch (e) { avisar(e.message); }
 }
-async function excluirConta(contaId, nome, nCampeonatos) {
+async function excluirConta(contaId) {
+  const cta = contaMaster(contaId);
+  const nome = cta?.nome ?? 'esta conta';
+  const nCampeonatos = cta?.n_campeonatos ?? 0;
   if (!confirm(`Excluir a conta de ${nome}? Isso apaga ${nCampeonatos} campeonato(s) com times, jogos e banners. NÃO TEM VOLTA.`)) return;
   if (!confirm('Tem certeza MESMO? Esta ação é definitiva.')) return;
   try { await api(`/api/master/contas/${contaId}`, 'DELETE'); telaMaster(); }

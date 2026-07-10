@@ -14,6 +14,11 @@ const db = prepararBanco();
 const app = express();
 app.disable('x-powered-by');
 
+// Atras de um reverse proxy (Caddy/Nginx), defina CONFIA_PROXY=1 para o
+// Express ler o IP real do X-Forwarded-For — sem isso o rate limit do login
+// enxergaria todos os visitantes como um unico IP (o do proxy).
+if (process.env.CONFIA_PROXY) app.set('trust proxy', Number(process.env.CONFIA_PROXY) || 1);
+
 // Cabecalhos de seguranca basicos.
 app.use((req, res, next) => {
   res.set({
@@ -21,6 +26,8 @@ app.use((req, res, next) => {
     'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'same-origin',
   });
+  // Com COOKIE_SEGURO (producao em HTTPS), instrui o navegador a nunca voltar ao HTTP.
+  if (process.env.COOKIE_SEGURO) res.set('Strict-Transport-Security', 'max-age=31536000');
   next();
 });
 
