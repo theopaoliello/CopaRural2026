@@ -12,6 +12,13 @@ npm test                           # suite completa (node --test)
 npm run master -- email@ex.com     # promove uma conta existente a usuario master
 ```
 
+## Deploy
+
+Guia de produção (Oracle Cloud Free Tier ARM + Caddy + systemd) em
+[`deploy/README.md`](deploy/README.md). Em produção, suba com
+`COOKIE_SEGURO=1 CONFIA_PROXY=1` (o template `deploy/pelada-epica.env.example`
+já traz esses valores). Backup do banco: `npm run backup`.
+
 ## Stack
 
 - Node 24+ / Express 5 (ESM)

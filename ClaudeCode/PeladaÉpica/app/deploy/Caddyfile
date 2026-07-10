@@ -1,0 +1,21 @@
+# Caddyfile do Pelada Epica — instale em /etc/caddy/Caddyfile.
+# Troque o dominio abaixo pelo seu. O Caddy emite e renova o certificado
+# HTTPS sozinho (Let's Encrypt), desde que o dominio aponte para esta VM
+# e as portas 80/443 estejam abertas.
+
+peladaepica.com.br {
+	encode gzip zstd
+
+	# Todo o trafego vai para o Node (a app serve estaticos, /uploads e a API).
+	reverse_proxy localhost:3000
+
+	# Log de acesso (util para diagnostico; rotaciona sozinho).
+	log {
+		output file /var/log/caddy/pelada-epica.log
+	}
+}
+
+# Opcional: redirecionar o www para o dominio raiz.
+# www.peladaepica.com.br {
+# 	redir https://peladaepica.com.br{uri} permanent
+# }
