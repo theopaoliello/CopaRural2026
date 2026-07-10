@@ -1,0 +1,126 @@
+-- Esquema do banco Pelada Epica (SQLite).
+-- Regra de ouro multi-tenant: todo dado pertence a um campeonato, e todo
+-- campeonato pertence a uma conta. O acesso administrativo sempre valida posse.
+
+CREATE TABLE IF NOT EXISTS contas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nome TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  senha_hash TEXT NOT NULL,
+  -- master: administra a plataforma e pode gerenciar o conteudo de qualquer conta.
+  -- Promova com: npm run master -- email@exemplo.com
+  papel TEXT NOT NULL DEFAULT 'organizador' CHECK (papel IN ('organizador', 'master')),
+  criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS sessoes (
+  token TEXT PRIMARY KEY,
+  conta_id INTEGER NOT NULL REFERENCES contas(id) ON DELETE CASCADE,
+  -- master atuando "como" outra conta (tenant selecionado apos o login)
+  conta_efetiva_id INTEGER REFERENCES contas(id) ON DELETE SET NULL,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  expira_em TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS campeonatos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conta_id INTEGER NOT NULL REFERENCES contas(id) ON DELETE CASCADE,
+  nome TEXT NOT NULL,
+  temporada TEXT,
+  modalidade TEXT NOT NULL DEFAULT 'Futebol',
+  descricao TEXT,
+  cor_tema TEXT NOT NULL DEFAULT '#0b5c3f',
+  logo TEXT,
+  slug TEXT NOT NULL UNIQUE,
+  -- pontos = pontos corridos | mata = mata-mata puro | grupos_mata = fase de grupos + mata-mata
+  formato TEXT NOT NULL CHECK (formato IN ('pontos', 'mata', 'grupos_mata')),
+  num_grupos INTEGER NOT NULL DEFAULT 1,
+  ida_volta_grupos INTEGER NOT NULL DEFAULT 0,
+  ida_volta_mata INTEGER NOT NULL DEFAULT 0,
+  classificados_por_grupo INTEGER NOT NULL DEFAULT 2,
+  pontos_vitoria INTEGER NOT NULL DEFAULT 3,
+  pontos_empate INTEGER NOT NULL DEFAULT 1,
+  -- ordem dos criterios de desempate (JSON), aplicados apos pontos
+  criterios_desempate TEXT NOT NULL DEFAULT '["vitorias","saldo","gols_pro","confronto","cartoes"]',
+  publicado INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'ativo' CHECK (status IN ('ativo', 'arquivado')),
+  criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_campeonatos_conta ON campeonatos(conta_id);
+
+CREATE TABLE IF NOT EXISTS grupos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campeonato_id INTEGER NOT NULL REFERENCES campeonatos(id) ON DELETE CASCADE,
+  nome TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_grupos_campeonato ON grupos(campeonato_id);
+
+CREATE TABLE IF NOT EXISTS times (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campeonato_id INTEGER NOT NULL REFERENCES campeonatos(id) ON DELETE CASCADE,
+  grupo_id INTEGER REFERENCES grupos(id) ON DELETE SET NULL,
+  nome TEXT NOT NULL,
+  escudo TEXT,
+  foto TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_times_campeonato ON times(campeonato_id);
+
+CREATE TABLE IF NOT EXISTS jogadores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  time_id INTEGER NOT NULL REFERENCES times(id) ON DELETE CASCADE,
+  nome TEXT NOT NULL,
+  numero INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_jogadores_time ON jogadores(time_id);
+
+CREATE TABLE IF NOT EXISTS jogos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campeonato_id INTEGER NOT NULL REFERENCES campeonatos(id) ON DELETE CASCADE,
+  fase TEXT NOT NULL DEFAULT 'grupos' CHECK (fase IN ('grupos', 'mata')),
+  rodada INTEGER NOT NULL DEFAULT 1,
+  -- mata-mata: indice do confronto dentro da rodada e perna (1 ou 2)
+  confronto INTEGER,
+  perna INTEGER NOT NULL DEFAULT 1,
+  grupo_id INTEGER REFERENCES grupos(id) ON DELETE SET NULL,
+  time_casa_id INTEGER REFERENCES times(id) ON DELETE CASCADE,
+  time_fora_id INTEGER REFERENCES times(id) ON DELETE CASCADE,
+  gols_casa INTEGER,
+  gols_fora INTEGER,
+  penaltis_casa INTEGER,
+  penaltis_fora INTEGER,
+  data TEXT,
+  local TEXT,
+  sumula TEXT,
+  obs TEXT,
+  status TEXT NOT NULL DEFAULT 'agendado' CHECK (status IN ('agendado', 'encerrado')),
+  criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_jogos_campeonato ON jogos(campeonato_id);
+
+CREATE TABLE IF NOT EXISTS eventos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  jogo_id INTEGER NOT NULL REFERENCES jogos(id) ON DELETE CASCADE,
+  time_id INTEGER NOT NULL REFERENCES times(id) ON DELETE CASCADE,
+  jogador_id INTEGER REFERENCES jogadores(id) ON DELETE SET NULL,
+  -- gol_contra: gol marcado por jogador ADVERSARIO; time_id e o time beneficiado.
+  tipo TEXT NOT NULL CHECK (tipo IN ('gol', 'gol_contra', 'amarelo', 'vermelho')),
+  minuto INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_eventos_jogo ON eventos(jogo_id);
+
+CREATE TABLE IF NOT EXISTS banners (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campeonato_id INTEGER NOT NULL REFERENCES campeonatos(id) ON DELETE CASCADE,
+  imagem TEXT NOT NULL,
+  link TEXT,
+  ordem INTEGER NOT NULL DEFAULT 0,
+  ativo INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_banners_campeonato ON banners(campeonato_id);

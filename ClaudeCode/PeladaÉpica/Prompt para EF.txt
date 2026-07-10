@@ -1,0 +1,22 @@
+Vamos criar um novo programa/app para gerenciar campeonatos esportivos. Nosso primeiro passo é montar um documento (.docx) detalhado especificando todas as funcionalidades do nosso programa. Algumas funções que já pensei, mas você pode inserir outras:
+  - Criar novo campeonato (básico) - Cria um novo campeonato com as funcionalidades mais básicas e poucas personalizações: Quantidade de grupos. Pontos corridos ou Mata-Mata ou Pontos corridos + Mata-Mata. Regras de classificação. Número de times. Fase de grupo: Turno e Returno ou apenas jogos
+  de ida. Mata-mata: Jogos de ida e volta ou apenas um jogo por fase.
+  - Sessão "Times": página com os nomes e escudo de cada time. Ao selecionar um time, você tem a visão de todos os jogadores daquele time com a quantidade de gols e cartões de cada jogador.
+  - Sessão "Resultados": onde é possível verificar a lista de jogos e os resultados da partida. Ao clicar em um jogo você tem a visão dos jogadores que marcaram os gols e os que receberam cartão na partida.
+  - Sessão "Classificação": Mostra a tabela de classificação do campeoanto. A tabela tem as seguintes colunas: #    Time    Pts    PJ    V    E    D    GP    GC    SG    Últ.Jogos. Em Últ.Jogos, coloque o gráfico de bolinhas com os resultados dos últimos 5 jogos da equipe (vermelho, verde ou
+  cinza)
+
+  *Controles do Administrador:
+  - Times: Adicionar ou remover jogadores de um time.
+  - Times: Adicionar imagem do escudo do time.
+  - Times: Adicionar uma foto do time
+  - Jogos: Registrar resultado de jogos com jogadores que fizeram os gols e que tomaram cartões.
+  - Jogos: Inserir imagem da súmula da partida.
+  - Jogos: Corrigir ou apagar resultado
+  - Site: Gerenciar até 5 banners de anunciantes na página. Upload da imagem do banner e o link do anúncio.
+
+
+  A plataforma deve poder ser acessada por diferentes pessoas que queiram criar seu campeonato. É importante que cada campeonato tenha sua "sessão" apartada para não interferir no outro campeonato. Também é importante que o administrador de cada campeonato tenha um acesso com usuário e senha
+  para que ele consiga gerenciar apenas os campeonatos vinculados à sua conta. Cada campeonato tem também a sua página pública para que todos os participantes e torcedores possam acessar as informações públicas.
+
+  Vamos começar assim. Crie este documento especificando funcionalmente este novo aplicativo. Fique à vontade para sugerir ideias que possam contribuir para o sucesso do projeto.

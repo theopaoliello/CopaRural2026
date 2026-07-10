@@ -1,0 +1,15 @@
+{
+  "name": "pelada-epica",
+  "version": "0.1.0",
+  "description": "Pelada Epica - plataforma de gestao de campeonatos esportivos (MVP)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "master": "node scripts/promover-master.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}

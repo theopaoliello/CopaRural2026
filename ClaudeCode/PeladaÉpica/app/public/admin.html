@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel — Pelada Épica</title>
+<link rel="stylesheet" href="/estilo.css">
+<style>
+  .card-camp { cursor: pointer; }
+  .card-camp:hover { border-color: var(--verde-claro); }
+  .evento-linha { display: grid; grid-template-columns: 1fr 1fr 1fr 64px 32px; gap: 6px; margin-bottom: 6px; }
+  .evento-linha select, .evento-linha input { padding: 6px; font-size: 0.85rem; }
+  fieldset { border: 1px solid var(--borda); border-radius: 10px; margin: 12px 0; }
+  legend { font-weight: 700; color: var(--verde); padding: 0 6px; }
+  .lista-jogadores li { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+</style>
+</head>
+<body>
+<header class="topo">
+  <span class="marca"><a href="/admin">⚽ Pelada Épica</a></span>
+  <div class="direita">
+    <span id="ola" class="muted" style="color:#d9efe4"></span>
+    <button class="botao secundario mini" id="btn-sair">Sair</button>
+  </div>
+</header>
+<div id="barra-master" style="display:none;background:#b45309;color:#fff;padding:8px 16px;font-size:.9rem;
+  align-items:center;gap:10px;flex-wrap:wrap"></div>
+
+<div class="conteudo" id="app"><p class="muted">Carregando…</p></div>
+
+<div class="modal-fundo" id="modal-fundo">
+  <div class="modal">
+    <button class="fechar" onclick="fecharModal()">×</button>
+    <div id="modal-conteudo"></div>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+let DET = null;      // detalhe do campeonato aberto
+let abaAtual = 'jogos';
+
+async function api(url, metodo = 'GET', corpo = null) {
+  const resp = await fetch(url, {
+    method: metodo,
+    headers: corpo ? { 'Content-Type': 'application/json' } : {},
+    body: corpo ? JSON.stringify(corpo) : undefined,
+  });
+  if (resp.status === 401) { location.href = '/'; throw new Error('Sessão expirada.'); }
+  const dados = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(dados.mensagem || 'Erro inesperado.');
+  return dados;
+}
+
+const avisar = (msg) => alert(msg);
+
+// Le um <input type=file> e devolve data URL (para upload de imagem).
+function lerArquivo(input) {
+  return new Promise((resolve, reject) => {
+    const arq = input.files?.[0];
+    if (!arq) return reject(new Error('Escolha uma imagem.'));
+    if (arq.size > 3 * 1024 * 1024) return reject(new Error('Imagem muito grande (limite 3 MB).'));
+    const leitor = new FileReader();
+    leitor.onload = () => resolve(leitor.result);
+    leitor.onerror = () => reject(new Error('Falha ao ler o arquivo.'));
+    leitor.readAsDataURL(arq);
+  });
+}
+
+function abrirModal(html) { $('#modal-conteudo').innerHTML = html; $('#modal-fundo').classList.add('aberto'); }
+function fecharModal() { $('#modal-fundo').classList.remove('aberto'); }
+$('#modal-fundo').onclick = (e) => { if (e.target === $('#modal-fundo')) fecharModal(); };
+
+const nomeTime = (id) => DET?.times.find((t) => t.id === id)?.nome ?? 'A definir';
+function escudoHtml(t) {
+  if (t?.escudo) return `<img class="escudo" src="${esc(t.escudo)}" alt="">`;
+  return `<span class="escudo-placeholder">${t ? esc(t.nome[0].toUpperCase()) : '?'}</span>`;
+}
+const nomeFase = (n) => ({ 1: 'Final', 2: 'Semifinal', 4: 'Quartas de final', 8: 'Oitavas de final' }[n] || `Fase de ${n * 2} times`);
+
+// ================= LISTA DE CAMPEONATOS =================
+
+async function telaLista() {
+  DET = null;
+  const lista = await api('/api/campeonatos');
+  $('#app').innerHTML = `
+    <div class="linha-flex" style="margin-bottom:14px">
+      <h2 style="margin:0">Meus campeonatos</h2>
+      <span class="espacador"></span>
+      <button class="botao" onclick="telaNovo()">+ Novo campeonato</button>
+    </div>
+    ${lista.length ? lista.map((c) => `
+      <div class="card card-camp" onclick="telaCampeonato(${c.id})">
+        <div class="linha-flex">
+          <div>
+            <strong>${esc(c.nome)}</strong> ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}
+            ${c.status === 'arquivado' ? '<span class="badge" style="background:#eee;color:#666">Arquivado</span>' : ''}
+            <div class="muted">${c.n_times} times • ${c.n_encerrados}/${c.n_jogos} jogos com resultado</div>
+          </div>
+          <span class="espacador"></span>
+          <a class="botao secundario mini" href="/c/${esc(c.slug)}" target="_blank" onclick="event.stopPropagation()">Página pública ↗</a>
+        </div>
+      </div>`).join('')
+    : '<div class="card"><p>Você ainda não tem campeonatos. Crie o primeiro! 🏆</p></div>'}
+  `;
+}
+
+// ================= NOVO CAMPEONATO (WIZARD) =================
+
+function telaNovo() {
+  $('#app').innerHTML = `
+    <h2>Novo campeonato</h2>
+    <form id="form-novo" class="card">
+      <fieldset><legend>1. Identidade</legend>
+        <div class="grid-2">
+          <div><label>Nome *</label><input type="text" name="nome" required placeholder="Copa da Várzea"></div>
+          <div><label>Temporada</label><input type="text" name="temporada" placeholder="2026"></div>
+          <div><label>Modalidade</label>
+            <select name="modalidade"><option>Futebol</option><option>Society</option><option>Futsal</option><option>Outro</option></select>
+          </div>
+          <div><label>Cor do campeonato</label><input type="color" name="cor_tema" value="#0b5c3f" style="height:42px;width:100%"></div>
+        </div>
+        <label>Descrição</label><textarea name="descricao" placeholder="Fala do campeonato para a página pública…"></textarea>
+      </fieldset>
+
+      <fieldset><legend>2. Formato</legend>
+        <label>Tipo de competição</label>
+        <select name="formato" id="sel-formato">
+          <option value="pontos">Pontos corridos</option>
+          <option value="mata">Mata-mata</option>
+          <option value="grupos_mata">Fase de grupos + Mata-mata</option>
+        </select>
+        <div class="grid-2">
+          <div id="campo-grupos" style="display:none">
+            <label>Quantidade de grupos</label><input type="number" name="num_grupos" value="2" min="1">
+            <label>Classificados por grupo</label><input type="number" name="classificados_por_grupo" value="2" min="1">
+          </div>
+          <div>
+            <div id="campo-iv-grupos"><label><input type="checkbox" name="ida_volta_grupos" style="width:auto"> Turno e returno (ida e volta)</label></div>
+            <div id="campo-iv-mata" style="display:none"><label><input type="checkbox" name="ida_volta_mata" style="width:auto"> Mata-mata com jogos de ida e volta</label></div>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset><legend>3. Times</legend>
+        <label>Um time por linha *</label>
+        <textarea name="times" rows="8" required placeholder="Real Baixada&#10;Unidos da Vila&#10;Juventude FC&#10;..."></textarea>
+        <label><input type="checkbox" name="sortear" checked style="width:auto"> Sortear a distribuição (grupos/chaveamento)</label>
+        <p class="muted">Desmarcado, a ordem digitada manda: os primeiros times formam o Grupo A (e assim por diante);
+        no mata-mata, cada dupla de linhas vira um confronto (1º×2º, 3º×4º…).</p>
+        <p class="muted">A tabela de jogos é gerada automaticamente ao criar. Elencos, escudos e fotos você cadastra depois.</p>
+      </fieldset>
+
+      <div id="aviso-novo" class="aviso"></div>
+      <div class="linha-flex">
+        <button type="button" class="botao secundario" onclick="telaLista()">Cancelar</button>
+        <span class="espacador"></span>
+        <button class="botao" type="submit">Criar campeonato 🏆</button>
+      </div>
+    </form>
+  `;
+  const mudouFormato = () => {
+    const f = $('#sel-formato').value;
+    $('#campo-grupos').style.display = f === 'grupos_mata' ? '' : 'none';
+    $('#campo-iv-grupos').style.display = f !== 'mata' ? '' : 'none';
+    $('#campo-iv-mata').style.display = f !== 'pontos' ? '' : 'none';
+  };
+  $('#sel-formato').onchange = mudouFormato;
+  mudouFormato();
+
+  $('#form-novo').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      const c = await api('/api/campeonatos', 'POST', {
+        nome: f.get('nome'), temporada: f.get('temporada'), modalidade: f.get('modalidade'),
+        descricao: f.get('descricao'), cor_tema: f.get('cor_tema'), formato: f.get('formato'),
+        num_grupos: Number(f.get('num_grupos') || 1),
+        classificados_por_grupo: Number(f.get('classificados_por_grupo') || 2),
+        ida_volta_grupos: !!f.get('ida_volta_grupos'), ida_volta_mata: !!f.get('ida_volta_mata'),
+        sortear: !!f.get('sortear'),
+        times: String(f.get('times')).split('\n').map((s) => s.trim()).filter(Boolean),
+      });
+      telaCampeonato(c.id);
+    } catch (err) {
+      const av = $('#aviso-novo'); av.textContent = err.message; av.className = 'aviso erro';
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }
+  };
+}
+
+// ================= CAMPEONATO =================
+
+async function telaCampeonato(id, aba = abaAtual) {
+  DET = await api(`/api/campeonatos/${id}`);
+  abaAtual = aba;
+  const c = DET.campeonato;
+  $('#app').innerHTML = `
+    <div class="linha-flex" style="margin-bottom:10px">
+      <a href="#" onclick="telaLista();return false">← Meus campeonatos</a>
+      <span class="espacador"></span>
+      <a class="botao secundario mini" href="/c/${esc(c.slug)}" target="_blank">Página pública ↗</a>
+    </div>
+    <h2 style="margin:4px 0">${esc(c.nome)} ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}</h2>
+    <div class="abas">
+      ${[['jogos', 'Jogos'], ['times', 'Times'], ['classificacao', 'Classificação'], ['banners', 'Banners'], ['config', 'Configurações']]
+        .map(([k, r]) => `<button class="aba ${aba === k ? 'ativa' : ''}" onclick="telaCampeonato(${id}, '${k}')">${r}</button>`).join('')}
+    </div>
+    <div id="painel"></div>
+  `;
+  ({ jogos: abaJogos, times: abaTimes, classificacao: abaClassif, banners: abaBanners, config: abaConfig }[aba])();
+}
+
+// ---------- aba jogos ----------
+
+function linhaJogoAdmin(j) {
+  const casa = DET.times.find((t) => t.id === j.time_casa_id);
+  const fora = DET.times.find((t) => t.id === j.time_fora_id);
+  const placar = j.status === 'encerrado' ? `${j.gols_casa} x ${j.gols_fora}` : (j.data ? esc(j.data.replace('T', ' ')) : 'A definir');
+  const prontos = j.time_casa_id && j.time_fora_id;
+  return `<div class="jogo" style="cursor:default">
+    <span class="mandante">${esc(casa?.nome ?? 'A definir')} ${escudoHtml(casa)}</span>
+    <span class="placar ${j.status}">${placar}${j.penaltis_casa != null ? `<div class="muted" style="font-size:.68rem">(${j.penaltis_casa}x${j.penaltis_fora} pen)</div>` : ''}</span>
+    <span class="visitante">${escudoHtml(fora)} ${esc(fora?.nome ?? 'A definir')}</span>
+    <span style="display:flex;gap:4px;flex-wrap:wrap">
+      ${prontos ? `<button class="botao mini" onclick="modalResultado(${j.id})">${j.status === 'encerrado' ? 'Corrigir' : 'Lançar resultado'}</button>` : ''}
+      <button class="botao secundario mini" onclick="modalAgenda(${j.id})">Agenda</button>
+      ${j.status === 'encerrado' ? `<button class="botao secundario mini" onclick="modalSumula(${j.id})">Súmula${j.sumula ? ' ✓' : ''}</button>
+      <button class="botao perigo mini" onclick="apagarResultado(${j.id})">Apagar</button>` : ''}
+    </span>
+  </div>`;
+}
+
+function abaJogos() {
+  const c = DET.campeonato;
+  const grupos = DET.jogos.filter((j) => j.fase === 'grupos');
+  const mata = DET.jogos.filter((j) => j.fase === 'mata');
+  let html = '';
+
+  if (c.formato === 'grupos_mata' && !mata.length) {
+    const pendentes = grupos.filter((j) => j.status !== 'encerrado').length;
+    html += `<div class="card linha-flex">
+      <span>Fase de grupos: <strong>${grupos.length - pendentes}/${grupos.length}</strong> jogos com resultado.</span>
+      <span class="espacador"></span>
+      <button class="botao" ${pendentes ? 'disabled' : ''} onclick="gerarMata()">Gerar mata-mata 🏆</button>
+    </div>`;
+  }
+
+  if (grupos.length) {
+    const rodadas = [...new Set(grupos.map((j) => j.rodada))].sort((a, b) => a - b);
+    const nomeGrupo = (gid) => DET.grupos.find((g) => g.id === gid)?.nome;
+    html += `<div class="card">${rodadas.map((r) => `
+      <div class="rotulo-rodada">Rodada ${r}</div>
+      ${grupos.filter((j) => j.rodada === r).map((j) =>
+        (j.grupo_id ? `<div class="muted" style="font-size:.75rem">${esc(nomeGrupo(j.grupo_id) ?? '')}</div>` : '') + linhaJogoAdmin(j)).join('')}`).join('')}
+    </div>`;
+  }
+  if (mata.length) {
+    const rodadas = [...new Set(mata.map((j) => j.rodada))].sort((a, b) => a - b);
+    html += `<div class="card"><h3>Mata-mata</h3>${rodadas.map((r) => {
+      const daRodada = mata.filter((j) => j.rodada === r);
+      const nConfrontos = new Set(daRodada.map((j) => j.confronto)).size;
+      return `<div class="rotulo-rodada">${nomeFase(nConfrontos)}</div>${daRodada.map(linhaJogoAdmin).join('')}`;
+    }).join('')}</div>`;
+  }
+  $('#painel').innerHTML = html || '<div class="card"><p class="muted">Sem jogos.</p></div>';
+}
+
+async function gerarMata() {
+  if (!confirm('Gerar o mata-mata com os classificados atuais? A fase de grupos será considerada encerrada.')) return;
+  try { await api(`/api/campeonatos/${DET.campeonato.id}/gerar-mata`, 'POST'); telaCampeonato(DET.campeonato.id, 'jogos'); }
+  catch (e) { avisar(e.message); }
+}
+
+// Serializa os eventos ja registrados de um jogo no formato de texto,
+// para o organizador editar/corrigir a partir do que ja existe.
+function serializarResultadoTexto(j) {
+  const evs = DET.eventos.filter((e) => e.jogo_id === j.id);
+  const nomeJog = (id) => DET.jogadores.find((x) => x.id === id)?.nome ?? null;
+  const secaoGols = (timeId) => {
+    const linhas = [];
+    const gols = evs.filter((e) => e.tipo === 'gol' && e.time_id === timeId);
+    const porJogador = new Map();
+    for (const g of gols) porJogador.set(g.jogador_id, (porJogador.get(g.jogador_id) ?? 0) + 1);
+    for (const [jogId, qtd] of porJogador) {
+      const nome = jogId != null ? nomeJog(jogId) : null;
+      linhas.push(nome ? (qtd > 1 ? `${nome},${qtd}` : nome) : `SR,${qtd}`);
+    }
+    const contras = evs.filter((e) => e.tipo === 'gol_contra' && e.time_id === timeId);
+    const gcPorJogador = new Map();
+    for (const g of contras) gcPorJogador.set(g.jogador_id, (gcPorJogador.get(g.jogador_id) ?? 0) + 1);
+    for (const [jogId, qtd] of gcPorJogador) {
+      const nome = jogId != null ? nomeJog(jogId) : null;
+      linhas.push(`GC${nome ? ',' + nome : ''}${qtd > 1 ? ',' + qtd : ''}`);
+    }
+    return linhas;
+  };
+  const secaoCartoes = (timeId) =>
+    evs
+      .filter((e) => (e.tipo === 'amarelo' || e.tipo === 'vermelho') && e.time_id === timeId && e.jogador_id != null)
+      .map((e) => `${e.tipo === 'amarelo' ? 'A' : 'V'},${nomeJog(e.jogador_id)}`);
+  return [
+    'GOLS TIME CASA', ...secaoGols(j.time_casa_id),
+    'GOLS TIME VISITANTE', ...secaoGols(j.time_fora_id),
+    'CARTÕES TIME CASA', ...secaoCartoes(j.time_casa_id),
+    'CARTÕES TIME VISITANTE', ...secaoCartoes(j.time_fora_id),
+  ].join('\n');
+}
+
+// Previa do placar no cliente: conta os gols por secao (o servidor revalida tudo).
+function placarDoTexto(texto) {
+  const norm = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
+  const gols = { casa: 0, fora: 0 };
+  let lado = null;
+  for (const bruta of texto.split('\n')) {
+    const linha = bruta.trim();
+    if (!linha) continue;
+    const n = norm(linha);
+    if (n === 'GOLS TIME CASA') { lado = 'casa'; continue; }
+    if (n === 'GOLS TIME VISITANTE') { lado = 'fora'; continue; }
+    if (n === 'CARTOES TIME CASA' || n === 'CARTOES TIME VISITANTE') { lado = null; continue; }
+    if (!lado) continue;
+    const campos = linha.split(',').map((c) => c.trim());
+    gols[lado] += campos.length > 1 && /^\d+$/.test(campos.at(-1)) ? Number(campos.at(-1)) : 1;
+  }
+  return gols;
+}
+
+function modalResultado(jogoId) {
+  const j = DET.jogos.find((x) => x.id === jogoId);
+  const casa = DET.times.find((t) => t.id === j.time_casa_id);
+  const fora = DET.times.find((t) => t.id === j.time_fora_id);
+  abrirModal(`
+    <h3>Resultado: ${esc(casa.nome)} x ${esc(fora.nome)}</h3>
+    <p class="muted" style="margin:4px 0">
+      Um lançamento por linha, dentro de cada seção. Gols: <code>Nome,quantidade</code>
+      (quantidade opcional) • <code>GC,Nome</code> = gol contra (jogador do outro time) •
+      <code>SR,2</code> = gols sem registro de autor. Cartões: <code>A,Nome</code> (amarelo)
+      ou <code>V,Nome</code> (vermelho).
+    </p>
+    <textarea id="res-texto" rows="14" spellcheck="false" style="font-family:Consolas,monospace;font-size:.85rem">${esc(serializarResultadoTexto(j))}</textarea>
+    <p style="text-align:center;font-size:1.1rem"><strong>Placar: ${esc(casa.nome)} <span id="res-placar">0 x 0</span> ${esc(fora.nome)}</strong><br>
+    <span class="muted">calculado automaticamente pelos gols do texto</span></p>
+    ${j.fase === 'mata' ? `
+    <p class="muted">Se o confronto terminar empatado, informe os pênaltis:</p>
+    <div class="grid-2">
+      <div><label>Pênaltis ${esc(casa.nome)}</label><input type="number" id="pen-casa" min="0" value="${j.penaltis_casa ?? ''}"></div>
+      <div><label>Pênaltis ${esc(fora.nome)}</label><input type="number" id="pen-fora" min="0" value="${j.penaltis_fora ?? ''}"></div>
+    </div>` : ''}
+    <div id="aviso-res" class="aviso"></div>
+    <p><button class="botao" style="width:100%" onclick="salvarResultado(${jogoId})">Salvar resultado</button></p>
+  `);
+  const atualizarPlacar = () => {
+    const p = placarDoTexto($('#res-texto').value);
+    $('#res-placar').textContent = `${p.casa} x ${p.fora}`;
+  };
+  $('#res-texto').oninput = atualizarPlacar;
+  atualizarPlacar();
+}
+
+async function salvarResultado(jogoId) {
+  const corpo = { texto: $('#res-texto').value };
+  const penCasa = $('#pen-casa')?.value, penFora = $('#pen-fora')?.value;
+  if (penCasa !== undefined && penCasa !== '' && penFora !== '') {
+    corpo.penaltis_casa = Number(penCasa); corpo.penaltis_fora = Number(penFora);
+  }
+  try {
+    await api(`/api/jogos/${jogoId}/resultado-texto`, 'POST', corpo);
+    fecharModal(); telaCampeonato(DET.campeonato.id, 'jogos');
+  } catch (e) {
+    const av = $('#aviso-res'); av.textContent = e.message; av.className = 'aviso erro';
+  }
+}
+
+async function apagarResultado(jogoId) {
+  if (!confirm('Apagar este resultado? A classificação e as estatísticas serão recalculadas.')) return;
+  try { await api(`/api/jogos/${jogoId}/resultado`, 'DELETE'); telaCampeonato(DET.campeonato.id, 'jogos'); }
+  catch (e) { avisar(e.message); }
+}
+
+function modalAgenda(jogoId) {
+  const j = DET.jogos.find((x) => x.id === jogoId);
+  abrirModal(`
+    <h3>Agenda do jogo</h3>
+    <label>Data e hora</label><input type="datetime-local" id="ag-data" value="${esc(j.data ?? '')}">
+    <label>Local</label><input type="text" id="ag-local" value="${esc(j.local ?? '')}" placeholder="Campo do Zé">
+    <label>Observações</label><textarea id="ag-obs">${esc(j.obs ?? '')}</textarea>
+    <p><button class="botao" style="width:100%" onclick="salvarAgenda(${jogoId})">Salvar</button></p>
+  `);
+}
+async function salvarAgenda(jogoId) {
+  try {
+    await api(`/api/jogos/${jogoId}/agenda`, 'PATCH', {
+      data: $('#ag-data').value || null, local: $('#ag-local').value || null, obs: $('#ag-obs').value || null,
+    });
+    fecharModal(); telaCampeonato(DET.campeonato.id, 'jogos');
+  } catch (e) { avisar(e.message); }
+}
+
+function modalSumula(jogoId) {
+  const j = DET.jogos.find((x) => x.id === jogoId);
+  abrirModal(`
+    <h3>Súmula da partida</h3>
+    ${j.sumula ? `<img src="${esc(j.sumula)}" style="width:100%;border-radius:10px" alt="Súmula">` : '<p class="muted">Nenhuma súmula enviada.</p>'}
+    <label>Enviar imagem (PNG/JPG, até 3 MB)</label>
+    <input type="file" id="arq-sumula" accept="image/png,image/jpeg,image/webp">
+    <p class="linha-flex">
+      <button class="botao" onclick="enviarSumula(${jogoId})">Enviar</button>
+      ${j.sumula ? `<button class="botao perigo" onclick="removerSumula(${jogoId})">Remover súmula</button>` : ''}
+    </p>
+  `);
+}
+async function enviarSumula(jogoId) {
+  try {
+    const imagem = await lerArquivo($('#arq-sumula'));
+    await api(`/api/jogos/${jogoId}/sumula`, 'POST', { imagem });
+    fecharModal(); telaCampeonato(DET.campeonato.id, 'jogos');
+  } catch (e) { avisar(e.message); }
+}
+async function removerSumula(jogoId) {
+  try { await api(`/api/jogos/${jogoId}/sumula`, 'DELETE'); fecharModal(); telaCampeonato(DET.campeonato.id, 'jogos'); }
+  catch (e) { avisar(e.message); }
+}
+
+// ---------- aba times ----------
+
+function abaTimes() {
+  $('#painel').innerHTML = `<div class="card"><div class="grade-times">
+    ${DET.times.map((t) => `
+      <div class="card-time" onclick="modalTime(${t.id})">
+        ${t.escudo ? `<img class="escudo escudo-grande" src="${esc(t.escudo)}" alt="">` : `<span class="escudo-placeholder escudo-grande">${esc(t.nome[0].toUpperCase())}</span>`}
+        <div class="nome">${esc(t.nome)}</div>
+        <div class="muted">${DET.jogadores.filter((x) => x.time_id === t.id).length} jogadores</div>
+      </div>`).join('')}
+  </div></div>`;
+}
+
+function modalTime(timeId) {
+  const t = DET.times.find((x) => x.id === timeId);
+  const elenco = DET.jogadores.filter((x) => x.time_id === timeId);
+  abrirModal(`
+    <h3>${esc(t.nome)}</h3>
+    <label>Nome do time</label>
+    <div class="linha-flex"><input type="text" id="time-nome" value="${esc(t.nome)}" style="flex:1">
+    <button class="botao mini" onclick="renomearTime(${timeId})">Salvar</button></div>
+
+    <div class="grid-2" style="margin-top:10px">
+      <div><label>Escudo</label><input type="file" id="arq-escudo" accept="image/*">
+        <button class="botao mini" style="margin-top:4px" onclick="enviarImagemTime(${timeId}, 'escudo')">Enviar escudo</button></div>
+      <div><label>Foto do time</label><input type="file" id="arq-foto" accept="image/*">
+        <button class="botao mini" style="margin-top:4px" onclick="enviarImagemTime(${timeId}, 'foto')">Enviar foto</button></div>
+    </div>
+    ${t.foto ? `<img src="${esc(t.foto)}" style="width:100%;border-radius:10px;margin-top:8px" alt="Foto do time">` : ''}
+
+    <h3>Elenco</h3>
+    <ul class="lista-jogadores" style="list-style:none;padding:0">
+      ${elenco.map((x) => `<li>
+        ${x.numero != null ? `<span class="badge">${x.numero}</span>` : ''}
+        <span style="flex:1">${esc(x.nome)}</span>
+        <button class="botao perigo mini" onclick="removerJogador(${x.id}, ${timeId})">Remover</button>
+      </li>`).join('') || '<li class="muted">Nenhum jogador cadastrado.</li>'}
+    </ul>
+    <div class="linha-flex">
+      <input type="text" id="novo-jogador" placeholder="Nome do jogador" style="flex:2">
+      <input type="number" id="novo-numero" placeholder="Nº" style="width:64px">
+      <button class="botao mini" onclick="addJogador(${timeId})">Adicionar</button>
+    </div>
+
+    <h4 style="margin-bottom:2px">Cadastrar vários de uma vez</h4>
+    <p class="muted" style="margin:2px 0 6px">Um jogador por linha, no formato <strong>nome,número</strong> (o número é opcional).</p>
+    <textarea id="lote-jogadores" rows="6" placeholder="Theo,10&#10;Leandro Domingues,7&#10;Junior&#10;Bernardo&#10;Miguel,11"></textarea>
+    <p><button class="botao" onclick="addLoteJogadores(${timeId})">Cadastrar lista</button></p>
+  `);
+}
+async function renomearTime(timeId) {
+  try { await api(`/api/times/${timeId}`, 'PATCH', { nome: $('#time-nome').value }); await telaCampeonato(DET.campeonato.id, 'times'); modalTime(timeId); }
+  catch (e) { avisar(e.message); }
+}
+async function enviarImagemTime(timeId, tipo) {
+  try {
+    const imagem = await lerArquivo($(tipo === 'escudo' ? '#arq-escudo' : '#arq-foto'));
+    await api(`/api/times/${timeId}/${tipo}`, 'POST', { imagem });
+    await telaCampeonato(DET.campeonato.id, 'times'); modalTime(timeId);
+  } catch (e) { avisar(e.message); }
+}
+async function addJogador(timeId) {
+  const nome = $('#novo-jogador').value.trim();
+  if (!nome) return avisar('Informe o nome do jogador.');
+  try {
+    await api(`/api/times/${timeId}/jogadores`, 'POST', { nome, numero: $('#novo-numero').value || null });
+    await telaCampeonato(DET.campeonato.id, 'times'); modalTime(timeId);
+  } catch (e) { avisar(e.message); }
+}
+async function addLoteJogadores(timeId) {
+  const texto = $('#lote-jogadores').value;
+  if (!texto.trim()) return avisar('Digite a lista de jogadores (um por linha).');
+  try {
+    const criados = await api(`/api/times/${timeId}/jogadores/lote`, 'POST', { texto });
+    await telaCampeonato(DET.campeonato.id, 'times'); modalTime(timeId);
+    avisar(`${criados.length} jogador(es) cadastrado(s)!`);
+  } catch (e) { avisar(e.message); }
+}
+async function removerJogador(jogadorId, timeId) {
+  if (!confirm('Remover este jogador do time?')) return;
+  try { await api(`/api/jogadores/${jogadorId}`, 'DELETE'); await telaCampeonato(DET.campeonato.id, 'times'); modalTime(timeId); }
+  catch (e) { avisar(e.message); }
+}
+
+// ---------- aba classificacao ----------
+
+function abaClassif() {
+  $('#painel').innerHTML = DET.classificacao.map((g) => `
+    <div class="card">
+      ${g.grupo ? `<h3>${esc(g.grupo.nome)}</h3>` : ''}
+      <div class="tabela-wrap"><table class="tabela">
+        <thead><tr><th>#</th><th class="time">Time</th><th>Pts</th><th>PJ</th><th>V</th><th>E</th><th>D</th><th>GP</th><th>GC</th><th>SG</th><th>Últ. Jogos</th></tr></thead>
+        <tbody>${g.linhas.map((l) => {
+          const t = DET.times.find((x) => x.id === l.time_id);
+          const faltam = Math.max(0, 5 - l.ultimos.length);
+          const bolas = '<span class="bolinha vazia"></span>'.repeat(faltam) + l.ultimos.map((r) => `<span class="bolinha ${r}"></span>`).join('');
+          return `<tr><td>${l.pos}</td><td class="time">${escudoHtml(t)} ${esc(l.nome)}</td>
+            <td class="pts">${l.pts}</td><td>${l.pj}</td><td>${l.v}</td><td>${l.e}</td><td>${l.d}</td>
+            <td>${l.gp}</td><td>${l.gc}</td><td>${l.sg > 0 ? '+' : ''}${l.sg}</td>
+            <td><span class="bolinhas">${bolas}</span></td></tr>`;
+        }).join('')}</tbody>
+      </table></div>
+    </div>`).join('');
+}
+
+// ---------- aba banners ----------
+
+function abaBanners() {
+  $('#painel').innerHTML = `
+    <div class="card">
+      <h3>Banners de anunciantes <span class="badge">${DET.banners.length}/5</span></h3>
+      ${DET.banners.map((b) => `
+        <div class="linha-flex" style="border-bottom:1px solid var(--borda);padding:8px 0">
+          <img src="${esc(b.imagem)}" style="width:120px;border-radius:6px" alt="">
+          <div style="flex:1;min-width:140px">
+            <div class="muted">${b.link ? `<a href="${esc(b.link)}" target="_blank">${esc(b.link)}</a>` : 'Sem link'}</div>
+            <div>${b.ativo ? '<span class="badge">Ativo</span>' : '<span class="badge" style="background:#eee;color:#666">Inativo</span>'}</div>
+          </div>
+          <button class="botao secundario mini" onclick="alternarBanner(${b.id}, ${b.ativo ? 0 : 1})">${b.ativo ? 'Desativar' : 'Ativar'}</button>
+          <button class="botao perigo mini" onclick="removerBanner(${b.id})">Remover</button>
+        </div>`).join('') || '<p class="muted">Nenhum banner ainda.</p>'}
+      ${DET.banners.length < 5 ? `
+        <h4>Novo banner</h4>
+        <label>Imagem do banner</label><input type="file" id="arq-banner" accept="image/*">
+        <label>Link do anúncio (para onde o clique leva)</label><input type="url" id="banner-link" placeholder="https://...">
+        <p><button class="botao" onclick="addBanner()">Adicionar banner</button></p>` : '<p class="muted">Limite de 5 banners atingido.</p>'}
+    </div>`;
+}
+async function addBanner() {
+  try {
+    const imagem = await lerArquivo($('#arq-banner'));
+    await api(`/api/campeonatos/${DET.campeonato.id}/banners`, 'POST', { imagem, link: $('#banner-link').value || null });
+    telaCampeonato(DET.campeonato.id, 'banners');
+  } catch (e) { avisar(e.message); }
+}
+async function alternarBanner(id, ativo) {
+  try { await api(`/api/banners/${id}`, 'PATCH', { ativo }); telaCampeonato(DET.campeonato.id, 'banners'); }
+  catch (e) { avisar(e.message); }
+}
+async function removerBanner(id) {
+  if (!confirm('Remover este banner?')) return;
+  try { await api(`/api/banners/${id}`, 'DELETE'); telaCampeonato(DET.campeonato.id, 'banners'); }
+  catch (e) { avisar(e.message); }
+}
+
+// ---------- aba config ----------
+
+function abaConfig() {
+  const c = DET.campeonato;
+  const url = `${location.origin}/c/${c.slug}`;
+  $('#painel').innerHTML = `
+    <div class="card">
+      <h3>Página pública</h3>
+      <p><a href="${esc(url)}" target="_blank">${esc(url)}</a>
+      <button class="botao secundario mini" onclick="navigator.clipboard.writeText('${esc(url)}').then(()=>avisar('Link copiado!'))">Copiar</button></p>
+      <label><input type="checkbox" id="cfg-publicado" ${c.publicado ? 'checked' : ''} style="width:auto"> Página pública ativa</label>
+    </div>
+    <div class="card">
+      <h3>Identidade</h3>
+      <div class="grid-2">
+        <div><label>Nome</label><input type="text" id="cfg-nome" value="${esc(c.nome)}"></div>
+        <div><label>Temporada</label><input type="text" id="cfg-temporada" value="${esc(c.temporada ?? '')}"></div>
+        <div><label>Cor</label><input type="color" id="cfg-cor" value="${esc(c.cor_tema)}" style="height:42px;width:100%"></div>
+        <div><label>Logo do campeonato</label><input type="file" id="arq-logo" accept="image/*">
+          <button class="botao mini" style="margin-top:4px" onclick="enviarLogo()">Enviar logo</button></div>
+      </div>
+      <label>Descrição</label><textarea id="cfg-descricao">${esc(c.descricao ?? '')}</textarea>
+      <p><button class="botao" onclick="salvarConfig()">Salvar alterações</button></p>
+    </div>
+    <div class="card">
+      <h3>Zona de perigo</h3>
+      <p class="muted">Excluir o campeonato apaga times, jogos, resultados e banners. Não tem volta.</p>
+      <button class="botao perigo" onclick="excluirCampeonato()">Excluir campeonato</button>
+    </div>`;
+}
+async function salvarConfig() {
+  try {
+    await api(`/api/campeonatos/${DET.campeonato.id}`, 'PATCH', {
+      nome: $('#cfg-nome').value, temporada: $('#cfg-temporada').value || null,
+      descricao: $('#cfg-descricao').value || null, cor_tema: $('#cfg-cor').value,
+      publicado: $('#cfg-publicado').checked,
+    });
+    avisar('Alterações salvas!'); telaCampeonato(DET.campeonato.id, 'config');
+  } catch (e) { avisar(e.message); }
+}
+async function enviarLogo() {
+  try {
+    const imagem = await lerArquivo($('#arq-logo'));
+    await api(`/api/campeonatos/${DET.campeonato.id}/logo`, 'POST', { imagem });
+    avisar('Logo atualizada!'); telaCampeonato(DET.campeonato.id, 'config');
+  } catch (e) { avisar(e.message); }
+}
+async function excluirCampeonato() {
+  if (!confirm(`Excluir "${DET.campeonato.nome}" definitivamente?`)) return;
+  if (!confirm('Tem certeza MESMO? Esta ação não pode ser desfeita.')) return;
+  try { await api(`/api/campeonatos/${DET.campeonato.id}`, 'DELETE'); telaLista(); }
+  catch (e) { avisar(e.message); }
+}
+
+// ================= MASTER (administracao da plataforma) =================
+
+let EU = null;
+
+function barraMaster() {
+  const barra = $('#barra-master');
+  if (EU?.master && EU.tenant) {
+    barra.innerHTML = `👁️ <strong>Modo master:</strong> gerenciando
+      <strong>${esc(EU.tenant.nome)}</strong>${EU.tenant.proprio ? ' (você)' : ''}
+      <span style="opacity:.8">(${esc(EU.tenant.email)})</span>
+      <span class="espacador"></span>
+      <button class="botao secundario mini" onclick="trocarTenant()">Trocar de usuário</button>`;
+    barra.style.display = 'flex';
+  } else {
+    barra.style.display = 'none';
+  }
+}
+
+async function telaMaster() {
+  const contas = await api('/api/master/contas');
+  $('#app').innerHTML = `
+    <h2>👑 Gestão de contas</h2>
+    <p class="muted">Clique em <strong>Gerenciar</strong> para acessar os campeonatos de uma conta (inclusive a sua),
+    ou use as ações de manutenção.</p>
+    ${contas.map((cta) => `
+      <div class="card">
+        <div class="linha-flex">
+          <div>
+            <strong>${esc(cta.nome)}</strong>
+            ${cta.papel === 'master' ? '<span class="badge" style="background:#b45309;color:#fff">master</span>' : ''}
+            ${cta.id === EU.id ? '<span class="badge">você</span>' : ''}
+            <div class="muted">${esc(cta.email)} • ${cta.n_campeonatos} campeonato(s) • desde ${esc((cta.criado_em ?? '').slice(0, 10))}</div>
+          </div>
+          <span class="espacador"></span>
+          <button class="botao" onclick="entrarTenant(${cta.id})">Gerenciar ➜</button>
+        </div>
+        <div class="linha-flex" style="margin-top:8px">
+          <button class="botao secundario mini" onclick="modalEditarConta(${cta.id})">✏️ Editar</button>
+          <button class="botao secundario mini" onclick="resetarSenha(${cta.id}, '${esc(cta.nome)}')">🔑 Resetar senha</button>
+          <button class="botao secundario mini" onclick="encerrarSessoes(${cta.id}, '${esc(cta.nome)}')">🚪 Encerrar sessões</button>
+          ${cta.papel !== 'master' ? `<button class="botao perigo mini" onclick="excluirConta(${cta.id}, '${esc(cta.nome)}', ${cta.n_campeonatos})">🗑️ Excluir</button>` : ''}
+        </div>
+      </div>`).join('')}
+  `;
+  window._contasMaster = contas;
+}
+
+async function entrarTenant(contaId) {
+  try {
+    await api('/api/master/entrar', 'POST', { conta_id: contaId });
+    await iniciarPainel();
+  } catch (e) { avisar(e.message); }
+}
+async function trocarTenant() {
+  await api('/api/master/voltar', 'POST');
+  EU = await api('/api/auth/eu');
+  barraMaster();
+  telaMaster();
+}
+
+// ---------- manutencao de contas ----------
+
+function modalEditarConta(contaId) {
+  const cta = window._contasMaster.find((x) => x.id === contaId);
+  abrirModal(`
+    <h3>Editar conta</h3>
+    <label>Nome</label><input type="text" id="cta-nome" value="${esc(cta.nome)}">
+    <label>E-mail</label><input type="email" id="cta-email" value="${esc(cta.email)}">
+    <label>Papel</label>
+    <select id="cta-papel" ${cta.id === EU.id ? 'disabled title="Você não pode rebaixar a si mesmo"' : ''}>
+      <option value="organizador" ${cta.papel === 'organizador' ? 'selected' : ''}>Organizador</option>
+      <option value="master" ${cta.papel === 'master' ? 'selected' : ''}>Master</option>
+    </select>
+    <p><button class="botao" style="width:100%" onclick="salvarConta(${contaId})">Salvar</button></p>
+  `);
+}
+async function salvarConta(contaId) {
+  try {
+    const corpo = { nome: $('#cta-nome').value, email: $('#cta-email').value };
+    if (!$('#cta-papel').disabled) corpo.papel = $('#cta-papel').value;
+    await api(`/api/master/contas/${contaId}`, 'PATCH', corpo);
+    fecharModal(); telaMaster();
+  } catch (e) { avisar(e.message); }
+}
+async function resetarSenha(contaId, nome) {
+  if (!confirm(`Resetar a senha de ${nome}? A senha atual deixa de valer e todas as sessões serão encerradas.`)) return;
+  try {
+    const r = await api(`/api/master/contas/${contaId}/resetar-senha`, 'POST');
+    abrirModal(`
+      <h3>🔑 Senha temporária de ${esc(nome)}</h3>
+      <p style="text-align:center;font-size:1.5rem"><code>${esc(r.senha_temporaria)}</code></p>
+      <p class="muted">Anote e repasse com segurança — ela não será exibida de novo.
+      Oriente a pessoa a trocá-la após entrar.</p>
+      <p><button class="botao" style="width:100%" onclick="navigator.clipboard.writeText('${esc(r.senha_temporaria)}').then(()=>avisar('Senha copiada!'))">Copiar senha</button></p>
+    `);
+  } catch (e) { avisar(e.message); }
+}
+async function encerrarSessoes(contaId, nome) {
+  if (!confirm(`Encerrar todas as sessões de ${nome}? A pessoa precisará fazer login de novo.`)) return;
+  try {
+    const r = await api(`/api/master/contas/${contaId}/encerrar-sessoes`, 'POST');
+    avisar(`${r.sessoes_encerradas} sessão(ões) encerrada(s).`);
+  } catch (e) { avisar(e.message); }
+}
+async function excluirConta(contaId, nome, nCampeonatos) {
+  if (!confirm(`Excluir a conta de ${nome}? Isso apaga ${nCampeonatos} campeonato(s) com times, jogos e banners. NÃO TEM VOLTA.`)) return;
+  if (!confirm('Tem certeza MESMO? Esta ação é definitiva.')) return;
+  try { await api(`/api/master/contas/${contaId}`, 'DELETE'); telaMaster(); }
+  catch (e) { avisar(e.message); }
+}
+
+// ================= INICIO =================
+
+$('#btn-sair').onclick = async () => { await api('/api/auth/sair', 'POST'); location.href = '/'; };
+
+async function iniciarPainel() {
+  EU = await api('/api/auth/eu');
+  $('#ola').textContent = EU.tenant
+    ? `Olá! (como ${EU.tenant.nome.split(' ')[0]})`
+    : `Olá, ${EU.nome.split(' ')[0]}!${EU.master ? ' 👑' : ''}`;
+  barraMaster();
+  if (EU.master && !EU.tenant) return telaMaster();
+  return telaLista();
+}
+
+iniciarPainel().catch(() => { location.href = '/'; });
+</script>
+</body>
+</html>

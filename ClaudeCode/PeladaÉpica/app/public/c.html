@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pelada Épica</title>
+<link rel="stylesheet" href="/estilo.css">
+<style>
+  .cabecalho-camp { text-align: center; padding: 22px 16px 8px; }
+  .cabecalho-camp h1 { margin: 8px 0 2px; color: var(--verde); }
+  .cabecalho-camp img.logo { width: 84px; height: 84px; object-fit: contain; }
+</style>
+</head>
+<body>
+<header class="topo">
+  <span class="marca"><a href="/">⚽ Pelada Épica</a></span>
+  <div class="direita"><button class="botao secundario mini" id="btn-compartilhar">Compartilhar</button></div>
+</header>
+
+<div class="conteudo" id="app"><p class="muted">Carregando campeonato…</p></div>
+
+<div class="modal-fundo" id="modal-fundo">
+  <div class="modal">
+    <button class="fechar" onclick="fecharModal()">×</button>
+    <div id="modal-conteudo"></div>
+  </div>
+</div>
+
+<script>
+const slug = location.pathname.split('/').pop();
+let D = null; // dados publicos
+const $ = (sel) => document.querySelector(sel);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+
+const nomeTime = (id) => D.times.find((t) => t.id === id)?.nome ?? 'A definir';
+const timePorId = (id) => D.times.find((t) => t.id === id);
+
+function escudoHtml(time, classe = 'escudo') {
+  if (time?.escudo) return `<img class="${classe}" src="${esc(time.escudo)}" alt="">`;
+  const inicial = time ? esc(time.nome[0].toUpperCase()) : '?';
+  return `<span class="escudo-placeholder ${classe === 'escudo-grande' ? 'escudo-grande' : ''}">${inicial}</span>`;
+}
+
+function bolinhas(ultimos) {
+  const faltam = Math.max(0, 5 - ultimos.length);
+  const cheias = ultimos.map((r) => `<span class="bolinha ${r}" title="${r === 'V' ? 'Vitória' : r === 'E' ? 'Empate' : 'Derrota'}"></span>`).join('');
+  return `<span class="bolinhas">${'<span class="bolinha vazia"></span>'.repeat(faltam)}${cheias}</span>`;
+}
+
+function bannersHtml() {
+  if (!D.banners.length) return '';
+  const itens = D.banners.map((b) => {
+    const img = `<img src="${esc(b.imagem)}" alt="Anúncio">`;
+    return b.link ? `<a href="${esc(b.link)}" target="_blank" rel="noopener sponsored">${img}</a>` : img;
+  }).join('');
+  return `<div class="banners"><span class="rotulo">Apoio</span>${itens}</div>`;
+}
+
+// ---------- abas ----------
+
+function render() {
+  const c = D.campeonato;
+  document.title = `${c.nome} — Pelada Épica`;
+  if (c.cor_tema) document.documentElement.style.setProperty('--verde', c.cor_tema);
+
+  const temMata = D.chaveamento.length > 0;
+  const abas = [
+    ['classificacao', 'Classificação', c.formato !== 'mata'],
+    ['chaveamento', 'Mata-mata', temMata],
+    ['jogos', 'Resultados', true],
+    ['times', 'Times', true],
+    ['artilharia', 'Artilharia', true],
+  ].filter((a) => a[2]);
+
+  $('#app').innerHTML = `
+    <div class="cabecalho-camp">
+      ${c.logo ? `<img class="logo" src="${esc(c.logo)}" alt="">` : ''}
+      <h1>${esc(c.nome)}</h1>
+      <div class="muted">${esc(c.modalidade)}${c.temporada ? ' • ' + esc(c.temporada) : ''}</div>
+      ${c.descricao ? `<p class="muted">${esc(c.descricao)}</p>` : ''}
+    </div>
+    <div class="abas" id="abas">
+      ${abas.map(([id, rotulo], i) => `<button class="aba ${i === 0 ? 'ativa' : ''}" data-aba="${id}">${rotulo}</button>`).join('')}
+    </div>
+    <div id="painel"></div>
+    ${bannersHtml()}
+  `;
+  document.querySelectorAll('#abas .aba').forEach((aba) => {
+    aba.onclick = () => {
+      document.querySelectorAll('#abas .aba').forEach((a) => a.classList.remove('ativa'));
+      aba.classList.add('ativa');
+      mostrarAba(aba.dataset.aba);
+    };
+  });
+  mostrarAba(abas[0][0]);
+}
+
+function mostrarAba(aba) {
+  const fn = { classificacao: abaClassificacao, chaveamento: abaChaveamento, jogos: abaJogos, times: abaTimes, artilharia: abaArtilharia }[aba];
+  $('#painel').innerHTML = fn();
+  ligarCliques();
+}
+
+// ---------- classificacao ----------
+
+function tabelaClassificacao(linhas) {
+  return `<div class="tabela-wrap"><table class="tabela">
+    <thead><tr><th>#</th><th class="time">Time</th><th>Pts</th><th>PJ</th><th>V</th><th>E</th><th>D</th><th>GP</th><th>GC</th><th>SG</th><th>Últ. Jogos</th></tr></thead>
+    <tbody>${linhas.map((l) => {
+      const t = timePorId(l.time_id);
+      return `<tr class="abrir-time" data-time="${l.time_id}">
+        <td>${l.pos}</td>
+        <td class="time">${escudoHtml(t)} ${esc(l.nome)}</td>
+        <td class="pts">${l.pts}</td><td>${l.pj}</td><td>${l.v}</td><td>${l.e}</td><td>${l.d}</td>
+        <td>${l.gp}</td><td>${l.gc}</td><td>${l.sg > 0 ? '+' : ''}${l.sg}</td>
+        <td>${bolinhas(l.ultimos)}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
+}
+
+function abaClassificacao() {
+  return D.classificacao.map((g) => `
+    <div class="card">
+      ${g.grupo ? `<h3>${esc(g.grupo.nome)}</h3>` : ''}
+      ${tabelaClassificacao(g.linhas)}
+    </div>`).join('');
+}
+
+// ---------- chaveamento ----------
+
+function abaChaveamento() {
+  return `<div class="card"><div class="chaveamento">
+    ${D.chaveamento.map((r) => `
+      <div class="chave-rodada">
+        <h4>${esc(r.fase)}</h4>
+        ${r.confrontos.map((cf) => {
+          const jogos = cf.jogos.map((id) => D.jogos.find((j) => j.id === id));
+          const j1 = jogos[0];
+          const casa = timePorId(j1.time_casa_id);
+          const fora = timePorId(j1.time_fora_id);
+          // Placar agregado do confronto, sempre relativo aos times da perna 1.
+          const encerrados = jogos.filter((j) => j.status === 'encerrado');
+          let aggCasa = null, aggFora = null;
+          if (encerrados.length && casa && fora) {
+            aggCasa = 0; aggFora = 0;
+            for (const j of encerrados) {
+              const invertido = j.time_casa_id !== j1.time_casa_id;
+              aggCasa += invertido ? j.gols_fora : j.gols_casa;
+              aggFora += invertido ? j.gols_casa : j.gols_fora;
+            }
+          }
+          const agg = (n) => n != null ? `<strong style="min-width:1.4em;display:inline-block;text-align:center;background:var(--verde-bg);border-radius:5px;padding:0 4px">${n}</strong> ` : '';
+          const placares = jogos.map((j) => j.status === 'encerrado' ? `${j.gols_casa}x${j.gols_fora}${j.penaltis_casa != null ? ` (${j.penaltis_casa}x${j.penaltis_fora} pen)` : ''}` : '—').join(' / ');
+          return `<div class="confronto-box">
+            <div class="linha ${cf.vencedor === j1.time_casa_id ? 'vencedor' : ''}"><span>${agg(aggCasa)}${escudoHtml(casa)} ${esc(casa?.nome ?? 'A definir')}</span></div>
+            <div class="linha ${cf.vencedor === j1.time_fora_id ? 'vencedor' : ''}"><span>${agg(aggFora)}${escudoHtml(fora)} ${esc(fora?.nome ?? 'A definir')}</span></div>
+            <div class="linha muted"><span>${placares}</span></div>
+          </div>`;
+        }).join('')}
+      </div>`).join('')}
+  </div></div>`;
+}
+
+// ---------- jogos ----------
+
+function linhaJogo(j) {
+  const casa = timePorId(j.time_casa_id);
+  const fora = timePorId(j.time_fora_id);
+  const placar = j.status === 'encerrado'
+    ? `${j.gols_casa} x ${j.gols_fora}` + (j.penaltis_casa != null ? `<div class="muted" style="font-size:.7rem">(${j.penaltis_casa}x${j.penaltis_fora} pen)</div>` : '')
+    : (j.data ? esc(formatarData(j.data)) : 'A definir');
+  return `<div class="jogo abrir-jogo" data-jogo="${j.id}">
+    <span class="mandante">${esc(casa?.nome ?? 'A definir')} ${escudoHtml(casa)}</span>
+    <span class="placar ${j.status}">${placar}</span>
+    <span class="visitante">${escudoHtml(fora)} ${esc(fora?.nome ?? 'A definir')}</span>
+  </div>`;
+}
+
+function formatarData(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) +
+    (iso.includes('T') ? ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
+}
+
+function abaJogos() {
+  const grupos = D.jogos.filter((j) => j.fase === 'grupos');
+  const mata = D.jogos.filter((j) => j.fase === 'mata');
+  let html = '';
+  if (grupos.length) {
+    const rodadas = [...new Set(grupos.map((j) => j.rodada))].sort((a, b) => a - b);
+    html += `<div class="card">${rodadas.map((r) => `
+      <div class="rotulo-rodada">Rodada ${r}</div>
+      ${grupos.filter((j) => j.rodada === r).map(linhaJogo).join('')}`).join('')}</div>`;
+  }
+  if (mata.length) {
+    html += `<div class="card"><h3>Mata-mata</h3>${D.chaveamento.map((r) => `
+      <div class="rotulo-rodada">${esc(r.fase)}</div>
+      ${mata.filter((j) => j.rodada === r.rodada).map(linhaJogo).join('')}`).join('')}</div>`;
+  }
+  return html || '<div class="card"><p class="muted">Nenhum jogo cadastrado ainda.</p></div>';
+}
+
+// ---------- times ----------
+
+function abaTimes() {
+  return `<div class="card"><div class="grade-times">
+    ${D.times.map((t) => `
+      <div class="card-time abrir-time" data-time="${t.id}">
+        ${escudoHtml(t, 'escudo-grande')}
+        <div class="nome">${esc(t.nome)}</div>
+      </div>`).join('')}
+  </div></div>`;
+}
+
+// ---------- artilharia ----------
+
+function abaArtilharia() {
+  const art = D.artilharia.length
+    ? `<div class="tabela-wrap"><table class="tabela">
+        <thead><tr><th>#</th><th class="time">Jogador</th><th class="time">Time</th><th>Gols</th></tr></thead>
+        <tbody>${D.artilharia.map((a, i) => `<tr><td>${i + 1}</td><td class="time">${esc(a.nome)}</td><td class="time">${esc(a.time)}</td><td class="pts">${a.gols}</td></tr>`).join('')}</tbody>
+      </table></div>`
+    : '<p class="muted">Nenhum gol registrado ainda.</p>';
+  const dis = D.disciplina.length
+    ? `<div class="tabela-wrap"><table class="tabela">
+        <thead><tr><th class="time">Jogador</th><th class="time">Time</th><th>🟨</th><th>🟥</th></tr></thead>
+        <tbody>${D.disciplina.map((a) => `<tr><td class="time">${esc(a.nome)}</td><td class="time">${esc(a.time)}</td><td>${a.amarelos}</td><td>${a.vermelhos}</td></tr>`).join('')}</tbody>
+      </table></div>`
+    : '<p class="muted">Nenhum cartão registrado ainda.</p>';
+  return `<div class="card"><h3>⚽ Artilharia</h3>${art}</div><div class="card"><h3>🟨🟥 Cartões</h3>${dis}</div>`;
+}
+
+// ---------- modais ----------
+
+function abrirModal(html) {
+  $('#modal-conteudo').innerHTML = html;
+  $('#modal-fundo').classList.add('aberto');
+}
+function fecharModal() { $('#modal-fundo').classList.remove('aberto'); }
+$('#modal-fundo').onclick = (e) => { if (e.target === $('#modal-fundo')) fecharModal(); };
+
+function abrirTime(id) {
+  const t = timePorId(id);
+  const elenco = D.jogadores.filter((j) => j.time_id === id);
+  const jogosDoTime = D.jogos.filter((j) => j.status === 'encerrado' && (j.time_casa_id === id || j.time_fora_id === id));
+  abrirModal(`
+    <div style="text-align:center">${escudoHtml(t, 'escudo-grande')}<h2 style="margin:6px 0">${esc(t.nome)}</h2></div>
+    ${t.foto ? `<img src="${esc(t.foto)}" style="width:100%;border-radius:10px" alt="Foto do time">` : ''}
+    <h3>Elenco</h3>
+    ${elenco.length ? `<div class="tabela-wrap"><table class="tabela">
+      <thead><tr><th class="time">Jogador</th><th>Gols</th><th>🟨</th><th>🟥</th></tr></thead>
+      <tbody>${elenco.map((j) => `<tr>
+        <td class="time">${j.numero != null ? `<span class="badge">${j.numero}</span> ` : ''}${esc(j.nome)}</td>
+        <td class="pts">${j.gols}</td><td>${j.amarelos}</td><td>${j.vermelhos}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '<p class="muted">Elenco ainda não cadastrado.</p>'}
+    <h3>Jogos</h3>
+    ${jogosDoTime.length ? jogosDoTime.map(linhaJogo).join('') : '<p class="muted">Nenhum jogo disputado.</p>'}
+  `);
+  ligarCliques();
+}
+
+function abrirJogo(id) {
+  const j = D.jogos.find((x) => x.id === id);
+  const casa = timePorId(j.time_casa_id);
+  const fora = timePorId(j.time_fora_id);
+  const evs = D.eventos.filter((e) => e.jogo_id === id);
+  const nomeJogador = (jid) => D.jogadores.find((x) => x.id === jid)?.nome ?? 'Não informado';
+  const listaEv = (tipo, icone) => {
+    const doTipo = evs.filter((e) => e.tipo === tipo);
+    if (!doTipo.length) return '';
+    const titulos = { gol: 'Gols', gol_contra: 'Gols contra', amarelo: 'Cartões amarelos', vermelho: 'Cartões vermelhos' };
+    // gol_contra: time_id e o time beneficiado; o autor e do adversario.
+    const detalhe = (e) => tipo === 'gol_contra'
+      ? `(contra, a favor de ${esc(nomeTime(e.time_id))})`
+      : `(${esc(nomeTime(e.time_id))}${e.minuto != null ? `, ${e.minuto}'` : ''})`;
+    return `<h3>${icone} ${titulos[tipo]}</h3>
+      <ul>${doTipo.map((e) => `<li>${esc(nomeJogador(e.jogador_id))} <span class="muted">${detalhe(e)}</span></li>`).join('')}</ul>`;
+  };
+  abrirModal(`
+    <div class="jogo" style="cursor:default">
+      <span class="mandante">${esc(casa?.nome ?? '?')} ${escudoHtml(casa)}</span>
+      <span class="placar ${j.status}">${j.status === 'encerrado' ? `${j.gols_casa} x ${j.gols_fora}` : 'Agendado'}</span>
+      <span class="visitante">${escudoHtml(fora)} ${esc(fora?.nome ?? '?')}</span>
+    </div>
+    ${j.penaltis_casa != null ? `<p style="text-align:center" class="muted">Pênaltis: ${j.penaltis_casa} x ${j.penaltis_fora}</p>` : ''}
+    <p class="muted" style="text-align:center">
+      ${j.data ? '📅 ' + esc(formatarData(j.data)) : ''} ${j.local ? ' • 📍 ' + esc(j.local) : ''}
+    </p>
+    ${listaEv('gol', '⚽')}${listaEv('gol_contra', '⚽')}${listaEv('amarelo', '🟨')}${listaEv('vermelho', '🟥')}
+    ${j.obs ? `<p class="muted">${esc(j.obs)}</p>` : ''}
+    ${j.sumula ? `<h3>📋 Súmula</h3><img src="${esc(j.sumula)}" style="width:100%;border-radius:10px" alt="Súmula">` : ''}
+  `);
+}
+
+function ligarCliques() {
+  document.querySelectorAll('.abrir-time').forEach((el) => { el.onclick = () => abrirTime(Number(el.dataset.time)); });
+  document.querySelectorAll('.abrir-jogo').forEach((el) => { el.onclick = (e) => { e.stopPropagation(); abrirJogo(Number(el.dataset.jogo)); }; });
+}
+
+$('#btn-compartilhar').onclick = async () => {
+  const dados = { title: document.title, url: location.href };
+  if (navigator.share) { try { await navigator.share(dados); } catch {} }
+  else { await navigator.clipboard.writeText(location.href); alert('Link copiado!'); }
+};
+
+// ---------- carga ----------
+
+fetch(`/api/publico/${encodeURIComponent(slug)}`)
+  .then(async (r) => {
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).mensagem || 'Campeonato não encontrado.');
+    return r.json();
+  })
+  .then((dados) => { D = dados; render(); })
+  .catch((e) => { $('#app').innerHTML = `<div class="card"><h2>Ops!</h2><p>${esc(e.message)}</p></div>`; });
+</script>
+</body>
+</html>

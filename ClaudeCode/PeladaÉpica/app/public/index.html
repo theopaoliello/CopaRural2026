@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pelada Épica — Gestão de Campeonatos</title>
+<link rel="stylesheet" href="/estilo.css">
+<style>
+  .hero { text-align: center; padding: 36px 16px 10px; }
+  .hero h1 { color: var(--verde); font-size: 2.1rem; margin: 0; }
+  .hero p { color: var(--cinza); max-width: 560px; margin: 10px auto; }
+  .auth { max-width: 420px; margin: 0 auto; }
+</style>
+</head>
+<body>
+<header class="topo">
+  <span class="marca"><a href="/">⚽ Pelada Épica</a></span>
+</header>
+
+<div class="hero">
+  <h1>Seu campeonato, organizado de verdade.</h1>
+  <p>Crie a tabela, lance os resultados com gols e cartões e compartilhe a página do seu campeonato com todo mundo — tudo automático.</p>
+</div>
+
+<div class="conteudo auth">
+  <div class="card">
+    <div class="abas">
+      <button class="aba ativa" data-form="login">Entrar</button>
+      <button class="aba" data-form="registro">Criar conta</button>
+    </div>
+    <div id="aviso" class="aviso"></div>
+
+    <form id="form-login">
+      <label>E-mail</label>
+      <input type="email" name="email" required autocomplete="email">
+      <label>Senha</label>
+      <input type="password" name="senha" required autocomplete="current-password">
+      <p><button class="botao" type="submit" style="width:100%">Entrar</button></p>
+    </form>
+
+    <form id="form-registro" style="display:none">
+      <label>Seu nome</label>
+      <input type="text" name="nome" required>
+      <label>E-mail</label>
+      <input type="email" name="email" required autocomplete="email">
+      <label>Senha (mínimo 6 caracteres)</label>
+      <input type="password" name="senha" required minlength="6" autocomplete="new-password">
+      <p><button class="botao" type="submit" style="width:100%">Criar minha conta</button></p>
+    </form>
+  </div>
+  <p class="muted" style="text-align:center">Organizadores usam o painel para gerenciar seus campeonatos.<br>Torcedores acessam direto pelo link público do campeonato.</p>
+</div>
+
+<script>
+const aviso = document.getElementById('aviso');
+
+document.querySelectorAll('.aba').forEach((aba) => {
+  aba.onclick = () => {
+    document.querySelectorAll('.aba').forEach((a) => a.classList.remove('ativa'));
+    aba.classList.add('ativa');
+    document.getElementById('form-login').style.display = aba.dataset.form === 'login' ? '' : 'none';
+    document.getElementById('form-registro').style.display = aba.dataset.form === 'registro' ? '' : 'none';
+    aviso.className = 'aviso';
+  };
+});
+
+async function enviar(url, dados) {
+  aviso.className = 'aviso';
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dados),
+  });
+  const corpo = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    aviso.textContent = corpo.mensagem || 'Algo deu errado. Tente novamente.';
+    aviso.className = 'aviso erro';
+    return;
+  }
+  location.href = '/admin';
+}
+
+document.getElementById('form-login').onsubmit = (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  enviar('/api/auth/login', { email: f.get('email'), senha: f.get('senha') });
+};
+document.getElementById('form-registro').onsubmit = (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  enviar('/api/auth/registrar', { nome: f.get('nome'), email: f.get('email'), senha: f.get('senha') });
+};
+
+// Se ja esta logado, vai direto ao painel.
+fetch('/api/auth/eu').then((r) => { if (r.ok) location.href = '/admin'; });
+</script>
+</body>
+</html>
