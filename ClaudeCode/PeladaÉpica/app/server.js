@@ -1,4 +1,4 @@
-// Bootstrap do servidor Pelada Epica.
+// Bootstrap do servidor Copa Manager.
 import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -54,7 +54,7 @@ app.use((err, req, res, _next) => {
 
 export function iniciar(porta = PORTA) {
   return app.listen(porta, () => {
-    console.log(`Pelada Epica rodando em http://localhost:${porta}`);
+    console.log(`Copa Manager rodando em http://localhost:${porta}`);
   });
 }
 

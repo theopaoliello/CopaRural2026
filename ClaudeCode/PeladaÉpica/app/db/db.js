@@ -1,4 +1,4 @@
-// Conexao e migracao do banco SQLite do Pelada Epica.
+// Conexao e migracao do banco SQLite do Copa Manager.
 // Usa o modulo nativo node:sqlite (Node 24+), sem compilacao nativa.
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, mkdirSync } from 'node:fs';
@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = join(__dirname, 'schema.sql');
-export const CAMINHO_PADRAO = join(__dirname, '..', 'data', 'pelada.db');
+export const CAMINHO_PADRAO = join(__dirname, '..', 'data', 'copamanager.db');
 
 // Abre (ou cria) o banco. Use ':memory:' para testes.
 export function abrirBanco(caminho = CAMINHO_PADRAO) {

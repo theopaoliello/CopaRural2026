@@ -1,16 +1,16 @@
 [Unit]
-# Servico systemd do Pelada Epica. Instale em /etc/systemd/system/.
-Description=Pelada Epica (Node/Express)
+# Servico systemd do Copa Manager. Instale em /etc/systemd/system/.
+Description=Copa Manager (Node/Express)
 After=network.target
 
 [Service]
 Type=simple
-User=pelada
-Group=pelada
-WorkingDirectory=/opt/pelada-epica
+User=copamanager
+Group=copamanager
+WorkingDirectory=/opt/copamanager
 # Variaveis de ambiente (PORTA, COOKIE_SEGURO, CONFIA_PROXY). O "-" torna o
 # arquivo opcional: o servico sobe mesmo se ele nao existir ainda.
-EnvironmentFile=-/etc/pelada-epica.env
+EnvironmentFile=-/etc/copamanager.env
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
 RestartSec=3
@@ -20,7 +20,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/opt/pelada-epica/data /opt/pelada-epica/uploads
+ReadWritePaths=/opt/copamanager/data /opt/copamanager/uploads
 
 [Install]
 WantedBy=multi-user.target

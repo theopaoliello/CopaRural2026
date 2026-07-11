@@ -1,7 +1,9 @@
-# Pelada Épica — MVP
+# Copa Manager — MVP
 
 Plataforma web para criar e gerenciar campeonatos esportivos amadores, conforme a
-**Especificação Funcional v1.0** (`../Pelada_Epica_Especificacao_Funcional_v1.0.docx`).
+**Especificação Funcional v1.0** (`../Pelada_Epica_Especificacao_Funcional_v1.0.docx`,
+escrita sob o nome antigo do produto, "Pelada Épica"). Em produção em
+[copamanager.com.br](https://copamanager.com.br).
 
 ## Rodar
 
@@ -16,13 +18,13 @@ npm run master -- email@ex.com     # promove uma conta existente a usuario maste
 
 Guia de produção (Oracle Cloud Free Tier ARM + Caddy + systemd) em
 [`deploy/README.md`](deploy/README.md). Em produção, suba com
-`COOKIE_SEGURO=1 CONFIA_PROXY=1` (o template `deploy/pelada-epica.env.example`
+`COOKIE_SEGURO=1 CONFIA_PROXY=1` (o template `deploy/copamanager.env.example`
 já traz esses valores). Backup do banco: `npm run backup`.
 
 ## Stack
 
 - Node 24+ / Express 5 (ESM)
-- SQLite nativo (`node:sqlite`) — banco em `data/pelada.db`, sem compilação nativa
+- SQLite nativo (`node:sqlite`) — banco em `data/copamanager.db`, sem compilação nativa
 - Front-end em HTML/CSS/JS puro (mobile-first), sem framework
 - Uploads de imagem (escudo, foto, súmula, banner, logo) em `uploads/`
 

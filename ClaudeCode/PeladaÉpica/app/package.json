@@ -1,7 +1,7 @@
 {
-  "name": "pelada-epica",
+  "name": "copa-manager",
   "version": "0.1.0",
-  "description": "Pelada Epica - plataforma de gestao de campeonatos esportivos (MVP)",
+  "description": "Copa Manager - plataforma de gestao de campeonatos esportivos (MVP)",
   "type": "module",
   "private": true,
   "engines": {

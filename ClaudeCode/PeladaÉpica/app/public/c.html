@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pelada Épica</title>
+<title>Copa Manager</title>
 <link rel="stylesheet" href="/estilo.css">
 <style>
   .cabecalho-camp { text-align: center; padding: 22px 16px 8px; }
@@ -13,7 +13,7 @@
 </head>
 <body>
 <header class="topo">
-  <span class="marca"><a href="/">⚽ Pelada Épica</a></span>
+  <span class="marca"><a href="/">⚽ Copa Manager</a></span>
   <div class="direita"><button class="botao secundario mini" id="btn-compartilhar">Compartilhar</button></div>
 </header>
 
@@ -60,7 +60,7 @@ function bannersHtml() {
 
 function render() {
   const c = D.campeonato;
-  document.title = `${c.nome} — Pelada Épica`;
+  document.title = `${c.nome} — Copa Manager`;
   if (c.cor_tema) document.documentElement.style.setProperty('--verde', c.cor_tema);
 
   const temMata = D.chaveamento.length > 0;
