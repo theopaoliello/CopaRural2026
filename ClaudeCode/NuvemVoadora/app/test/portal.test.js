@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { abrirBanco, migrar } from '../db/db.js';
-import { criarLoja } from '../src/lojas.js';
+import { criarLoja, listarLojas, tokenDaLoja } from '../src/lojas.js';
 import { criarOS } from '../src/os.js';
 import { registrarRecebimento } from '../src/recebimento.js';
 import { autenticarLoja, painelLoja } from '../src/portal.js';
@@ -10,6 +10,8 @@ function cenario() {
   const db = migrar(abrirBanco(':memory:'));
   const l1 = criarLoja(db, { nome: 'Loja A', janela_dias: 15 });
   const l2 = criarLoja(db, { nome: 'Loja B', janela_dias: 7 });
+  const t1 = tokenDaLoja(db, l1.id);
+  const t2 = tokenDaLoja(db, l2.id);
   const os = criarOS(db, {
     cliente: { nome: 'Cliente Teste' },
     partes: [
@@ -17,19 +19,27 @@ function cenario() {
       { loja_id: l2.id, itens: [{ descricao: 'Carta Y', quantidade: 2 }] },
     ],
   });
-  return { db, l1, l2, os };
+  return { db, l1, l2, t1, t2, os };
 }
 
 test('criarLoja gera token de acesso no formato LJ-', () => {
-  const { l1, l2 } = cenario();
-  assert.match(l1.token, /^LJ-[0-9A-F]{10}$/);
-  assert.match(l2.token, /^LJ-[0-9A-F]{10}$/);
-  assert.notEqual(l1.token, l2.token);
+  const { t1, t2 } = cenario();
+  assert.match(t1, /^LJ-[0-9A-F]{10}$/);
+  assert.match(t2, /^LJ-[0-9A-F]{10}$/);
+  assert.notEqual(t1, t2);
+});
+
+test('token NAO aparece em criarLoja nem em listarLojas (so via tokenDaLoja)', () => {
+  const { db, l1 } = cenario();
+  assert.equal(l1.token, undefined);
+  for (const loja of listarLojas(db)) assert.equal(loja.token, undefined);
+  assert.match(tokenDaLoja(db, l1.id), /^LJ-/);
+  assert.throws(() => tokenDaLoja(db, 9999), (e) => e.statusCode === 404);
 });
 
 test('autenticarLoja aceita token valido (case-insensitive) e nao expoe o token', () => {
-  const { db, l1 } = cenario();
-  const loja = autenticarLoja(db, l1.token.toLowerCase());
+  const { db, l1, t1 } = cenario();
+  const loja = autenticarLoja(db, t1.toLowerCase());
   assert.equal(loja.id, l1.id);
   assert.equal(loja.nome, 'Loja A');
   assert.equal(loja.token, undefined);
@@ -43,9 +53,9 @@ test('autenticarLoja rejeita token invalido/vazio com 401', () => {
 });
 
 test('autenticarLoja rejeita loja inativa', () => {
-  const { db, l1 } = cenario();
+  const { db, l1, t1 } = cenario();
   db.prepare('UPDATE loja SET ativo = 0 WHERE id = ?').run(l1.id);
-  assert.throws(() => autenticarLoja(db, l1.token), (e) => e.statusCode === 401);
+  assert.throws(() => autenticarLoja(db, t1), (e) => e.statusCode === 401);
 });
 
 test('painelLoja lista somente as partes da loja autenticada', () => {

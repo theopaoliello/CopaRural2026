@@ -53,18 +53,32 @@
       document.getElementById('lista').innerHTML = lojas.length
         ? lojas.map((l) => `<tr>
             <td>${esc(l.nome)}</td><td>${esc(l.cidade_uf || '—')}</td><td>${l.janela_dias} dias</td>
-            <td><span class="mono">${esc(l.token || '—')}</span>
-                ${l.token ? `<button class="mini sec" type="button" onclick="copiar('${l.token}', this)">Copiar</button>` : ''}</td>
+            <td><span class="mono tok" data-id="${l.id}">LJ-••••••••••</span>
+                <button class="mini sec" type="button" data-acao="ver" data-id="${l.id}">Ver</button>
+                <button class="mini sec" type="button" data-acao="copiar" data-id="${l.id}">Copiar</button></td>
           </tr>`).join('')
         : '<tr><td colspan="4" class="suave">Nenhuma loja.</td></tr>';
     }
-    async function copiar(token, btn) {
+
+    // O token nunca vem na listagem: e buscado sob demanda ao Ver/Copiar.
+    document.getElementById('lista').addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('button[data-acao]');
+      if (!btn) return;
       try {
-        await navigator.clipboard.writeText(token);
-        btn.textContent = 'Copiado!';
-        setTimeout(() => { btn.textContent = 'Copiar'; }, 1500);
-      } catch (_) { /* clipboard indisponivel (http) — o codigo esta visivel ao lado */ }
-    }
+        const { token } = await api('/lojas/' + btn.dataset.id + '/token');
+        if (btn.dataset.acao === 'ver') {
+          const alvo = document.querySelector(`.tok[data-id="${btn.dataset.id}"]`);
+          alvo.textContent = token;
+          btn.remove();
+        } else {
+          await navigator.clipboard.writeText(token);
+          btn.textContent = 'Copiado!';
+          setTimeout(() => { btn.textContent = 'Copiar'; }, 1500);
+        }
+      } catch (e) {
+        document.getElementById('msg').innerHTML = `<div class="msg erro">${esc(e.message)}</div>`;
+      }
+    });
     document.getElementById('form').onsubmit = async (ev) => {
       ev.preventDefault();
       try {

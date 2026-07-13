@@ -1,7 +1,8 @@
 // Rotas HTTP da API. Todas as respostas em JSON.
 import express from 'express';
 import { criarOS, obterOS, obterParte, listarOS, despacharOS, encerrarOS } from '../src/os.js';
-import { listarLojas, criarLoja } from '../src/lojas.js';
+import { listarLojas, criarLoja, tokenDaLoja } from '../src/lojas.js';
+import { criarLimitador } from '../src/ratelimit.js';
 import { registrarRecebimento } from '../src/recebimento.js';
 import { filaSeparacao, iniciarSeparacao, scanConsolidacao, finalizarSeparacao } from '../src/separacao.js';
 import { osAtrasadas, partesEmRisco, desempenhoLojas, historicoAtrasos } from '../src/atrasos.js';
@@ -25,9 +26,22 @@ const h = (fn) => (req, res, next) => {
 export function montarRotas(db) {
   const r = express.Router();
 
+  // Dados operacionais/pessoais nao devem ficar em cache de navegador/proxy.
+  r.use((req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
+
+  // Limitadores dos endpoints expostos a terceiros: forca bruta de token do
+  // portal e enumeracao dos codigos sequenciais do rastreio.
+  const limiteLogin = criarLimitador({ max: 10, janelaMs: 5 * 60_000 });
+  const limiteRastreio = criarLimitador({ max: 30, janelaMs: 60_000 });
+
   // --- Lojas ---
   r.get('/lojas', h((req, res) => res.json(listarLojas(db))));
   r.post('/lojas', h((req, res) => res.status(201).json(criarLoja(db, req.body ?? {}))));
+  // Revelacao explicita do codigo de acesso (nunca vem nas listagens).
+  r.get('/lojas/:id/token', h((req, res) => res.json({ token: tokenDaLoja(db, Number(req.params.id)) })));
 
   // --- Ordens de Servico ---
   r.post('/os', h((req, res) => res.status(201).json(criarOS(db, req.body ?? {}))));
@@ -44,7 +58,7 @@ export function montarRotas(db) {
   r.get('/parte/:codigo', h((req, res) => res.json(obterParte(db, req.params.codigo))));
 
   // --- Portal da Loja (autenticado por token no header x-loja-token) ---
-  r.post('/portal/login', h((req, res) => {
+  r.post('/portal/login', limiteLogin.middleware, h((req, res) => {
     res.json(autenticarLoja(db, (req.body ?? {}).token));
   }));
   r.get('/portal/painel', h((req, res) => {
@@ -53,7 +67,7 @@ export function montarRotas(db) {
   }));
 
   // --- Rastreio publico do cliente final (resposta sanitizada) ---
-  r.get('/rastreio/:codigo', h((req, res) => res.json(rastrearPedido(db, req.params.codigo))));
+  r.get('/rastreio/:codigo', limiteRastreio.middleware, h((req, res) => res.json(rastrearPedido(db, req.params.codigo))));
 
   // --- Gerencial: indicadores do dashboard + relatorios .xlsx ---
   r.get('/gerencial/indicadores', h((req, res) => res.json(indicadores(db))));

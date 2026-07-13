@@ -31,3 +31,11 @@ export class Conflito extends Error {
     this.statusCode = 409;
   }
 }
+
+export class MuitasRequisicoes extends Error {
+  constructor(mensagem) {
+    super(mensagem);
+    this.name = 'MuitasRequisicoes';
+    this.statusCode = 429;
+  }
+}

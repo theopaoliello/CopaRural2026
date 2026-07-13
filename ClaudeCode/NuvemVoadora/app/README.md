@@ -107,6 +107,21 @@ app/
 └── test/                # node:test
 ```
 
+## Segurança
+- **Este app foi desenhado para rede local confiável.** A API da operação não
+  tem autenticação: **não exponha a porta à internet**. Para publicar o portal
+  da loja/rastreio externamente, use um proxy que libere apenas `/api/portal/*`,
+  `/api/rastreio/*` e as páginas `portal.html`/`rastreio.html` — ou implemente
+  a autenticação da operação (backlog).
+- Os códigos de acesso das lojas **não aparecem em listagens da API**; são
+  revelados sob demanda em `/lojas.html` (botões Ver/Copiar).
+- Rate limit em memória: login do portal (10/5 min por IP) e rastreio público
+  (30/min por IP) — mitiga força bruta e enumeração de códigos.
+- Cabeçalhos: `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`
+  e `Cache-Control: no-store` na API. Erros 5xx não vazam detalhes internos.
+- SQL 100% com prepared statements; telas escapam todo dado digitado (XSS);
+  relatórios usam `inlineStr` (sem injeção de fórmula no Excel).
+
 ## Fora do MVP (backlog)
 Integração com a API da Liga, etiqueta/frete ao cliente, autenticação da
 operação do HUB, despacho parcial, notificações (e-mail/WhatsApp) à loja e ao

@@ -14,14 +14,31 @@ const criadas = seedLojas(db);
 if (criadas) console.log(`Seed: ${criadas} lojas de exemplo inseridas.`);
 
 const app = express();
+app.disable('x-powered-by');
+
+// Cabecalhos de seguranca basicos (nosniff, anti-clickjacking, sem referrer —
+// o rastreio leva o codigo do pedido na URL e nao deve vaza-lo a terceiros).
+app.use((req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'no-referrer',
+  });
+  next();
+});
+
 app.use(express.json());
 app.use('/api', montarRotas(db));
 app.use(express.static(join(__dirname, 'public')));
 
 // Middleware de erro: traduz erros de dominio em status HTTP.
+// Erros 5xx NAO vazam detalhes internos ao cliente — so no log do servidor.
 app.use((err, req, res, _next) => {
   const status = err.statusCode ?? 500;
-  if (status >= 500) console.error(err);
+  if (status >= 500) {
+    console.error(err);
+    return res.status(status).json({ erro: 'ErroInterno', mensagem: 'Erro interno no servidor. Tente novamente.' });
+  }
   res.status(status).json({ erro: err.name ?? 'Erro', mensagem: err.message });
 });
 
