@@ -4,17 +4,40 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import { prepararBanco } from '../db/db.js';
 import { montarRotas } from '../routes/api.js';
+import { configurarTransporte } from '../src/email.js';
+import { contaViaGoogle, registrarConta } from '../src/auth.js';
 
 let servidor;
 let base;
 let bancoTeste;
+
+// Captura os e-mails enviados (nenhuma rede nos testes).
+const emails = [];
+configurarTransporte(async (m) => { emails.push(m); });
+const tokenDoUltimoEmail = (para) =>
+  [...emails].reverse().find((e) => e.para === para.toLowerCase())?.texto.match(/token=([0-9a-f]+)/)?.[1];
+
+// Registra com consentimento, confirma o e-mail (o que ja abre a sessao) e
+// devolve a conta { id, nome, email } — o fluxo real do produto, a cada teste.
+async function registrarEntrar(c, { nome, email, senha }) {
+  const reg = await c('POST', '/api/auth/registrar', { nome, email, senha, consentimento: true });
+  assert.equal(reg.status, 201, JSON.stringify(reg.corpo));
+  const conf = await c('POST', '/api/auth/confirmar-email', { token: tokenDoUltimoEmail(email) });
+  assert.equal(conf.status, 200, JSON.stringify(conf.corpo));
+  return bancoTeste.prepare('SELECT id, nome, email FROM contas WHERE email = ?').get(email.toLowerCase());
+}
 
 function montarApp() {
   const db = prepararBanco(':memory:');
   const app = express();
   app.use(express.json({ limit: '5mb' }));
   // Limites folgados: este arquivo registra/loga dezenas de vezes do mesmo IP.
-  app.use('/api', montarRotas(db, { limites: { login: { max: 1000 }, registro: { max: 1000 } } }));
+  app.use('/api', montarRotas(db, {
+    limites: {
+      login: { max: 1000 }, registro: { max: 1000 },
+      confirmacao: { max: 1000 }, reenvio: { max: 1000 },
+    },
+  }));
   app.use((err, req, res, _next) => {
     const status = err.statusCode ?? 500;
     if (status >= 500) console.error(err);
@@ -51,11 +74,8 @@ function cliente() {
 test('fluxo completo: conta, campeonato, resultados, classificacao e pagina publica', async () => {
   const alice = cliente();
 
-  // registro cria sessao
-  const reg = await alice('POST', '/api/auth/registrar', {
-    nome: 'Alice', email: 'alice@teste.com', senha: 'segredo1',
-  });
-  assert.equal(reg.status, 201);
+  // registro + confirmacao de e-mail abrem a sessao
+  await registrarEntrar(alice, { nome: 'Alice', email: 'alice@teste.com', senha: 'segredo1' });
 
   // cria campeonato de pontos corridos com 4 times, sem sorteio (ordem previsivel)
   const criado = await alice('POST', '/api/campeonatos', {
@@ -114,7 +134,7 @@ test('fluxo completo: conta, campeonato, resultados, classificacao e pagina publ
 
 test('validacao: gols de jogadores nao podem exceder o placar', async () => {
   const c = cliente();
-  await c('POST', '/api/auth/registrar', { nome: 'Val', email: 'val@teste.com', senha: 'segredo1' });
+  await registrarEntrar(c, { nome: 'Val', email: 'val@teste.com', senha: 'segredo1' });
   const criado = await c('POST', '/api/campeonatos', {
     nome: 'Valida', formato: 'pontos', sortear: false, times: ['X', 'Y'],
   });
@@ -129,11 +149,62 @@ test('validacao: gols de jogadores nao podem exceder o placar', async () => {
   assert.match(resp.corpo.mensagem, /mais gols/);
 });
 
+test('resultado simples: gols SR (sem registro de autor) valem no placar e na sumula', async () => {
+  const c = cliente();
+  await registrarEntrar(c, { nome: 'Sim', email: 'sim@teste.com', senha: 'segredo1' });
+  const criado = await c('POST', '/api/campeonatos', {
+    nome: 'Simples', formato: 'pontos', sortear: false, times: ['P', 'Q'],
+  });
+  const det = await c('GET', `/api/campeonatos/${criado.corpo.id}`);
+  const jogo = det.corpo.jogos[0];
+
+  // Placar simples: um evento de gol com jogador_id null (SR) por gol.
+  const resp = await c('POST', `/api/jogos/${jogo.id}/resultado`, {
+    gols_casa: 2, gols_fora: 1,
+    eventos: [
+      { tipo: 'gol', time_id: jogo.time_casa_id, jogador_id: null },
+      { tipo: 'gol', time_id: jogo.time_casa_id, jogador_id: null },
+      { tipo: 'gol', time_id: jogo.time_fora_id, jogador_id: null },
+    ],
+  });
+  assert.equal(resp.status, 200, JSON.stringify(resp.corpo));
+  assert.equal(resp.corpo.gols_casa, 2);
+  assert.equal(resp.corpo.status, 'encerrado');
+
+  // Pagina publica: os 3 gols aparecem nos eventos sem autor; artilharia vazia.
+  const pub = await cliente()('GET', `/api/publico/${criado.corpo.slug}`);
+  const golsSR = pub.corpo.eventos.filter((e) => e.jogo_id === jogo.id && e.tipo === 'gol');
+  assert.equal(golsSR.length, 3);
+  assert.ok(golsSR.every((e) => e.jogador_id == null));
+  assert.equal(pub.corpo.artilharia.length, 0);
+});
+
+test('regras do campeonato: PATCH salva, pagina publica expoe e da para limpar', async () => {
+  const c = cliente();
+  await registrarEntrar(c, { nome: 'Reg', email: 'reg@teste.com', senha: 'segredo1' });
+  const criado = await c('POST', '/api/campeonatos', {
+    nome: 'Com Regras', formato: 'pontos', sortear: false, times: ['R1', 'R2'],
+  });
+  const texto = '1. Sem carrinho.\n2. Tolerancia de 15 minutos.';
+  const patch = await c('PATCH', `/api/campeonatos/${criado.corpo.id}`, { regras: texto });
+  assert.equal(patch.status, 200);
+  assert.equal(patch.corpo.regras, texto);
+
+  const pub = await cliente()('GET', `/api/publico/${criado.corpo.slug}`);
+  assert.equal(pub.corpo.campeonato.regras, texto);
+
+  // limpar (null) e limite de tamanho
+  const limpo = await c('PATCH', `/api/campeonatos/${criado.corpo.id}`, { regras: null });
+  assert.equal(limpo.corpo.regras, null);
+  const grande = await c('PATCH', `/api/campeonatos/${criado.corpo.id}`, { regras: 'x'.repeat(10001) });
+  assert.equal(grande.status, 400);
+});
+
 test('isolamento multi-tenant: conta B nao ve nem altera dados da conta A', async () => {
   const contaA = cliente();
   const contaB = cliente();
-  await contaA('POST', '/api/auth/registrar', { nome: 'Ana', email: 'ana@teste.com', senha: 'segredo1' });
-  await contaB('POST', '/api/auth/registrar', { nome: 'Beto', email: 'beto@teste.com', senha: 'segredo1' });
+  await registrarEntrar(contaA, { nome: 'Ana', email: 'ana@teste.com', senha: 'segredo1' });
+  await registrarEntrar(contaB, { nome: 'Beto', email: 'beto@teste.com', senha: 'segredo1' });
 
   const deA = await contaA('POST', '/api/campeonatos', {
     nome: 'Camp da Ana', formato: 'pontos', times: ['T1', 'T2'],
@@ -164,7 +235,7 @@ test('isolamento multi-tenant: conta B nao ve nem altera dados da conta A', asyn
 
 test('banners: limite de 5 por campeonato', async () => {
   const c = cliente();
-  await c('POST', '/api/auth/registrar', { nome: 'Ban', email: 'ban@teste.com', senha: 'segredo1' });
+  await registrarEntrar(c, { nome: 'Ban', email: 'ban@teste.com', senha: 'segredo1' });
   const criado = await c('POST', '/api/campeonatos', {
     nome: 'Banners FC', formato: 'pontos', times: ['A', 'B'],
   });
@@ -180,7 +251,7 @@ test('banners: limite de 5 por campeonato', async () => {
 
 test('mata-mata: progressao automatica do vencedor ate o campeao', async () => {
   const c = cliente();
-  await c('POST', '/api/auth/registrar', { nome: 'Mata', email: 'mata@teste.com', senha: 'segredo1' });
+  await registrarEntrar(c, { nome: 'Mata', email: 'mata@teste.com', senha: 'segredo1' });
   const criado = await c('POST', '/api/campeonatos', {
     nome: 'Mata Cup', formato: 'mata', sortear: false, times: ['S1', 'S2', 'S3', 'S4'],
   });
@@ -221,7 +292,7 @@ test('mata-mata: progressao automatica do vencedor ate o campeao', async () => {
 
 test('grupos + mata: so gera o mata quando os grupos terminam', async () => {
   const c = cliente();
-  await c('POST', '/api/auth/registrar', { nome: 'Gru', email: 'gru@teste.com', senha: 'segredo1' });
+  await registrarEntrar(c, { nome: 'Gru', email: 'gru@teste.com', senha: 'segredo1' });
   const criado = await c('POST', '/api/campeonatos', {
     nome: 'Grupos Cup', formato: 'grupos_mata', num_grupos: 2, classificados_por_grupo: 2,
     sortear: false, times: ['G1', 'G2', 'G3', 'G4', 'G5', 'G6'],
@@ -258,7 +329,7 @@ test('grupos + mata: so gera o mata quando os grupos terminam', async () => {
 
 test('jogadores em lote: cadastra varios de uma vez e respeita a posse', async () => {
   const c = cliente();
-  await c('POST', '/api/auth/registrar', { nome: 'Lote', email: 'lote@teste.com', senha: 'segredo1' });
+  await registrarEntrar(c, { nome: 'Lote', email: 'lote@teste.com', senha: 'segredo1' });
   const criado = await c('POST', '/api/campeonatos', {
     nome: 'Lote FC', formato: 'pontos', sortear: false, times: ['A', 'B'],
   });
@@ -281,7 +352,7 @@ test('jogadores em lote: cadastra varios de uma vez e respeita a posse', async (
 
   // outra conta nao cadastra no time alheio
   const intruso = cliente();
-  await intruso('POST', '/api/auth/registrar', { nome: 'X', email: 'x-lote@teste.com', senha: 'segredo1' });
+  await registrarEntrar(intruso, { nome: 'X', email: 'x-lote@teste.com', senha: 'segredo1' });
   assert.equal(
     (await intruso('POST', `/api/times/${timeA.id}/jogadores/lote`, { texto: 'Invasor,1' })).status,
     404,
@@ -290,7 +361,7 @@ test('jogadores em lote: cadastra varios de uma vez e respeita a posse', async (
 
 test('resultado por texto: placar automatico, gol contra e validacao de elenco', async () => {
   const c = cliente();
-  await c('POST', '/api/auth/registrar', { nome: 'Txt', email: 'txt@teste.com', senha: 'segredo1' });
+  await registrarEntrar(c, { nome: 'Txt', email: 'txt@teste.com', senha: 'segredo1' });
   const criado = await c('POST', '/api/campeonatos', {
     nome: 'Texto FC', formato: 'pontos', sortear: false, times: ['Mandante', 'Visitante'],
   });
@@ -337,7 +408,7 @@ A,Thiago`,
 
 test('sem sorteio: grupos seguem a ordem digitada e o mata pareia 1x2, 3x4', async () => {
   const c = cliente();
-  await c('POST', '/api/auth/registrar', { nome: 'Ord', email: 'ord@teste.com', senha: 'segredo1' });
+  await registrarEntrar(c, { nome: 'Ord', email: 'ord@teste.com', senha: 'segredo1' });
 
   // grupos: primeiros times digitados formam o Grupo A
   const cg = await c('POST', '/api/campeonatos', {
@@ -365,7 +436,7 @@ test('master: escolhe um tenant e gerencia todo o conteudo dele', async () => {
   const org = cliente();
 
   // organizador comum com um campeonato
-  const contaOrg = await org('POST', '/api/auth/registrar', {
+  const contaOrg = await registrarEntrar(org, {
     nome: 'Organizador', email: 'org-master@teste.com', senha: 'segredo1',
   });
   const camp = await org('POST', '/api/campeonatos', {
@@ -373,7 +444,7 @@ test('master: escolhe um tenant e gerencia todo o conteudo dele', async () => {
   });
 
   // conta master (promovida como faz o script npm run master)
-  await master('POST', '/api/auth/registrar', { nome: 'Master', email: 'master@teste.com', senha: 'segredo1' });
+  await registrarEntrar(master, { nome: 'Master', email: 'master@teste.com', senha: 'segredo1' });
   bancoTeste.prepare("UPDATE contas SET papel = 'master' WHERE email = 'master@teste.com'").run();
 
   // /auth/eu reflete o papel
@@ -393,7 +464,7 @@ test('master: escolhe um tenant e gerencia todo o conteudo dele', async () => {
   assert.equal(antes.corpo.length, 0);
 
   // entra como o organizador e passa a ver e ALTERAR o conteudo dele
-  const entrou = await master('POST', '/api/master/entrar', { conta_id: contaOrg.corpo.id });
+  const entrou = await master('POST', '/api/master/entrar', { conta_id: contaOrg.id });
   assert.equal(entrou.status, 200);
   const eu2 = await master('GET', '/api/auth/eu');
   assert.equal(eu2.corpo.tenant.nome, 'Organizador');
@@ -417,11 +488,11 @@ test('master: escolhe um tenant e gerencia todo o conteudo dele', async () => {
 
 test('master: gerenciar a PROPRIA conta funciona (tenant proprio, sem loop)', async () => {
   const m = cliente();
-  const reg = await m('POST', '/api/auth/registrar', { nome: 'Dono', email: 'dono@teste.com', senha: 'segredo1' });
+  const reg = await registrarEntrar(m, { nome: 'Dono', email: 'dono@teste.com', senha: 'segredo1' });
   bancoTeste.prepare("UPDATE contas SET papel = 'master' WHERE email = 'dono@teste.com'").run();
   await m('POST', '/api/campeonatos', { nome: 'Camp do Dono', formato: 'pontos', times: ['D1', 'D2'] });
 
-  await m('POST', '/api/master/entrar', { conta_id: reg.corpo.id });
+  await m('POST', '/api/master/entrar', { conta_id: reg.id });
   const eu = await m('GET', '/api/auth/eu');
   assert.ok(eu.corpo.tenant, 'tenant definido mesmo sendo a propria conta');
   assert.equal(eu.corpo.tenant.proprio, true);
@@ -432,13 +503,13 @@ test('master: gerenciar a PROPRIA conta funciona (tenant proprio, sem loop)', as
 
 test('master: manutencao de contas (editar, resetar senha, sessoes, excluir)', async () => {
   const m = cliente();
-  await m('POST', '/api/auth/registrar', { nome: 'Root', email: 'root@teste.com', senha: 'segredo1' });
+  await registrarEntrar(m, { nome: 'Root', email: 'root@teste.com', senha: 'segredo1' });
   bancoTeste.prepare("UPDATE contas SET papel = 'master' WHERE email = 'root@teste.com'").run();
 
   const alvoCli = cliente();
-  const alvo = await alvoCli('POST', '/api/auth/registrar', { nome: 'Alvo', email: 'alvo@teste.com', senha: 'senhavelha' });
+  const alvo = await registrarEntrar(alvoCli, { nome: 'Alvo', email: 'alvo@teste.com', senha: 'senhavelha' });
   await alvoCli('POST', '/api/campeonatos', { nome: 'Camp do Alvo', formato: 'pontos', times: ['X', 'Y'] });
-  const alvoId = alvo.corpo.id;
+  const alvoId = alvo.id;
 
   // editar nome e e-mail; conflito de e-mail e barrado
   const ed = await m('PATCH', `/api/master/contas/${alvoId}`, { nome: 'Alvo Editado', email: 'alvo2@teste.com' });
@@ -483,20 +554,160 @@ test('master: manutencao de contas (editar, resetar senha, sessoes, excluir)', a
 
 test('seguranca: organizador comum nao acessa rotas master nem forja tenant', async () => {
   const c = cliente();
-  const eu = await c('POST', '/api/auth/registrar', { nome: 'Comum', email: 'comum@teste.com', senha: 'segredo1' });
+  const eu = await registrarEntrar(c, { nome: 'Comum', email: 'comum@teste.com', senha: 'segredo1' });
   assert.equal((await c('GET', '/api/master/contas')).status, 403);
   assert.equal((await c('POST', '/api/master/entrar', { conta_id: 1 })).status, 403);
 
   // mesmo com conta_efetiva_id forjado na sessao, quem nao e master e ignorado
-  bancoTeste.prepare('UPDATE sessoes SET conta_efetiva_id = 1 WHERE conta_id = ?').run(eu.corpo.id);
+  bancoTeste.prepare('UPDATE sessoes SET conta_efetiva_id = 1 WHERE conta_id = ?').run(eu.id);
   const eu2 = await c('GET', '/api/auth/eu');
-  assert.equal(eu2.corpo.id, eu.corpo.id); // continua sendo ele mesmo
+  assert.equal(eu2.corpo.id, eu.id); // continua sendo ele mesmo
   assert.equal(eu2.corpo.tenant, null);
 });
 
 test('validacao do wizard: mata-mata exige potencia de 2', async () => {
   const c = cliente();
-  await c('POST', '/api/auth/registrar', { nome: 'W', email: 'w@teste.com', senha: 'segredo1' });
+  await registrarEntrar(c, { nome: 'W', email: 'w@teste.com', senha: 'segredo1' });
   const r = await c('POST', '/api/campeonatos', { nome: 'Errado', formato: 'mata', times: ['A', 'B', 'C'] });
   assert.equal(r.status, 400);
+});
+
+// ================= VERIFICACAO DE E-MAIL, GOOGLE E LGPD =================
+
+test('verificacao de e-mail: exige consentimento, bloqueia login e token e de uso unico', async () => {
+  const c = cliente();
+
+  // sem aceitar a politica de privacidade nao cria conta (LGPD)
+  const semConsent = await c('POST', '/api/auth/registrar', {
+    nome: 'V', email: 'verif@teste.com', senha: 'segredo1',
+  });
+  assert.equal(semConsent.status, 400);
+  assert.match(semConsent.corpo.mensagem, /Politica de Privacidade/);
+
+  // registro ok: nao abre sessao e avisa que precisa verificar
+  const reg = await c('POST', '/api/auth/registrar', {
+    nome: 'V', email: 'verif@teste.com', senha: 'segredo1', consentimento: true,
+  });
+  assert.equal(reg.status, 201);
+  assert.equal(reg.corpo.precisaVerificar, true);
+  assert.equal((await c('GET', '/api/campeonatos')).status, 401);
+
+  // login bloqueado com erro especifico
+  const bloqueado = await c('POST', '/api/auth/login', { email: 'verif@teste.com', senha: 'segredo1' });
+  assert.equal(bloqueado.status, 403);
+  assert.equal(bloqueado.corpo.erro, 'EmailNaoVerificado');
+
+  // o e-mail enviado carrega o link; confirmar abre a sessao
+  const token = tokenDoUltimoEmail('verif@teste.com');
+  assert.ok(token, 'token presente no e-mail');
+  assert.equal((await c('POST', '/api/auth/confirmar-email', { token })).status, 200);
+  assert.equal((await c('GET', '/api/campeonatos')).status, 200);
+
+  // token e de uso unico; token inventado tambem falha
+  assert.equal((await c('POST', '/api/auth/confirmar-email', { token })).status, 400);
+  assert.equal((await c('POST', '/api/auth/confirmar-email', { token: 'a'.repeat(64) })).status, 400);
+
+  // login por senha passa a funcionar
+  assert.equal(
+    (await cliente()('POST', '/api/auth/login', { email: 'verif@teste.com', senha: 'segredo1' })).status,
+    200,
+  );
+});
+
+test('reenvio de verificacao: invalida o token anterior e nao revela contas', async () => {
+  const c = cliente();
+  await c('POST', '/api/auth/registrar', {
+    nome: 'R', email: 'reenvio@teste.com', senha: 'segredo1', consentimento: true,
+  });
+  const token1 = tokenDoUltimoEmail('reenvio@teste.com');
+
+  assert.equal((await c('POST', '/api/auth/reenviar-verificacao', { email: 'reenvio@teste.com' })).status, 200);
+  const token2 = tokenDoUltimoEmail('reenvio@teste.com');
+  assert.ok(token2 && token2 !== token1, 'novo token gerado');
+
+  assert.equal((await c('POST', '/api/auth/confirmar-email', { token: token1 })).status, 400); // antigo caiu
+  assert.equal((await c('POST', '/api/auth/confirmar-email', { token: token2 })).status, 200);
+
+  // e-mail sem cadastro pendente: mesma resposta e nenhum envio (anti-enumeracao)
+  const antes = emails.length;
+  assert.equal((await c('POST', '/api/auth/reenviar-verificacao', { email: 'fantasma@teste.com' })).status, 200);
+  assert.equal(emails.length, antes);
+});
+
+test('token de verificacao expirado e recusado', async () => {
+  const c = cliente();
+  await c('POST', '/api/auth/registrar', {
+    nome: 'E', email: 'expira@teste.com', senha: 'segredo1', consentimento: true,
+  });
+  const token = tokenDoUltimoEmail('expira@teste.com');
+  bancoTeste
+    .prepare(
+      `UPDATE verificacoes_email SET expira_em = '2000-01-01T00:00:00.000Z'
+       WHERE conta_id = (SELECT id FROM contas WHERE email = 'expira@teste.com')`,
+    )
+    .run();
+  const r = await c('POST', '/api/auth/confirmar-email', { token });
+  assert.equal(r.status, 400);
+  assert.match(r.corpo.mensagem, /expirou/);
+});
+
+test('login com Google: cria conta, vincula por e-mail e exige e-mail verificado no Google', async () => {
+  // dominio direto (o transporte HTTP com o Google e exercitado manualmente)
+  const nova = contaViaGoogle(bancoTeste, {
+    sub: 'g-123', email: 'gnovo@teste.com', nome: 'G Novo', emailVerificado: true,
+  });
+  const linha = bancoTeste.prepare('SELECT * FROM contas WHERE id = ?').get(nova.id);
+  assert.equal(linha.email_verificado, 1);
+  assert.equal(linha.google_id, 'g-123');
+  assert.equal(linha.senha_hash, 'google'); // sem senha local
+  assert.ok(linha.consentimento_em, 'consentimento registrado no primeiro acesso');
+
+  // mesmo sub retorna a mesma conta
+  assert.equal(
+    contaViaGoogle(bancoTeste, { sub: 'g-123', email: 'gnovo@teste.com', emailVerificado: true }).id,
+    nova.id,
+  );
+
+  // conta local existente com o mesmo e-mail e vinculada (e fica verificada)
+  const local = registrarConta(bancoTeste, {
+    nome: 'Local', email: 'glocal@teste.com', senha: 'segredo1', consentimento: true,
+  });
+  const vinculada = contaViaGoogle(bancoTeste, { sub: 'g-456', email: 'glocal@teste.com', emailVerificado: true });
+  assert.equal(vinculada.id, local.id);
+  const depois = bancoTeste.prepare('SELECT * FROM contas WHERE id = ?').get(local.id);
+  assert.equal(depois.google_id, 'g-456');
+  assert.equal(depois.email_verificado, 1);
+
+  // e-mail nao verificado no Google e recusado (protege contra vinculo indevido)
+  assert.throws(
+    () => contaViaGoogle(bancoTeste, { sub: 'g-789', email: 'gx@teste.com', emailVerificado: false }),
+    /verificado/,
+  );
+
+  // conta criada pelo Google nao entra com senha (erro generico, sem vazamento)
+  const login = await cliente()('POST', '/api/auth/login', { email: 'gnovo@teste.com', senha: 'google' });
+  assert.equal(login.status, 401);
+});
+
+test('LGPD: excluir minha conta exige confirmacao e apaga tudo em cascata', async () => {
+  const c = cliente();
+  await registrarEntrar(c, { nome: 'Sair', email: 'sair@teste.com', senha: 'segredo1' });
+  await c('POST', '/api/campeonatos', { nome: 'Camp do Sair', formato: 'pontos', times: ['S1', 'S2'] });
+
+  // confirmacao errada nao apaga
+  assert.equal((await c('DELETE', '/api/auth/minha-conta', { confirmacao: 'senhaerrada' })).status, 400);
+
+  const del = await c('DELETE', '/api/auth/minha-conta', { confirmacao: 'segredo1' });
+  assert.equal(del.status, 200);
+  assert.equal((await c('GET', '/api/campeonatos')).status, 401); // sessao encerrada
+  assert.equal(
+    bancoTeste.prepare("SELECT COUNT(*) AS n FROM contas WHERE email = 'sair@teste.com'").get().n, 0,
+  );
+  assert.equal(
+    bancoTeste.prepare("SELECT COUNT(*) AS n FROM campeonatos WHERE nome = 'Camp do Sair'").get().n, 0,
+    'campeonatos caem em cascata',
+  );
+  assert.equal(
+    (await cliente()('POST', '/api/auth/login', { email: 'sair@teste.com', senha: 'segredo1' })).status, 401,
+  );
 });

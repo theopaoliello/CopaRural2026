@@ -6,12 +6,34 @@ CREATE TABLE IF NOT EXISTS contas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   nome TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  -- contas criadas pelo Google nao tem senha: senha_hash = 'google' (sem ':')
   senha_hash TEXT NOT NULL,
   -- master: administra a plataforma e pode gerenciar o conteudo de qualquer conta.
   -- Promova com: npm run master -- email@exemplo.com
   papel TEXT NOT NULL DEFAULT 'organizador' CHECK (papel IN ('organizador', 'master')),
+  -- 0 ate o dono clicar no link de confirmacao (ou entrar pelo Google)
+  email_verificado INTEGER NOT NULL DEFAULT 0,
+  -- `sub` do Google quando a conta esta vinculada ao SSO
+  google_id TEXT,
+  -- LGPD: quando o titular aceitou a Politica de Privacidade
+  consentimento_em TEXT,
   criado_em TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contas_google ON contas(google_id) WHERE google_id IS NOT NULL;
+
+-- Tokens de confirmacao de e-mail. Guardamos apenas o hash (sha-256): um
+-- vazamento do banco nao permite confirmar contas alheias.
+CREATE TABLE IF NOT EXISTS verificacoes_email (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conta_id INTEGER NOT NULL REFERENCES contas(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expira_em TEXT NOT NULL,
+  usado_em TEXT,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_verificacoes_conta ON verificacoes_email(conta_id);
 
 CREATE TABLE IF NOT EXISTS sessoes (
   token TEXT PRIMARY KEY,
@@ -42,6 +64,8 @@ CREATE TABLE IF NOT EXISTS campeonatos (
   pontos_empate INTEGER NOT NULL DEFAULT 1,
   -- ordem dos criterios de desempate (JSON), aplicados apos pontos
   criterios_desempate TEXT NOT NULL DEFAULT '["vitorias","saldo","gols_pro","confronto","cartoes"]',
+  -- regras especificas do campeonato, texto livre exibido na pagina publica
+  regras TEXT,
   publicado INTEGER NOT NULL DEFAULT 1,
   status TEXT NOT NULL DEFAULT 'ativo' CHECK (status IN ('ativo', 'arquivado')),
   criado_em TEXT NOT NULL DEFAULT (datetime('now'))

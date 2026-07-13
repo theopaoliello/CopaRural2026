@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confirmação de e-mail — Copa Manager</title>
+<link rel="stylesheet" href="/estilo.css">
+</head>
+<body>
+<header class="topo">
+  <span class="marca"><a href="/"><img src="/img/marca-branca.png" alt=""> Copa Manager</a></span>
+</header>
+
+<div class="conteudo" style="max-width:460px;margin:40px auto;text-align:center">
+  <div class="card">
+    <img src="/img/logo.png" alt="Copa Manager" style="width:140px;max-width:50vw">
+    <div id="estado">
+      <h2>Confirmando seu e-mail…</h2>
+      <p class="muted">Só um instante.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// A confirmacao e um POST disparado por esta pagina (e nao um GET direto no
+// link): robos de antivirus que "clicam" nos links do e-mail nao consomem o token.
+const estado = document.getElementById('estado');
+const token = new URLSearchParams(location.search).get('token');
+
+async function confirmar() {
+  if (!token) {
+    estado.innerHTML = '<h2>Link incompleto</h2><p class="muted">Abra o link exatamente como veio no e-mail.</p>';
+    return;
+  }
+  try {
+    const resp = await fetch('/api/auth/confirmar-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    const corpo = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(corpo.mensagem || 'Não foi possível confirmar.');
+    estado.innerHTML = `<h2>✅ E-mail confirmado!</h2>
+      <p>Bem-vindo(a), <strong></strong>! Sua conta está ativa. Levando você para o painel…</p>`;
+    estado.querySelector('strong').textContent = corpo.nome ?? '';
+    setTimeout(() => { location.href = '/admin'; }, 1800);
+  } catch (e) {
+    estado.innerHTML = `<h2>Não deu certo</h2><p class="muted"></p>
+      <p><a class="botao" href="/">Ir para o login</a></p>`;
+    estado.querySelector('p.muted').textContent = e.message +
+      ' Você pode pedir um novo link na tela de login (Entrar → aviso de confirmação → Reenviar).';
+  }
+}
+confirmar();
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
-// Contas, senhas (scrypt) e sessoes por cookie httpOnly.
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+// Contas, senhas (scrypt), confirmacao de e-mail e sessoes por cookie httpOnly.
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { erroValidacao, erroNaoAutenticado, erroConflito } from './erros.js';
 
 const DIAS_SESSAO = 30;
@@ -22,7 +22,7 @@ export function conferirSenha(senha, senhaHash) {
 
 // ---------- contas ----------
 
-export function registrarConta(db, { nome, email, senha }) {
+export function registrarConta(db, { nome, email, senha, consentimento }) {
   nome = String(nome ?? '').trim();
   email = String(email ?? '').trim().toLowerCase();
   senha = String(senha ?? '');
@@ -31,11 +31,13 @@ export function registrarConta(db, { nome, email, senha }) {
   if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw erroValidacao('E-mail invalido.');
   if (senha.length < 6) throw erroValidacao('A senha deve ter pelo menos 6 caracteres.');
   if (senha.length > 200) throw erroValidacao('A senha deve ter no maximo 200 caracteres.');
+  // LGPD: o aceite e explicito e fica registrado com data (consentimento_em).
+  if (consentimento !== true) throw erroValidacao('E preciso aceitar a Politica de Privacidade para criar a conta.');
   const existente = db.prepare('SELECT id FROM contas WHERE email = ?').get(email);
   if (existente) throw erroConflito('Ja existe uma conta com este e-mail.');
   const info = db
-    .prepare('INSERT INTO contas (nome, email, senha_hash) VALUES (?, ?, ?)')
-    .run(nome, email, hashSenha(senha));
+    .prepare('INSERT INTO contas (nome, email, senha_hash, email_verificado, consentimento_em) VALUES (?, ?, ?, 0, ?)')
+    .run(nome, email, hashSenha(senha), new Date().toISOString());
   return { id: Number(info.lastInsertRowid), nome, email };
 }
 
@@ -46,9 +48,77 @@ const HASH_FANTASMA = hashSenha(randomBytes(16).toString('hex'));
 export function autenticar(db, { email, senha }) {
   email = String(email ?? '').trim().toLowerCase();
   const conta = db.prepare('SELECT * FROM contas WHERE email = ?').get(email);
-  const senhaOk = conferirSenha(String(senha ?? '').slice(0, 200), conta?.senha_hash ?? HASH_FANTASMA);
+  // Contas criadas pelo Google nao tem senha (senha_hash sem ':'): conferimos
+  // contra o hash fantasma para o tempo de resposta nao denunciar o caso.
+  const hashReal = conta?.senha_hash?.includes(':') ? conta.senha_hash : HASH_FANTASMA;
+  const senhaOk = conferirSenha(String(senha ?? '').slice(0, 200), hashReal);
   // Mensagem unica para email ou senha errados: nao revela quais e-mails existem.
-  if (!conta || !senhaOk) throw erroNaoAutenticado('E-mail ou senha incorretos.');
+  if (!conta || !senhaOk || !conta.senha_hash.includes(':')) {
+    throw erroNaoAutenticado('E-mail ou senha incorretos.');
+  }
+  return { id: conta.id, nome: conta.nome, email: conta.email, email_verificado: conta.email_verificado };
+}
+
+// ---------- confirmacao de e-mail ----------
+
+const HORAS_TOKEN_VERIFICACAO = 24;
+const hashDeToken = (token) => createHash('sha256').update(String(token ?? '')).digest('hex');
+
+// Gera um token novo (e invalida os pendentes). So o HASH vai para o banco.
+export function criarTokenVerificacao(db, contaId) {
+  db.prepare('DELETE FROM verificacoes_email WHERE conta_id = ? AND usado_em IS NULL').run(contaId);
+  const token = randomBytes(32).toString('hex');
+  const expira = new Date(Date.now() + HORAS_TOKEN_VERIFICACAO * 3600_000).toISOString();
+  db.prepare('INSERT INTO verificacoes_email (conta_id, token_hash, expira_em) VALUES (?, ?, ?)').run(
+    contaId,
+    hashDeToken(token),
+    expira,
+  );
+  return token;
+}
+
+export function confirmarEmail(db, token) {
+  const v = db.prepare('SELECT * FROM verificacoes_email WHERE token_hash = ?').get(hashDeToken(token));
+  if (!v || v.usado_em) {
+    throw erroValidacao('Link de confirmacao invalido ou ja usado. Peca um novo e-mail de confirmacao.');
+  }
+  if (new Date(v.expira_em).getTime() < Date.now()) {
+    throw erroValidacao('Este link expirou. Peca um novo e-mail de confirmacao.');
+  }
+  db.prepare('UPDATE verificacoes_email SET usado_em = ? WHERE id = ?').run(new Date().toISOString(), v.id);
+  db.prepare('UPDATE contas SET email_verificado = 1 WHERE id = ?').run(v.conta_id);
+  return db.prepare('SELECT id, nome, email FROM contas WHERE id = ?').get(v.conta_id);
+}
+
+// ---------- login com Google ----------
+
+// Resolve o perfil vindo do Google em uma conta local: por google_id; senao
+// vincula a conta existente do mesmo e-mail; senao cria uma conta nova (sem
+// senha). Exigir e-mail verificado NO GOOGLE fecha a porta de alguem vincular
+// a conta de terceiro usando um Gmail recem-criado com e-mail nao confirmado.
+export function contaViaGoogle(db, { sub, email, nome, emailVerificado }) {
+  email = String(email ?? '').trim().toLowerCase();
+  if (!sub || !email) throw erroValidacao('Resposta do Google incompleta.');
+  if (!emailVerificado) throw erroValidacao('O seu e-mail ainda nao esta verificado no Google.');
+
+  let conta = db.prepare('SELECT * FROM contas WHERE google_id = ?').get(String(sub));
+  if (!conta) {
+    conta = db.prepare('SELECT * FROM contas WHERE email = ?').get(email);
+    if (conta) {
+      // Mesmo e-mail: vincula o SSO e considera o e-mail confirmado.
+      db.prepare('UPDATE contas SET google_id = ?, email_verificado = 1 WHERE id = ?').run(String(sub), conta.id);
+    } else {
+      // LGPD: ao entrar pelo Google o aceite da politica esta no proprio botao
+      // ("Ao continuar, voce concorda..."); registramos a data do primeiro acesso.
+      const info = db
+        .prepare(
+          `INSERT INTO contas (nome, email, senha_hash, google_id, email_verificado, consentimento_em)
+           VALUES (?, ?, 'google', ?, 1, ?)`,
+        )
+        .run(String(nome ?? email).trim().slice(0, 80) || email, email, String(sub), new Date().toISOString());
+      conta = db.prepare('SELECT * FROM contas WHERE id = ?').get(info.lastInsertRowid);
+    }
+  }
   return { id: conta.id, nome: conta.nome, email: conta.email };
 }
 

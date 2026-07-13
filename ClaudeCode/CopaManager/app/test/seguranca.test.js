@@ -6,9 +6,24 @@ import { prepararBanco } from '../db/db.js';
 import { montarRotas } from '../routes/api.js';
 import { cookieDeSessao, cookieDeSaida } from '../src/auth.js';
 import { criarLimitador } from '../src/ratelimit.js';
+import { configurarTransporte } from '../src/email.js';
 
 const servidores = [];
 after(() => servidores.forEach((s) => s.close()));
+
+// Captura os e-mails de verificacao (nenhuma rede nos testes).
+const emails = [];
+configurarTransporte(async (m) => { emails.push(m); });
+const tokenDoUltimoEmail = (para) =>
+  [...emails].reverse().find((e) => e.para === para)?.texto.match(/token=([0-9a-f]+)/)?.[1];
+
+// Registro completo: cria a conta e confirma o e-mail (abre a sessao).
+async function registrarEntrar(c, dados) {
+  const reg = await c('POST', '/api/auth/registrar', { ...dados, consentimento: true });
+  assert.equal(reg.status, 201, JSON.stringify(reg.corpo));
+  const conf = await c('POST', '/api/auth/confirmar-email', { token: tokenDoUltimoEmail(dados.email) });
+  assert.equal(conf.status, 200, JSON.stringify(conf.corpo));
+}
 
 // Sobe um app isolado (banco e limitadores proprios) e devolve um cliente HTTP.
 async function subirApp(limites) {
@@ -52,8 +67,8 @@ test('limitador: janela desliza e chaves sao independentes', () => {
 });
 
 test('login: bloqueia forca bruta com 429 apos o limite', async () => {
-  const c = await subirApp({ login: { max: 3, janelaMs: 60_000 }, registro: { max: 100 } });
-  await c('POST', '/api/auth/registrar', { nome: 'Vito', email: 'vito@teste.com', senha: 'segredo1' });
+  const c = await subirApp({ login: { max: 3, janelaMs: 60_000 }, registro: { max: 100 }, confirmacao: { max: 100 } });
+  await registrarEntrar(c, { nome: 'Vito', email: 'vito@teste.com', senha: 'segredo1' });
   for (let i = 0; i < 3; i++) {
     const r = await c('POST', '/api/auth/login', { email: 'vito@teste.com', senha: 'errada!' });
     assert.equal(r.status, 401);
@@ -65,18 +80,19 @@ test('login: bloqueia forca bruta com 429 apos o limite', async () => {
 
 test('registro: bloqueia criacao de contas em massa com 429', async () => {
   const c = await subirApp({ login: { max: 100 }, registro: { max: 2, janelaMs: 60_000 } });
-  assert.equal((await c('POST', '/api/auth/registrar', { nome: 'A', email: 'a@t.com', senha: 'segredo1' })).status, 201);
-  assert.equal((await c('POST', '/api/auth/registrar', { nome: 'B', email: 'b@t.com', senha: 'segredo1' })).status, 201);
-  assert.equal((await c('POST', '/api/auth/registrar', { nome: 'C', email: 'c@t.com', senha: 'segredo1' })).status, 429);
+  const dados = (nome, email) => ({ nome, email, senha: 'segredo1', consentimento: true });
+  assert.equal((await c('POST', '/api/auth/registrar', dados('A', 'a@t.com'))).status, 201);
+  assert.equal((await c('POST', '/api/auth/registrar', dados('B', 'b@t.com'))).status, 201);
+  assert.equal((await c('POST', '/api/auth/registrar', dados('C', 'c@t.com'))).status, 429);
 });
 
 // ---------- validacoes contra conteudo malicioso ----------
 
-const FOLGADO = { login: { max: 1000 }, registro: { max: 1000 } };
+const FOLGADO = { login: { max: 1000 }, registro: { max: 1000 }, confirmacao: { max: 1000 } };
 
 async function clienteComCampeonato() {
   const c = await subirApp(FOLGADO);
-  await c('POST', '/api/auth/registrar', { nome: 'Org', email: 'org@teste.com', senha: 'segredo1' });
+  await registrarEntrar(c, { nome: 'Org', email: 'org@teste.com', senha: 'segredo1' });
   const criado = await c('POST', '/api/campeonatos', {
     nome: 'Copa Teste', formato: 'pontos', sortear: false,
     times: [{ nome: 'Leoes' }, { nome: 'Tigres' }],
@@ -114,14 +130,14 @@ test('tetos de tamanho: nome de conta, senha e nome de campeonato', async () => 
   const c = await subirApp(FOLGADO);
   const nomeGigante = 'x'.repeat(500);
   assert.equal(
-    (await c('POST', '/api/auth/registrar', { nome: nomeGigante, email: 'g@t.com', senha: 'segredo1' })).status,
+    (await c('POST', '/api/auth/registrar', { nome: nomeGigante, email: 'g@t.com', senha: 'segredo1', consentimento: true })).status,
     400,
   );
   assert.equal(
-    (await c('POST', '/api/auth/registrar', { nome: 'Ok', email: 'g@t.com', senha: 'x'.repeat(300) })).status,
+    (await c('POST', '/api/auth/registrar', { nome: 'Ok', email: 'g@t.com', senha: 'x'.repeat(300), consentimento: true })).status,
     400,
   );
-  await c('POST', '/api/auth/registrar', { nome: 'Ok', email: 'g@t.com', senha: 'segredo1' });
+  await registrarEntrar(c, { nome: 'Ok', email: 'g@t.com', senha: 'segredo1' });
   assert.equal(
     (await c('POST', '/api/campeonatos', { nome: nomeGigante, formato: 'pontos', times: ['A', 'B'] })).status,
     400,

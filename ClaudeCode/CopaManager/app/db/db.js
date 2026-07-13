@@ -38,6 +38,16 @@ function migrarColunas(db) {
   };
   addSeFaltar('contas', "papel TEXT NOT NULL DEFAULT 'organizador'");
   addSeFaltar('sessoes', 'conta_efetiva_id INTEGER REFERENCES contas(id) ON DELETE SET NULL');
+  addSeFaltar('campeonatos', 'regras TEXT');
+  // Confirmacao de e-mail chegou depois: contas que ja existiam sao
+  // consideradas confirmadas (nao da para pedir confirmacao retroativa).
+  const tinhaVerificado = colunaExiste(db, 'contas', 'email_verificado');
+  addSeFaltar('contas', 'email_verificado INTEGER NOT NULL DEFAULT 0');
+  if (tabelaExiste(db, 'contas') && !tinhaVerificado) {
+    db.exec('UPDATE contas SET email_verificado = 1');
+  }
+  addSeFaltar('contas', 'google_id TEXT');
+  addSeFaltar('contas', 'consentimento_em TEXT');
 }
 
 // Bancos criados antes do tipo 'gol_contra' tem um CHECK antigo em `eventos`.

@@ -84,6 +84,7 @@ export function dadosPublicos(db, slug) {
       slug: campeonato.slug,
       formato: campeonato.formato,
       status: campeonato.status,
+      regras: campeonato.regras,
     },
     classificacao: classificacaoDoCampeonato(db, campeonato),
     grupos,

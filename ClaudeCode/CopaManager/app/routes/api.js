@@ -2,9 +2,12 @@
 import { Router } from 'express';
 import { randomBytes } from 'node:crypto';
 import {
-  registrarConta, autenticar, criarSessao, encerrarSessao, hashSenha,
+  registrarConta, autenticar, criarSessao, encerrarSessao, hashSenha, conferirSenha,
+  criarTokenVerificacao, confirmarEmail, contaViaGoogle,
   lerCookie, cookieDeSessao, cookieDeSaida, exigirLogin, NOME_COOKIE,
 } from '../src/auth.js';
+import { enviarEmail } from '../src/email.js';
+import { googleConfigurado, urlDeAutorizacao, perfilDoCodigo } from '../src/google.js';
 import {
   campeonatoDaConta, timeDaConta, jogadorDaConta, jogoDaConta, bannerDaConta,
 } from '../src/posse.js';
@@ -50,17 +53,130 @@ export function montarRotas(db, { limites = {} } = {}) {
   // Janela deslizante por IP: forca bruta de senha e criacao de contas em massa.
   const limiteLogin = criarLimitador({ max: 10, janelaMs: 10 * 60_000, ...limites.login });
   const limiteRegistro = criarLimitador({ max: 10, janelaMs: 60 * 60_000, ...limites.registro });
+  const limiteReenvio = criarLimitador({ max: 5, janelaMs: 15 * 60_000, ...limites.reenvio });
+  // Confirmacao tem limitador proprio: e a superficie de adivinhacao de token.
+  const limiteConfirmacao = criarLimitador({ max: 10, janelaMs: 10 * 60_000, ...limites.confirmacao });
 
-  rotas.post('/auth/registrar', limiteRegistro.middleware, (req, res) => {
+  // Base dos links enviados por e-mail e do redirect do Google. Em producao,
+  // defina URL_PUBLICA=https://copamanager.com.br; sem ela, usa o host da requisicao.
+  const urlBase = (req) => process.env.URL_PUBLICA ?? `${req.protocol}://${req.get('host')}`;
+
+  async function enviarEmailVerificacao(req, conta) {
+    const token = criarTokenVerificacao(db, conta.id);
+    const link = `${urlBase(req)}/verificar.html?token=${token}`;
+    await enviarEmail({
+      para: conta.email,
+      assunto: 'Confirme seu e-mail — Copa Manager',
+      texto:
+        `Olá, ${conta.nome}!\n\nConfirme seu e-mail para ativar sua conta no Copa Manager:\n${link}\n\n` +
+        'O link vale por 24 horas. Se você não criou esta conta, ignore este e-mail.',
+      html:
+        `<p>Olá, <strong>${conta.nome}</strong>!</p>` +
+        '<p>Confirme seu e-mail para ativar sua conta no Copa Manager:</p>' +
+        `<p><a href="${link}" style="background:#0b5c3f;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none">Confirmar meu e-mail</a></p>` +
+        `<p>Ou copie este endereço no navegador:<br>${link}</p>` +
+        '<p style="color:#777">O link vale por 24 horas. Se você não criou esta conta, ignore este e-mail.</p>',
+    });
+  }
+
+  // Cadastro NAO cria sessao: o painel so abre depois da confirmacao do e-mail.
+  rotas.post('/auth/registrar', limiteRegistro.middleware, async (req, res) => {
     const conta = registrarConta(db, req.body ?? {});
-    res.append('Set-Cookie', cookieDeSessao(criarSessao(db, conta.id)));
-    res.status(201).json(conta);
+    await enviarEmailVerificacao(req, conta);
+    res.status(201).json({ precisaVerificar: true, email: conta.email });
   });
 
   rotas.post('/auth/login', limiteLogin.middleware, (req, res) => {
     const conta = autenticar(db, req.body ?? {});
+    if (!conta.email_verificado) {
+      return res.status(403).json({
+        erro: 'EmailNaoVerificado',
+        mensagem: 'Confirme seu e-mail antes de entrar. Procure o link na sua caixa de entrada (ou spam).',
+      });
+    }
+    delete conta.email_verificado;
     res.append('Set-Cookie', cookieDeSessao(criarSessao(db, conta.id)));
     res.json(conta);
+  });
+
+  // Consome o token do link enviado por e-mail e ja abre a sessao.
+  rotas.post('/auth/confirmar-email', limiteConfirmacao.middleware, (req, res) => {
+    const conta = confirmarEmail(db, req.body?.token);
+    res.append('Set-Cookie', cookieDeSessao(criarSessao(db, conta.id)));
+    res.json({ ok: true, nome: conta.nome });
+  });
+
+  // Resposta unica com ou sem conta: nao revela quais e-mails estao cadastrados.
+  rotas.post('/auth/reenviar-verificacao', limiteReenvio.middleware, async (req, res) => {
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    const conta = db
+      .prepare('SELECT id, nome, email FROM contas WHERE email = ? AND email_verificado = 0')
+      .get(email);
+    if (conta) await enviarEmailVerificacao(req, conta);
+    res.json({ ok: true });
+  });
+
+  // ---------- login com Google (Authorization Code, server-side) ----------
+
+  // O front usa para decidir se mostra o botao "Entrar com Google".
+  rotas.get('/auth/config', (_req, res) => {
+    res.json({ google: googleConfigurado() });
+  });
+
+  const cookieOauth = (valor, maxAge) =>
+    `oauth_state=${valor}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}` +
+    (process.env.COOKIE_SEGURO ? '; Secure' : '');
+
+  rotas.get('/auth/google', limiteLogin.middleware, (req, res) => {
+    if (!googleConfigurado()) throw erroNaoEncontrado('Login com Google nao esta configurado.');
+    const state = randomBytes(16).toString('hex'); // anti-CSRF do fluxo OAuth
+    res.append('Set-Cookie', cookieOauth(state, 600));
+    res.redirect(urlDeAutorizacao({ redirectUri: `${urlBase(req)}/api/auth/google/callback`, state }));
+  });
+
+  rotas.get('/auth/google/callback', async (req, res) => {
+    try {
+      const { code, state } = req.query;
+      if (!code || !state || state !== lerCookie(req, 'oauth_state')) {
+        throw erroValidacao('Sessao do login com Google expirou. Tente de novo.');
+      }
+      res.append('Set-Cookie', cookieOauth('', 0));
+      const perfil = await perfilDoCodigo({
+        code: String(code),
+        redirectUri: `${urlBase(req)}/api/auth/google/callback`,
+      });
+      const conta = contaViaGoogle(db, perfil);
+      res.append('Set-Cookie', cookieDeSessao(criarSessao(db, conta.id)));
+      res.redirect('/admin');
+    } catch (e) {
+      // Erro vira query string na tela de login; detalhes so no log do servidor.
+      console.error('[google] callback falhou:', e.message);
+      res.redirect('/?google=erro');
+    }
+  });
+
+  // LGPD (art. 18): o titular exclui a propria conta e todos os dados dela
+  // (campeonatos, times, jogadores, jogos... caem pelo ON DELETE CASCADE).
+  // Confirmacao: senha da conta; contas Google (sem senha) digitam o e-mail.
+  rotas.delete('/auth/minha-conta', logado, (req, res) => {
+    const conta = db.prepare('SELECT * FROM contas WHERE id = ?').get(req.contaReal.id);
+    if (conta.papel === 'master') {
+      throw erroProibido('Conta master nao pode se excluir pelo painel (remova o papel antes).');
+    }
+    const confirmacao = String(req.body?.confirmacao ?? '');
+    const ok = conta.senha_hash.includes(':')
+      ? conferirSenha(confirmacao.slice(0, 200), conta.senha_hash)
+      : confirmacao.trim().toLowerCase() === conta.email;
+    if (!ok) {
+      throw erroValidacao(
+        conta.senha_hash.includes(':')
+          ? 'Senha incorreta.'
+          : 'Digite o e-mail da conta para confirmar a exclusao.',
+      );
+    }
+    db.prepare('DELETE FROM contas WHERE id = ?').run(conta.id);
+    res.append('Set-Cookie', cookieDeSaida());
+    res.json({ ok: true });
   });
 
   rotas.post('/auth/sair', (req, res) => {
@@ -268,7 +384,7 @@ export function montarRotas(db, { limites = {} } = {}) {
     }
     db.prepare(
       `UPDATE campeonatos SET nome = ?, temporada = ?, modalidade = ?, descricao = ?, cor_tema = ?,
-       slug = ?, criterios_desempate = ?, publicado = ?, status = ? WHERE id = ?`,
+       slug = ?, criterios_desempate = ?, regras = ?, publicado = ?, status = ? WHERE id = ?`,
     ).run(
       nome,
       b.temporada !== undefined ? textoLimitado(b.temporada, 40, 'Temporada') : c.temporada,
@@ -277,6 +393,7 @@ export function montarRotas(db, { limites = {} } = {}) {
       b.cor_tema !== undefined ? validarCorTema(b.cor_tema) : c.cor_tema,
       slug,
       criterios,
+      b.regras !== undefined ? textoLimitado(b.regras, 10000, 'Regras') : c.regras,
       b.publicado !== undefined ? (b.publicado ? 1 : 0) : c.publicado,
       b.status !== undefined && ['ativo', 'arquivado'].includes(b.status) ? b.status : c.status,
       c.id,

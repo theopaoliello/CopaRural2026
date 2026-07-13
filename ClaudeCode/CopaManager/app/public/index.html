@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/estilo.css">
 <style>
   .hero { text-align: center; padding: 36px 16px 10px; }
+  .hero .logo-cm { width: 190px; max-width: 60vw; margin-bottom: 14px; }
   .hero h1 { color: var(--verde); font-size: 2.1rem; margin: 0; }
   .hero p { color: var(--cinza); max-width: 560px; margin: 10px auto; }
   .auth { max-width: 420px; margin: 0 auto; }
@@ -14,10 +15,11 @@
 </head>
 <body>
 <header class="topo">
-  <span class="marca"><a href="/">⚽ Copa Manager</a></span>
+  <span class="marca"><a href="/"><img src="/img/marca-branca.png" alt=""> Copa Manager</a></span>
 </header>
 
 <div class="hero">
+  <img class="logo-cm" src="/img/logo.png" alt="Copa Manager">
   <h1>Seu campeonato, organizado de verdade.</h1>
   <p>Crie a tabela, lance os resultados com gols e cartões e compartilhe a página do seu campeonato com todo mundo — tudo automático.</p>
 </div>
@@ -45,8 +47,33 @@
       <input type="email" name="email" required autocomplete="email">
       <label>Senha (mínimo 6 caracteres)</label>
       <input type="password" name="senha" required minlength="6" autocomplete="new-password">
+      <label style="display:flex;gap:8px;align-items:flex-start;font-weight:400">
+        <input type="checkbox" name="consentimento" required style="width:auto;margin-top:3px">
+        <span>Li e concordo com a <a href="/privacidade.html" target="_blank">Política de Privacidade</a>
+        (uso do meu nome e e-mail para a conta e comunicações do serviço).</span>
+      </label>
       <p><button class="botao" type="submit" style="width:100%">Criar minha conta</button></p>
     </form>
+
+    <div id="confirme-email" style="display:none;text-align:center">
+      <h3>📬 Confirme seu e-mail</h3>
+      <p>Enviamos um link de confirmação para <strong id="email-enviado"></strong>.
+      Clique nele para ativar sua conta (vale por 24 horas — olhe também o spam).</p>
+      <p><button class="botao secundario" type="button" id="btn-reenviar">Reenviar e-mail</button></p>
+    </div>
+
+    <div id="sso" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin:14px 0;color:#999">
+        <hr style="flex:1;border:none;border-top:1px solid var(--borda)"> ou <hr style="flex:1;border:none;border-top:1px solid var(--borda)">
+      </div>
+      <a class="botao secundario" href="/api/auth/google" style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;box-sizing:border-box">
+        <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        Entrar com Google
+      </a>
+      <p class="muted" style="text-align:center;font-size:.8rem;margin-top:8px">
+        Ao continuar com o Google, você concorda com a <a href="/privacidade.html" target="_blank">Política de Privacidade</a>.
+      </p>
+    </div>
   </div>
   <p class="muted" style="text-align:center">Organizadores usam o painel para gerenciar seus campeonatos.<br>Torcedores acessam direto pelo link público do campeonato.</p>
 </div>
@@ -64,7 +91,9 @@ document.querySelectorAll('.aba').forEach((aba) => {
   };
 });
 
-async function enviar(url, dados) {
+let emailPendente = ''; // ultimo e-mail aguardando confirmacao (para reenviar)
+
+async function chamar(url, dados) {
   aviso.className = 'aviso';
   const resp = await fetch(url, {
     method: 'POST',
@@ -72,24 +101,58 @@ async function enviar(url, dados) {
     body: JSON.stringify(dados),
   });
   const corpo = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    aviso.textContent = corpo.mensagem || 'Algo deu errado. Tente novamente.';
-    aviso.className = 'aviso erro';
-    return;
-  }
-  location.href = '/admin';
+  return { resp, corpo };
 }
 
-document.getElementById('form-login').onsubmit = (e) => {
+function mostrarConfirmeEmail(email) {
+  emailPendente = email;
+  document.getElementById('email-enviado').textContent = email;
+  document.getElementById('form-login').style.display = 'none';
+  document.getElementById('form-registro').style.display = 'none';
+  document.querySelectorAll('.aba').forEach((a) => a.classList.remove('ativa'));
+  document.getElementById('confirme-email').style.display = '';
+}
+
+document.getElementById('form-login').onsubmit = async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
-  enviar('/api/auth/login', { email: f.get('email'), senha: f.get('senha') });
+  const { resp, corpo } = await chamar('/api/auth/login', { email: f.get('email'), senha: f.get('senha') });
+  if (resp.ok) { location.href = '/admin'; return; }
+  if (corpo.erro === 'EmailNaoVerificado') { mostrarConfirmeEmail(String(f.get('email')).trim().toLowerCase()); return; }
+  aviso.textContent = corpo.mensagem || 'Algo deu errado. Tente novamente.';
+  aviso.className = 'aviso erro';
 };
-document.getElementById('form-registro').onsubmit = (e) => {
+
+document.getElementById('form-registro').onsubmit = async (e) => {
   e.preventDefault();
   const f = new FormData(e.target);
-  enviar('/api/auth/registrar', { nome: f.get('nome'), email: f.get('email'), senha: f.get('senha') });
+  const { resp, corpo } = await chamar('/api/auth/registrar', {
+    nome: f.get('nome'), email: f.get('email'), senha: f.get('senha'),
+    consentimento: f.get('consentimento') === 'on',
+  });
+  if (resp.ok) { mostrarConfirmeEmail(corpo.email); return; }
+  aviso.textContent = corpo.mensagem || 'Algo deu errado. Tente novamente.';
+  aviso.className = 'aviso erro';
 };
+
+document.getElementById('btn-reenviar').onclick = async () => {
+  const { resp } = await chamar('/api/auth/reenviar-verificacao', { email: emailPendente });
+  aviso.textContent = resp.ok
+    ? 'Se este e-mail tiver cadastro pendente, um novo link foi enviado.'
+    : 'Muitas tentativas. Aguarde alguns minutos e tente de novo.';
+  aviso.className = resp.ok ? 'aviso ok' : 'aviso erro';
+};
+
+// Botao do Google so aparece quando o servidor tem as credenciais configuradas.
+fetch('/api/auth/config').then((r) => r.json()).then((cfg) => {
+  if (cfg.google) document.getElementById('sso').style.display = '';
+}).catch(() => {});
+
+// Falha vinda do callback do Google (ex.: sessao expirada, e-mail nao verificado).
+if (new URLSearchParams(location.search).get('google') === 'erro') {
+  aviso.textContent = 'Não foi possível entrar com o Google. Tente novamente.';
+  aviso.className = 'aviso erro';
+}
 
 // Se ja esta logado, vai direto ao painel.
 fetch('/api/auth/eu').then((r) => { if (r.ok) location.href = '/admin'; });

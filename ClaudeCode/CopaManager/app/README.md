@@ -65,6 +65,20 @@ já traz esses valores). Backup do banco: `npm run backup`.
   Nomes são validados contra o elenco (sem diferenciar maiúsculas/acentos).
 - **Jogadores em lote**: `nome,número` por linha (número opcional), via
   `POST /api/times/:id/jogadores/lote`.
+- **Confirmação de e-mail**: cadastro novo só entra no painel após clicar no link
+  enviado por e-mail (token de uso único, 24h, guardado como hash sha-256). Envio via
+  Brevo (`BREVO_API_KEY` + `EMAIL_REMETENTE`); sem a chave, o link sai no log do servidor
+  (modo dev). Reenvio em `POST /api/auth/reenviar-verificacao` (com rate limit e sem
+  revelar quais e-mails têm conta). Contas anteriores à funcionalidade foram marcadas
+  como confirmadas na migração.
+- **Login com Google**: fluxo Authorization Code server-side (sem bibliotecas), ativado
+  por `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` (+ `URL_PUBLICA` para o redirect). Vincula
+  pela igualdade de e-mail (exige e-mail verificado no Google) ou cria conta sem senha
+  (`senha_hash = 'google'`). O botão só aparece quando `GET /api/auth/config` diz que há credenciais.
+- **LGPD**: aceite explícito da Política de Privacidade no cadastro (data em
+  `contas.consentimento_em`); política em `public/privacidade.html`; exclusão da própria
+  conta em `DELETE /api/auth/minha-conta` (confirma com senha — ou e-mail, em conta Google)
+  apagando tudo em cascata.
 - **Usuário master**: conta com `papel = 'master'` (promovida via `npm run master`).
   Após logar, escolhe qualquer conta (tenant) e gerencia todo o conteúdo dela como
   se fosse ela — a escolha fica na sessão (`sessoes.conta_efetiva_id`) e só vale

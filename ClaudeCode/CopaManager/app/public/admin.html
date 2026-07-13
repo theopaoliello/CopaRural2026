@@ -17,7 +17,7 @@
 </head>
 <body>
 <header class="topo">
-  <span class="marca"><a href="/admin">⚽ Copa Manager</a></span>
+  <span class="marca"><a href="/admin"><img src="/img/marca-branca.png" alt=""> Copa Manager</a></span>
   <div class="direita">
     <span id="ola" class="muted" style="color:#d9efe4"></span>
     <button class="botao secundario mini" id="btn-sair">Sair</button>
@@ -103,7 +103,33 @@ async function telaLista() {
         </div>
       </div>`).join('')
     : '<div class="card"><p>Você ainda não tem campeonatos. Crie o primeiro! 🏆</p></div>'}
+    <p class="muted" style="text-align:center;margin-top:24px">
+      <a href="/privacidade.html" target="_blank">Política de Privacidade</a> •
+      <a href="#" onclick="modalExcluirConta();return false">Excluir minha conta</a>
+    </p>
   `;
+}
+
+// LGPD: exclusao da propria conta e de todos os dados (art. 18).
+function modalExcluirConta() {
+  abrirModal(`
+    <h3>Excluir minha conta</h3>
+    <p>Isso apaga <strong>definitivamente</strong> sua conta e todos os seus campeonatos,
+    times, jogadores, resultados e imagens. Não tem volta.</p>
+    <label>Confirme com sua senha (contas Google: digite o e-mail da conta)</label>
+    <input type="password" id="excluir-confirmacao" autocomplete="current-password">
+    <div id="aviso-excluir" class="aviso"></div>
+    <p><button class="botao perigo" style="width:100%" onclick="excluirMinhaConta()">Excluir tudo definitivamente</button></p>
+  `);
+}
+async function excluirMinhaConta() {
+  if (!confirm('Tem certeza MESMO? Todos os seus dados serão apagados.')) return;
+  try {
+    await api('/api/auth/minha-conta', 'DELETE', { confirmacao: $('#excluir-confirmacao').value });
+    location.href = '/';
+  } catch (e) {
+    const av = $('#aviso-excluir'); av.textContent = e.message; av.className = 'aviso erro';
+  }
 }
 
 // ================= NOVO CAMPEONATO (WIZARD) =================
@@ -204,12 +230,12 @@ async function telaCampeonato(id, aba = abaAtual) {
     </div>
     <h2 style="margin:4px 0">${esc(c.nome)} ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}</h2>
     <div class="abas">
-      ${[['jogos', 'Jogos'], ['times', 'Times'], ['classificacao', 'Classificação'], ['banners', 'Banners'], ['config', 'Configurações']]
+      ${[['jogos', 'Jogos'], ['times', 'Times'], ['classificacao', 'Classificação'], ['regras', 'Regras'], ['banners', 'Banners'], ['config', 'Configurações']]
         .map(([k, r]) => `<button class="aba ${aba === k ? 'ativa' : ''}" onclick="telaCampeonato(${id}, '${k}')">${r}</button>`).join('')}
     </div>
     <div id="painel"></div>
   `;
-  ({ jogos: abaJogos, times: abaTimes, classificacao: abaClassif, banners: abaBanners, config: abaConfig }[aba])();
+  ({ jogos: abaJogos, times: abaTimes, classificacao: abaClassif, regras: abaRegras, banners: abaBanners, config: abaConfig }[aba])();
 }
 
 // ---------- aba jogos ----------
@@ -327,21 +353,49 @@ function placarDoTexto(texto) {
   return gols;
 }
 
+let modoResultadoAtual = 'simples';
+
+function modoResultado(modo) {
+  modoResultadoAtual = modo;
+  $('#res-simples').hidden = modo !== 'simples';
+  $('#res-detalhado').hidden = modo !== 'detalhado';
+  $('#aba-res-simples').classList.toggle('ativa', modo === 'simples');
+  $('#aba-res-detalhado').classList.toggle('ativa', modo === 'detalhado');
+}
+
 function modalResultado(jogoId) {
   const j = DET.jogos.find((x) => x.id === jogoId);
   const casa = DET.times.find((t) => t.id === j.time_casa_id);
   const fora = DET.times.find((t) => t.id === j.time_fora_id);
+  // Abre no modo detalhado so quando ja ha detalhe registrado (autor de gol,
+  // gol contra ou cartao); resultado simples anterior (so gols SR) reabre simples.
+  const temDetalhe = DET.eventos.some(
+    (e) => e.jogo_id === jogoId && (e.jogador_id != null || e.tipo !== 'gol'),
+  );
   abrirModal(`
     <h3>Resultado: ${esc(casa.nome)} x ${esc(fora.nome)}</h3>
-    <p class="muted" style="margin:4px 0">
-      Um lançamento por linha, dentro de cada seção. Gols: <code>Nome,quantidade</code>
-      (quantidade opcional) • <code>GC,Nome</code> = gol contra (jogador do outro time) •
-      <code>SR,2</code> = gols sem registro de autor. Cartões: <code>A,Nome</code> (amarelo)
-      ou <code>V,Nome</code> (vermelho).
-    </p>
-    <textarea id="res-texto" rows="14" spellcheck="false" style="font-family:Consolas,monospace;font-size:.85rem">${esc(serializarResultadoTexto(j))}</textarea>
-    <p style="text-align:center;font-size:1.1rem"><strong>Placar: ${esc(casa.nome)} <span id="res-placar">0 x 0</span> ${esc(fora.nome)}</strong><br>
-    <span class="muted">calculado automaticamente pelos gols do texto</span></p>
+    <div class="abas" style="margin-bottom:10px">
+      <button class="aba" id="aba-res-simples" onclick="modoResultado('simples')">Placar simples</button>
+      <button class="aba" id="aba-res-detalhado" onclick="modoResultado('detalhado')">Súmula detalhada</button>
+    </div>
+    <div id="res-simples" hidden>
+      <div class="grid-2">
+        <div><label>Gols ${esc(casa.nome)}</label><input type="number" id="gols-casa" min="0" value="${j.gols_casa ?? ''}"></div>
+        <div><label>Gols ${esc(fora.nome)}</label><input type="number" id="gols-fora" min="0" value="${j.gols_fora ?? ''}"></div>
+      </div>
+      <p class="muted">Só o placar da partida: os gols ficam na súmula como <strong>SR (Sem registro)</strong>, sem autor.</p>
+    </div>
+    <div id="res-detalhado" hidden>
+      <p class="muted" style="margin:4px 0">
+        Um lançamento por linha, dentro de cada seção. Gols: <code>Nome,quantidade</code>
+        (quantidade opcional) • <code>GC,Nome</code> = gol contra (jogador do outro time) •
+        <code>SR,2</code> = gols sem registro de autor. Cartões: <code>A,Nome</code> (amarelo)
+        ou <code>V,Nome</code> (vermelho).
+      </p>
+      <textarea id="res-texto" rows="14" spellcheck="false" style="font-family:Consolas,monospace;font-size:.85rem">${esc(serializarResultadoTexto(j))}</textarea>
+      <p style="text-align:center;font-size:1.1rem"><strong>Placar: ${esc(casa.nome)} <span id="res-placar">0 x 0</span> ${esc(fora.nome)}</strong><br>
+      <span class="muted">calculado automaticamente pelos gols do texto</span></p>
+    </div>
     ${j.fase === 'mata' ? `
     <p class="muted">Se o confronto terminar empatado, informe os pênaltis:</p>
     <div class="grid-2">
@@ -357,19 +411,36 @@ function modalResultado(jogoId) {
   };
   $('#res-texto').oninput = atualizarPlacar;
   atualizarPlacar();
+  modoResultado(temDetalhe ? 'detalhado' : 'simples');
 }
 
 async function salvarResultado(jogoId) {
-  const corpo = { texto: $('#res-texto').value };
+  const av = $('#aviso-res');
+  let rota, corpo;
+  if (modoResultadoAtual === 'simples') {
+    const vCasa = $('#gols-casa').value.trim(), vFora = $('#gols-fora').value.trim();
+    if (vCasa === '' || vFora === '') {
+      av.textContent = 'Informe o placar dos dois times.'; av.className = 'aviso erro';
+      return;
+    }
+    const j = DET.jogos.find((x) => x.id === jogoId);
+    // Um evento SR (sem registro de autor) por gol, para constarem na súmula.
+    const eventos = [];
+    for (let k = 0; k < Number(vCasa); k++) eventos.push({ tipo: 'gol', time_id: j.time_casa_id, jogador_id: null });
+    for (let k = 0; k < Number(vFora); k++) eventos.push({ tipo: 'gol', time_id: j.time_fora_id, jogador_id: null });
+    rota = 'resultado'; corpo = { gols_casa: Number(vCasa), gols_fora: Number(vFora), eventos };
+  } else {
+    rota = 'resultado-texto'; corpo = { texto: $('#res-texto').value };
+  }
   const penCasa = $('#pen-casa')?.value, penFora = $('#pen-fora')?.value;
   if (penCasa !== undefined && penCasa !== '' && penFora !== '') {
     corpo.penaltis_casa = Number(penCasa); corpo.penaltis_fora = Number(penFora);
   }
   try {
-    await api(`/api/jogos/${jogoId}/resultado-texto`, 'POST', corpo);
+    await api(`/api/jogos/${jogoId}/${rota}`, 'POST', corpo);
     fecharModal(); telaCampeonato(DET.campeonato.id, 'jogos');
   } catch (e) {
-    const av = $('#aviso-res'); av.textContent = e.message; av.className = 'aviso erro';
+    av.textContent = e.message; av.className = 'aviso erro';
   }
 }
 
@@ -566,6 +637,26 @@ async function removerBanner(id) {
   if (!confirm('Remover este banner?')) return;
   try { await api(`/api/banners/${id}`, 'DELETE'); telaCampeonato(DET.campeonato.id, 'banners'); }
   catch (e) { avisar(e.message); }
+}
+
+// ---------- aba regras ----------
+
+function abaRegras() {
+  const c = DET.campeonato;
+  $('#painel').innerHTML = `
+    <div class="card">
+      <h3>Regras do campeonato</h3>
+      <p class="muted">Texto livre com as regras específicas do seu campeonato (formato, critérios,
+      conduta, premiação...). Aparece na aba "Regras" da página pública; deixe em branco para não exibir.</p>
+      <textarea id="cfg-regras" rows="16" placeholder="Ex.:&#10;1. Cada time pode inscrever até 15 jogadores.&#10;2. Tolerância de 15 minutos para o time chegar.&#10;3. ...">${esc(c.regras ?? '')}</textarea>
+      <p><button class="botao" onclick="salvarRegras()">Salvar regras</button></p>
+    </div>`;
+}
+async function salvarRegras() {
+  try {
+    await api(`/api/campeonatos/${DET.campeonato.id}`, 'PATCH', { regras: $('#cfg-regras').value || null });
+    avisar('Regras salvas!'); telaCampeonato(DET.campeonato.id, 'regras');
+  } catch (e) { avisar(e.message); }
 }
 
 // ---------- aba config ----------

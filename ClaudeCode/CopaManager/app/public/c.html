@@ -13,7 +13,7 @@
 </head>
 <body>
 <header class="topo">
-  <span class="marca"><a href="/">⚽ Copa Manager</a></span>
+  <span class="marca"><a href="/"><img src="/img/marca-branca.png" alt=""> Copa Manager</a></span>
   <div class="direita"><button class="botao secundario mini" id="btn-compartilhar">Compartilhar</button></div>
 </header>
 
@@ -70,6 +70,7 @@ function render() {
     ['jogos', 'Resultados', true],
     ['times', 'Times', true],
     ['artilharia', 'Artilharia', true],
+    ['regras', 'Regras', !!c.regras],
   ].filter((a) => a[2]);
 
   $('#app').innerHTML = `
@@ -96,7 +97,7 @@ function render() {
 }
 
 function mostrarAba(aba) {
-  const fn = { classificacao: abaClassificacao, chaveamento: abaChaveamento, jogos: abaJogos, times: abaTimes, artilharia: abaArtilharia }[aba];
+  const fn = { classificacao: abaClassificacao, chaveamento: abaChaveamento, jogos: abaJogos, times: abaTimes, artilharia: abaArtilharia, regras: abaRegras }[aba];
   $('#painel').innerHTML = fn();
   ligarCliques();
 }
@@ -232,6 +233,13 @@ function abaArtilharia() {
   return `<div class="card"><h3>⚽ Artilharia</h3>${art}</div><div class="card"><h3>🟨🟥 Cartões</h3>${dis}</div>`;
 }
 
+// ---------- regras ----------
+
+function abaRegras() {
+  return `<div class="card"><h3>📜 Regras do campeonato</h3>
+    <p style="white-space:pre-wrap">${esc(D.campeonato.regras)}</p></div>`;
+}
+
 // ---------- modais ----------
 
 function abrirModal(html) {
@@ -267,7 +275,9 @@ function abrirJogo(id) {
   const casa = timePorId(j.time_casa_id);
   const fora = timePorId(j.time_fora_id);
   const evs = D.eventos.filter((e) => e.jogo_id === id);
-  const nomeJogador = (jid) => D.jogadores.find((x) => x.id === jid)?.nome ?? 'Não informado';
+  // jogador_id null = gol lançado sem registro de autor (placar simples ou "SR" no texto).
+  const nomeJogador = (jid) =>
+    jid == null ? 'SR (Sem registro)' : (D.jogadores.find((x) => x.id === jid)?.nome ?? 'Não informado');
   const listaEv = (tipo, icone) => {
     const doTipo = evs.filter((e) => e.tipo === tipo);
     if (!doTipo.length) return '';
