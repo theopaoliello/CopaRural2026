@@ -14,7 +14,8 @@ copamanager.com.br {
 	}
 }
 
-# Opcional: redirecionar o www para o dominio raiz.
-# www.copamanager.com.br {
-# 	redir https://copamanager.com.br{uri} permanent
-# }
+# Redireciona o www para o dominio raiz (canonico). O Caddy emite o
+# certificado do www automaticamente, desde que o CNAME www aponte para ca.
+www.copamanager.com.br {
+	redir https://copamanager.com.br{uri} permanent
+}
