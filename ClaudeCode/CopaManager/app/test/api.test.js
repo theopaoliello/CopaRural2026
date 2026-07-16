@@ -711,3 +711,61 @@ test('LGPD: excluir minha conta exige confirmacao e apaga tudo em cascata', asyn
     (await cliente()('POST', '/api/auth/login', { email: 'sair@teste.com', senha: 'segredo1' })).status, 401,
   );
 });
+
+test('multiesporte (fase 1): catalogo, preset e validacao do esporte', async () => {
+  const rita = cliente();
+  await registrarEntrar(rita, { nome: 'Rita', email: 'rita@teste.com', senha: 'segredo1' });
+
+  // catalogo: 7 esportes na ordem fixa de produto; so o futebol disponivel
+  const cat = await rita('GET', '/api/esportes');
+  assert.equal(cat.status, 200);
+  assert.deepEqual(
+    cat.corpo.map((e) => e.chave),
+    ['futebol', 'pelada_epica', 'futvolei', 'beach_tennis', 'volei', 'basquete', 'peteca'],
+  );
+  assert.deepEqual(cat.corpo.filter((e) => e.disponivel).map((e) => e.chave), ['futebol']);
+
+  // esporte ausente = futebol (API pre-multiesporte continua valida)
+  const compat = await rita('POST', '/api/campeonatos', {
+    nome: 'Copa Compat', formato: 'pontos', times: ['A', 'B'],
+  });
+  assert.equal(compat.status, 201, JSON.stringify(compat.corpo));
+  assert.equal(compat.corpo.esporte, 'futebol');
+  assert.equal(compat.corpo.modalidade, 'Campo'); // variante padrao do preset
+  assert.equal(compat.corpo.pontos_vitoria, 3);
+
+  // esporte explicito com variante
+  const society = await rita('POST', '/api/campeonatos', {
+    nome: 'Copa Society', esporte: 'futebol', modalidade: 'Society',
+    formato: 'pontos', times: ['A', 'B'],
+  });
+  assert.equal(society.corpo.esporte, 'futebol');
+  assert.equal(society.corpo.modalidade, 'Society');
+
+  // esporte inexistente e esporte "em breve" sao rejeitados
+  const invalido = await rita('POST', '/api/campeonatos', {
+    nome: 'X', esporte: 'xadrez', formato: 'pontos', times: ['A', 'B'],
+  });
+  assert.equal(invalido.status, 400);
+  const emBreve = await rita('POST', '/api/campeonatos', {
+    nome: 'V', esporte: 'volei', formato: 'pontos', times: ['A', 'B'],
+  });
+  assert.equal(emBreve.status, 400);
+  assert.match(emBreve.corpo.mensagem, /disponivel/i);
+
+  // RN-TC-01: o esporte e imutavel — o PATCH ignora tentativas de troca
+  const patch = await rita('PATCH', `/api/campeonatos/${compat.corpo.id}`, {
+    esporte: 'basquete', nome: 'Copa Compat 2',
+  });
+  assert.equal(patch.status, 200);
+  assert.equal(patch.corpo.esporte, 'futebol');
+  assert.equal(patch.corpo.nome, 'Copa Compat 2');
+
+  // pagina publica devolve o esporte e os rotulos do catalogo (RN-TC-10)
+  const pub = await rita('GET', `/api/publico/${compat.corpo.slug}`);
+  assert.equal(pub.status, 200);
+  assert.equal(pub.corpo.esporte.chave, 'futebol');
+  assert.equal(pub.corpo.esporte.nome, 'Futebol');
+  assert.equal(pub.corpo.esporte.rotulos.participantes, 'Times');
+  assert.equal(pub.corpo.campeonato.esporte, 'futebol');
+});

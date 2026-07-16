@@ -23,6 +23,7 @@ import { salvarImagem, apagarImagem } from '../src/uploads.js';
 import { dadosPublicos } from '../src/publico.js';
 import { erroValidacao, erroConflito, erroProibido, erroNaoEncontrado } from '../src/erros.js';
 import { CRITERIOS_VALIDOS } from '../src/classificacao.js';
+import { ESPORTES } from '../src/esportes.js';
 
 const MAX_BANNERS = 5;
 
@@ -321,6 +322,14 @@ export function montarRotas(db, { limites = {} } = {}) {
     for (const { c } of imagens) apagarImagem(c);
     db.prepare('DELETE FROM contas WHERE id = ?').run(alvo.id);
     res.json({ ok: true });
+  });
+
+  // ---------- catalogo de esportes ----------
+
+  // Catalogo estatico (sem dados de usuario): alimenta o menu do wizard.
+  rotas.get('/esportes', (_req, res) => {
+    res.json(ESPORTES.map(({ chave, nome, icone, disponivel, variantes, variante_padrao, rotulos }) =>
+      ({ chave, nome, icone, disponivel, variantes, variante_padrao, rotulos })));
   });
 
   // ---------- campeonatos (admin) ----------

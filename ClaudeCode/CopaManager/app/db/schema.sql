@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS campeonatos (
   conta_id INTEGER NOT NULL REFERENCES contas(id) ON DELETE CASCADE,
   nome TEXT NOT NULL,
   temporada TEXT,
+  -- chave do catalogo de esportes (src/esportes.js); imutavel apos a criacao
+  esporte TEXT NOT NULL DEFAULT 'futebol',
+  -- variante do esporte (Society, 3x3, Praia...), apenas informativa
   modalidade TEXT NOT NULL DEFAULT 'Futebol',
   descricao TEXT,
   cor_tema TEXT NOT NULL DEFAULT '#0b5c3f',

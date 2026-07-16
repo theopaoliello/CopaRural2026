@@ -9,6 +9,7 @@ import {
   seedsDeGrupos,
 } from './tabela.js';
 import { calcularClassificacao, cartoesPorTime, CRITERIOS_VALIDOS } from './classificacao.js';
+import { obterEsporte, ESPORTE_PADRAO } from './esportes.js';
 
 const FORMATOS = ['pontos', 'mata', 'grupos_mata'];
 const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -59,6 +60,11 @@ export function criarCampeonato(db, contaId, dados) {
   const nome = textoLimitado(dados.nome, 120, 'Nome do campeonato');
   if (!nome) throw erroValidacao('Informe o nome do campeonato.');
 
+  // Esporte ausente = futebol (compatibilidade com a API pre-multiesporte).
+  const esporte = obterEsporte(dados.esporte ?? ESPORTE_PADRAO);
+  if (!esporte) throw erroValidacao('Esporte invalido.');
+  if (!esporte.disponivel) throw erroValidacao(`${esporte.nome} ainda nao esta disponivel. Em breve!`);
+
   const formato = dados.formato;
   if (!FORMATOS.includes(formato)) throw erroValidacao('Formato invalido.');
 
@@ -92,7 +98,8 @@ export function criarCampeonato(db, contaId, dados) {
     }
   }
 
-  let criterios = dados.criterios_desempate ?? CRITERIOS_VALIDOS;
+  // O preset do esporte define os padroes; o organizador pode ajustar (RN-TC-02).
+  let criterios = dados.criterios_desempate ?? esporte.criterios ?? CRITERIOS_VALIDOS;
   if (!Array.isArray(criterios) || criterios.some((c) => !CRITERIOS_VALIDOS.includes(c))) {
     throw erroValidacao('Criterios de desempate invalidos.');
   }
@@ -102,16 +109,17 @@ export function criarCampeonato(db, contaId, dados) {
   const info = db
     .prepare(
       `INSERT INTO campeonatos
-       (conta_id, nome, temporada, modalidade, descricao, cor_tema, slug, formato,
+       (conta_id, nome, temporada, esporte, modalidade, descricao, cor_tema, slug, formato,
         num_grupos, ida_volta_grupos, ida_volta_mata, classificados_por_grupo,
         pontos_vitoria, pontos_empate, criterios_desempate)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       contaId,
       nome,
       textoLimitado(dados.temporada, 40, 'Temporada'),
-      textoLimitado(dados.modalidade, 40, 'Modalidade') ?? 'Futebol',
+      esporte.chave,
+      textoLimitado(dados.modalidade, 40, 'Variante') ?? esporte.variante_padrao ?? esporte.nome,
       textoLimitado(dados.descricao, 2000, 'Descricao'),
       validarCorTema(dados.cor_tema ?? '#0b5c3f'),
       slug,
@@ -120,8 +128,8 @@ export function criarCampeonato(db, contaId, dados) {
       idaVoltaGrupos,
       idaVoltaMata,
       classificadosPorGrupo,
-      Math.max(0, Number(dados.pontos_vitoria ?? 3)),
-      Math.max(0, Number(dados.pontos_empate ?? 1)),
+      Math.max(0, Number(dados.pontos_vitoria ?? esporte.pontuacao?.vitoria ?? 3)),
+      Math.max(0, Number(dados.pontos_empate ?? esporte.pontuacao?.empate ?? 1)),
       JSON.stringify(criterios),
     );
   const campeonatoId = Number(info.lastInsertRowid);

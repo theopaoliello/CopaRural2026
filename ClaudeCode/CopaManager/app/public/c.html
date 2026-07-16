@@ -60,6 +60,7 @@ function bannersHtml() {
 
 function render() {
   const c = D.campeonato;
+  const E = D.esporte; // nome e rotulos vindos do catalogo de esportes (servidor)
   document.title = `${c.nome} — Copa Manager`;
   if (c.cor_tema) document.documentElement.style.setProperty('--verde', c.cor_tema);
 
@@ -68,16 +69,24 @@ function render() {
     ['classificacao', 'Classificação', c.formato !== 'mata'],
     ['chaveamento', 'Mata-mata', temMata],
     ['jogos', 'Resultados', true],
-    ['times', 'Times', true],
-    ['artilharia', 'Artilharia', true],
+    ['times', E.rotulos.participantes, true],
+    ['artilharia', E.rotulos.artilharia, !!E.rotulos.artilharia],
     ['regras', 'Regras', !!c.regras],
   ].filter((a) => a[2]);
+
+  // "Futebol • Society • 2026" (variante omitida quando repete o esporte,
+  // caso dos campeonatos criados antes do multiesporte).
+  const subtitulo = [
+    E.nome,
+    c.modalidade && c.modalidade.toLowerCase() !== E.nome.toLowerCase() ? c.modalidade : null,
+    c.temporada,
+  ].filter(Boolean).join(' • ');
 
   $('#app').innerHTML = `
     <div class="cabecalho-camp">
       ${c.logo ? `<img class="logo" src="${esc(c.logo)}" alt="">` : ''}
       <h1>${esc(c.nome)}</h1>
-      <div class="muted">${esc(c.modalidade)}${c.temporada ? ' • ' + esc(c.temporada) : ''}</div>
+      <div class="muted">${esc(subtitulo)}</div>
       ${c.descricao ? `<p class="muted">${esc(c.descricao)}</p>` : ''}
     </div>
     <div class="abas" id="abas">
@@ -106,7 +115,7 @@ function mostrarAba(aba) {
 
 function tabelaClassificacao(linhas) {
   return `<div class="tabela-wrap"><table class="tabela">
-    <thead><tr><th>#</th><th class="time">Time</th><th>Pts</th><th>PJ</th><th>V</th><th>E</th><th>D</th><th>GP</th><th>GC</th><th>SG</th><th>Últ. Jogos</th></tr></thead>
+    <thead><tr><th>#</th><th class="time">${esc(D.esporte.rotulos.participante)}</th><th>Pts</th><th>PJ</th><th>V</th><th>E</th><th>D</th><th>GP</th><th>GC</th><th>SG</th><th>Últ. Jogos</th></tr></thead>
     <tbody>${linhas.map((l) => {
       const t = timePorId(l.time_id);
       return `<tr class="abrir-time" data-time="${l.time_id}">
@@ -230,7 +239,7 @@ function abaArtilharia() {
         <tbody>${D.disciplina.map((a) => `<tr><td class="time">${esc(a.nome)}</td><td class="time">${esc(a.time)}</td><td>${a.amarelos}</td><td>${a.vermelhos}</td></tr>`).join('')}</tbody>
       </table></div>`
     : '<p class="muted">Nenhum cartão registrado ainda.</p>';
-  return `<div class="card"><h3>⚽ Artilharia</h3>${art}</div><div class="card"><h3>🟨🟥 Cartões</h3>${dis}</div>`;
+  return `<div class="card"><h3>⚽ ${esc(D.esporte.rotulos.artilharia)}</h3>${art}</div><div class="card"><h3>🟨🟥 Cartões</h3>${dis}</div>`;
 }
 
 // ---------- regras ----------

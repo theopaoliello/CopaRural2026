@@ -39,6 +39,9 @@ function migrarColunas(db) {
   addSeFaltar('contas', "papel TEXT NOT NULL DEFAULT 'organizador'");
   addSeFaltar('sessoes', 'conta_efetiva_id INTEGER REFERENCES contas(id) ON DELETE SET NULL');
   addSeFaltar('campeonatos', 'regras TEXT');
+  // Multiesporte (RN-TC-07): campeonatos criados antes viram Futebol,
+  // preservando a modalidade antiga como variante — nada muda para eles.
+  addSeFaltar('campeonatos', "esporte TEXT NOT NULL DEFAULT 'futebol'");
   // Confirmacao de e-mail chegou depois: contas que ja existiam sao
   // consideradas confirmadas (nao da para pedir confirmacao retroativa).
   const tinhaVerificado = colunaExiste(db, 'contas', 'email_verificado');

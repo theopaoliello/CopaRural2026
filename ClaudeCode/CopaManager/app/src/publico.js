@@ -4,6 +4,7 @@ import { erroNaoEncontrado } from './erros.js';
 import { classificacaoDoCampeonato } from './campeonatos.js';
 import { estatisticasJogadores } from './classificacao.js';
 import { nomeFaseMata, vencedorConfronto } from './tabela.js';
+import { obterEsporte, ESPORTE_PADRAO } from './esportes.js';
 
 export function dadosPublicos(db, slug) {
   const campeonato = db
@@ -73,10 +74,16 @@ export function dadosPublicos(db, slug) {
     };
   });
 
+  // Rotulos e nome do esporte (RN-TC-10): a pagina publica nunca fixa
+  // "Time"/"Artilharia" no HTML — le daqui.
+  const preset = obterEsporte(campeonato.esporte) ?? obterEsporte(ESPORTE_PADRAO);
+
   return {
+    esporte: { chave: preset.chave, nome: preset.nome, rotulos: preset.rotulos },
     campeonato: {
       nome: campeonato.nome,
       temporada: campeonato.temporada,
+      esporte: campeonato.esporte,
       modalidade: campeonato.modalidade,
       descricao: campeonato.descricao,
       cor_tema: campeonato.cor_tema,

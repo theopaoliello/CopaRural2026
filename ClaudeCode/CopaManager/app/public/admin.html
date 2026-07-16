@@ -134,17 +134,51 @@ async function excluirMinhaConta() {
 
 // ================= NOVO CAMPEONATO (WIZARD) =================
 
-function telaNovo() {
+// Catalogo de esportes (carregado uma vez por sessao do painel).
+let ESPORTES = null;
+async function catalogoEsportes() {
+  if (!ESPORTES) ESPORTES = await api('/api/esportes');
+  return ESPORTES;
+}
+
+// Passo 0 do wizard: escolha do esporte (imutavel depois da criacao).
+async function telaNovo() {
+  const esportes = await catalogoEsportes();
   $('#app').innerHTML = `
     <h2>Novo campeonato</h2>
+    <div class="card">
+      <h3>Qual é o esporte do seu campeonato?</h3>
+      <div class="grade-esportes">
+        ${esportes.map((e) => `
+          <button class="botao-esporte" ${e.disponivel ? `onclick="telaNovoForm('${e.chave}')"` : 'disabled'}>
+            <img src="${esc(e.icone)}" alt="">
+            <span>${esc(e.nome)}</span>
+            ${e.disponivel ? '' : '<span class="badge">Em breve</span>'}
+          </button>`).join('')}
+      </div>
+      <p class="muted" style="margin-bottom:0">O esporte define placar, pontuação e seções da página pública, e não pode ser trocado depois.</p>
+    </div>
+    <button class="botao secundario" onclick="telaLista()">Cancelar</button>
+  `;
+}
+
+function telaNovoForm(chaveEsporte) {
+  const esporte = ESPORTES.find((e) => e.chave === chaveEsporte);
+  $('#app').innerHTML = `
+    <h2>Novo campeonato</h2>
+    <div class="linha-flex" style="margin-bottom:10px">
+      <img src="${esc(esporte.icone)}" alt="" style="width:34px;height:34px;object-fit:contain">
+      <strong>${esc(esporte.nome)}</strong>
+      <a href="#" onclick="telaNovo();return false" class="muted">trocar esporte</a>
+    </div>
     <form id="form-novo" class="card">
       <fieldset><legend>1. Identidade</legend>
         <div class="grid-2">
           <div><label>Nome *</label><input type="text" name="nome" required placeholder="Copa da Várzea"></div>
           <div><label>Temporada</label><input type="text" name="temporada" placeholder="2026"></div>
-          <div><label>Modalidade</label>
-            <select name="modalidade"><option>Futebol</option><option>Society</option><option>Futsal</option><option>Outro</option></select>
-          </div>
+          ${esporte.variantes.length ? `<div><label>Variante</label>
+            <select name="modalidade">${esporte.variantes.map((v) => `<option>${esc(v)}</option>`).join('')}</select>
+          </div>` : ''}
           <div><label>Cor do campeonato</label><input type="color" name="cor_tema" value="#0b5c3f" style="height:42px;width:100%"></div>
         </div>
         <label>Descrição</label><textarea name="descricao" placeholder="Fala do campeonato para a página pública…"></textarea>
@@ -200,6 +234,7 @@ function telaNovo() {
     const f = new FormData(e.target);
     try {
       const c = await api('/api/campeonatos', 'POST', {
+        esporte: chaveEsporte,
         nome: f.get('nome'), temporada: f.get('temporada'), modalidade: f.get('modalidade'),
         descricao: f.get('descricao'), cor_tema: f.get('cor_tema'), formato: f.get('formato'),
         num_grupos: Number(f.get('num_grupos') || 1),
@@ -661,8 +696,9 @@ async function salvarRegras() {
 
 // ---------- aba config ----------
 
-function abaConfig() {
+async function abaConfig() {
   const c = DET.campeonato;
+  const esporte = (await catalogoEsportes()).find((e) => e.chave === c.esporte);
   const url = `${location.origin}/c/${c.slug}`;
   $('#painel').innerHTML = `
     <div class="card">
@@ -673,6 +709,10 @@ function abaConfig() {
     </div>
     <div class="card">
       <h3>Identidade</h3>
+      ${esporte ? `<p class="muted" style="display:flex;align-items:center;gap:6px">
+        <img src="${esc(esporte.icone)}" alt="" style="width:22px;height:22px;object-fit:contain">
+        Esporte: <strong>${esc(esporte.nome)}</strong>${c.modalidade ? ` (${esc(c.modalidade)})` : ''} — definido na criação, não pode ser alterado.
+      </p>` : ''}
       <div class="grid-2">
         <div><label>Nome</label><input type="text" id="cfg-nome" value="${esc(c.nome)}"></div>
         <div><label>Temporada</label><input type="text" id="cfg-temporada" value="${esc(c.temporada ?? '')}"></div>
