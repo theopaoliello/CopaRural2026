@@ -97,11 +97,11 @@ export function calcularClassificacao(times, jogos, opcoes = {}) {
 // Classificacao dos esportes de sets (modelo B). Nunca ha empate de jogo.
 // jogos encerrados carregam o placar em sets em gols_casa/gols_fora; as
 // parciais (sets) alimentam pontos pro/contra (games, no beach tennis).
-// opcoes: { pontuacao (preset do esporte), melhorDe, criterios }
+// opcoes: { pontuacao (preset do esporte), criterios }
 // Linhas: { time_id, pos, pts, pj, v, d, sv, sp, pp, pc, saldo_sets,
 //           saldo_pontos, ultimos } (razoes/percentuais sao derivados na ordenacao)
 export function calcularClassificacaoSets(times, jogos, sets, opcoes = {}) {
-  const { pontuacao = { vitoria: 2, derrota: 1 }, melhorDe = 1, criterios = [] } = opcoes;
+  const { pontuacao = { vitoria: 2, derrota: 1 }, criterios = [] } = opcoes;
 
   const linhas = new Map();
   for (const t of times) {
@@ -126,7 +126,7 @@ export function calcularClassificacaoSets(times, jogos, sets, opcoes = {}) {
     const fora = linhas.get(j.time_fora_id);
     const casaVenceu = j.gols_casa > j.gols_fora;
     const [vSets, pSets] = casaVenceu ? [j.gols_casa, j.gols_fora] : [j.gols_fora, j.gols_casa];
-    const pontos = pontosDaPartidaSets(pontuacao, vSets, pSets, melhorDe);
+    const pontos = pontosDaPartidaSets(pontuacao, vSets, pSets);
     const [vencedor, perdedor] = casaVenceu ? [casa, fora] : [fora, casa];
 
     vencedor.pj += 1; vencedor.v += 1; vencedor.pts += pontos.vencedor; vencedor.ultimos.push('V');
@@ -152,7 +152,7 @@ export function calcularClassificacaoSets(times, jogos, sets, opcoes = {}) {
       if (!emCasa && !deFora) continue;
       const meus = emCasa ? j.gols_casa : j.gols_fora;
       const deles = emCasa ? j.gols_fora : j.gols_casa;
-      const p = pontosDaPartidaSets(pontuacao, Math.max(meus, deles), Math.min(meus, deles), melhorDe);
+      const p = pontosDaPartidaSets(pontuacao, Math.max(meus, deles), Math.min(meus, deles));
       pts += meus > deles ? p.vencedor : p.perdedor;
     }
     return pts;
@@ -186,6 +186,78 @@ export function calcularClassificacaoSets(times, jogos, sets, opcoes = {}) {
   return ordenadas.map((linha, i) => ({ ...linha, pos: i + 1, ultimos: linha.ultimos.slice(-5) }));
 }
 
+// Classificacao dos esportes de pontos de jogo (modelo C — basquete).
+// O placar em pontos fica em gols_casa/gols_fora; nunca ha empate (RN-TC-09).
+// opcoes: { pontuacao ({vitoria, derrota}), criterios }
+// Linhas: { time_id, pos, pts, pj, v, d, pp, pc, saldo_pontos, ultimos }
+export function calcularClassificacaoPontos(times, jogos, opcoes = {}) {
+  const { pontuacao = { vitoria: 2, derrota: 1 }, criterios = [] } = opcoes;
+
+  const linhas = new Map();
+  for (const t of times) {
+    linhas.set(t.id, {
+      time_id: t.id, nome: t.nome,
+      pts: 0, pj: 0, v: 0, d: 0, pp: 0, pc: 0, saldo_pontos: 0, ultimos: [],
+    });
+  }
+
+  const encerrados = jogos
+    .filter((j) => j.status === 'encerrado' && linhas.has(j.time_casa_id) && linhas.has(j.time_fora_id))
+    .sort((a, b) => a.rodada - b.rodada || a.id - b.id);
+
+  const aplicar = (linha, pp, pc) => {
+    linha.pj += 1;
+    linha.pp += pp;
+    linha.pc += pc;
+    linha.saldo_pontos = linha.pp - linha.pc;
+    if (pp > pc) {
+      linha.v += 1;
+      linha.pts += pontuacao.vitoria;
+      linha.ultimos.push('V');
+    } else {
+      linha.d += 1;
+      linha.pts += pontuacao.derrota;
+      linha.ultimos.push('D');
+    }
+  };
+  for (const j of encerrados) {
+    aplicar(linhas.get(j.time_casa_id), j.gols_casa, j.gols_fora);
+    aplicar(linhas.get(j.time_fora_id), j.gols_fora, j.gols_casa);
+  }
+
+  // Confronto direto (FIBA): pontos de classificacao nos jogos entre os dois.
+  const pontosConfronto = (idA, idB) => {
+    let pts = 0;
+    for (const j of encerrados) {
+      const emCasa = j.time_casa_id === idA && j.time_fora_id === idB;
+      const deFora = j.time_fora_id === idA && j.time_casa_id === idB;
+      if (!emCasa && !deFora) continue;
+      const meus = emCasa ? j.gols_casa : j.gols_fora;
+      const deles = emCasa ? j.gols_fora : j.gols_casa;
+      pts += meus > deles ? pontuacao.vitoria : pontuacao.derrota;
+    }
+    return pts;
+  };
+
+  const comparadores = {
+    vitorias: (a, b) => b.v - a.v,
+    confronto: (a, b) => pontosConfronto(b.time_id, a.time_id) - pontosConfronto(a.time_id, b.time_id),
+    saldo_pontos: (a, b) => b.saldo_pontos - a.saldo_pontos,
+    pontos_pro: (a, b) => b.pp - a.pp,
+  };
+
+  const ordenadas = [...linhas.values()].sort((a, b) => {
+    if (b.pts !== a.pts) return b.pts - a.pts;
+    for (const c of criterios) {
+      const cmp = comparadores[c]?.(a, b) ?? 0;
+      if (cmp !== 0) return cmp;
+    }
+    return a.nome.localeCompare(b.nome, 'pt-BR');
+  });
+
+  return ordenadas.map((linha, i) => ({ ...linha, pos: i + 1, ultimos: linha.ultimos.slice(-5) }));
+}
+
 // Peso de cartoes por time para o criterio de desempate "cartoes".
 // eventos: [{jogo_id, time_id, tipo}] apenas de jogos encerrados.
 export function cartoesPorTime(eventos) {
@@ -197,16 +269,18 @@ export function cartoesPorTime(eventos) {
   return mapa;
 }
 
-// Artilharia e disciplina por jogador a partir dos eventos de jogos encerrados.
+// Artilharia/cestinhas e disciplina por jogador a partir dos eventos de jogos
+// encerrados. `pontos` soma o `valor` dos eventos tipo 'pontos' (basquete).
 export function estatisticasJogadores(eventos) {
   const mapa = new Map();
   for (const ev of eventos) {
     if (ev.jogador_id == null) continue;
     if (!mapa.has(ev.jogador_id)) {
-      mapa.set(ev.jogador_id, { jogador_id: ev.jogador_id, gols: 0, amarelos: 0, vermelhos: 0 });
+      mapa.set(ev.jogador_id, { jogador_id: ev.jogador_id, gols: 0, pontos: 0, amarelos: 0, vermelhos: 0 });
     }
     const s = mapa.get(ev.jogador_id);
     if (ev.tipo === 'gol') s.gols += 1;
+    else if (ev.tipo === 'pontos') s.pontos += ev.valor ?? 1;
     else if (ev.tipo === 'amarelo') s.amarelos += 1;
     else if (ev.tipo === 'vermelho') s.vermelhos += 1;
   }

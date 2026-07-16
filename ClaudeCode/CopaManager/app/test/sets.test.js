@@ -32,13 +32,13 @@ const jogoDe = (campId, casaNome, foraNome) => {
 
 test('pontuacao por partida: 2/1/0 fixa e FIVB com bonus pelo set decisivo', () => {
   const fixa = { vitoria: 2, derrota: 1 };
-  assert.deepEqual(pontosDaPartidaSets(fixa, 2, 0, 3), { vencedor: 2, perdedor: 1 });
+  assert.deepEqual(pontosDaPartidaSets(fixa, 2, 0), { vencedor: 2, perdedor: 1 });
   const fivb = { tipo: 'sets_bonus' };
-  assert.deepEqual(pontosDaPartidaSets(fivb, 3, 0, 5), { vencedor: 3, perdedor: 0 });
-  assert.deepEqual(pontosDaPartidaSets(fivb, 3, 1, 5), { vencedor: 3, perdedor: 0 });
-  assert.deepEqual(pontosDaPartidaSets(fivb, 3, 2, 5), { vencedor: 2, perdedor: 1 });
-  assert.deepEqual(pontosDaPartidaSets(fivb, 2, 0, 3), { vencedor: 3, perdedor: 0 });
-  assert.deepEqual(pontosDaPartidaSets(fivb, 2, 1, 3), { vencedor: 2, perdedor: 1 });
+  assert.deepEqual(pontosDaPartidaSets(fivb, 3, 0), { vencedor: 3, perdedor: 0 });
+  assert.deepEqual(pontosDaPartidaSets(fivb, 3, 1), { vencedor: 3, perdedor: 0 });
+  assert.deepEqual(pontosDaPartidaSets(fivb, 3, 2), { vencedor: 2, perdedor: 1 });
+  assert.deepEqual(pontosDaPartidaSets(fivb, 2, 0), { vencedor: 3, perdedor: 0 });
+  assert.deepEqual(pontosDaPartidaSets(fivb, 2, 1), { vencedor: 2, perdedor: 1 });
 });
 
 test('criacao: melhor_de vem do preset, e validado, e ida/volta no mata e so do futebol', () => {
@@ -168,6 +168,32 @@ test('catalogo fase 2: os 4 esportes de sets estao disponiveis', () => {
     assert.equal(e.placar, 'sets', chave);
     assert.equal(e.empate, false, chave);
   }
-  assert.equal(obterEsporte('basquete').disponivel, false); // fase 3
+  assert.equal(obterEsporte('basquete').disponivel, true); // fase 3
+  assert.equal(obterEsporte('basquete').placar, 'pontos');
   assert.equal(obterEsporte('pelada_epica').disponivel, false); // fase 4
+});
+
+test('placar livre (melhor_de 0): qualquer contagem de sets, mas exige vencedor', () => {
+  const camp = criar({ esporte: 'futevolei', melhor_de: 0 });
+  assert.equal(camp.melhor_de, 0);
+
+  // 3 x 2 direto (nao fecharia em nenhum "melhor de" do preset) e aceito
+  const jogoAB = jogoDe(camp.id, 'A', 'B');
+  const salvo = registrarResultado(db, jogoAB, { sets_casa: 3, sets_fora: 2 });
+  assert.equal(salvo.gols_casa, 3);
+
+  // parciais em qualquer quantidade, sem regra de maioria/sobra
+  const camp2 = criar({ esporte: 'peteca', melhor_de: 0 });
+  const jogo2 = jogoDe(camp2.id, 'A', 'B');
+  const comParciais = registrarResultado(db, jogo2, { sets: [[12, 8], [8, 12], [12, 10], [12, 4]] });
+  assert.equal(comParciais.gols_casa, 3);
+  assert.equal(comParciais.gols_fora, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sets WHERE jogo_id = ?').get(jogo2.id).n, 4);
+
+  // empate continua proibido (classificacao e mata-mata precisam de vencedor)
+  apagarResultado(db, comParciais);
+  assert.throws(() => registrarResultado(db, jogo2, { sets: [[12, 8], [8, 12]] }), /vencedor/);
+  assert.throws(() => registrarResultado(db, jogo2, { sets_casa: 2, sets_fora: 2 }), /vencedor/);
+  // set individual empatado segue sem sentido
+  assert.throws(() => registrarResultado(db, jogo2, { sets: [[10, 10], [12, 8]] }), /empatado/);
 });

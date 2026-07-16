@@ -41,7 +41,9 @@ export const ESPORTES = [
     criterios: ['vitorias', 'saldo', 'gols_pro', 'confronto', 'cartoes'],
     criterios_validos: ['vitorias', 'saldo', 'gols_pro', 'confronto', 'cartoes'],
     colunas: COLUNAS_FUTEBOL,
-    rotulos: { participante: 'Time', participantes: 'Times', artilharia: 'Artilharia', pontos: 'pontos' },
+    evento_individual: 'gol',
+    tem_cartoes: true,
+    rotulos: { participante: 'Time', participantes: 'Times', artilharia: 'Artilharia', individual: 'Gols', pontos: 'pontos' },
   },
   {
     chave: 'pelada_epica',
@@ -51,7 +53,8 @@ export const ESPORTES = [
     variantes: [],
     placar: 'gols',
     empate: true,
-    rotulos: { participante: 'Jogador', participantes: 'Jogadores', artilharia: 'Artilharia', pontos: 'pontos' },
+    evento_individual: 'gol',
+    rotulos: { participante: 'Jogador', participantes: 'Jogadores', artilharia: 'Artilharia', individual: 'Gols', pontos: 'pontos' },
   },
   {
     chave: 'futevolei',
@@ -62,7 +65,7 @@ export const ESPORTES = [
     variante_padrao: '2x2',
     placar: 'sets',
     empate: false,
-    melhor_de: { opcoes: [1, 3], padrao: 1 }, // padrao amador: set unico
+    melhor_de: { opcoes: [1, 3, 0], padrao: 1 }, // padrao amador: set unico; 0 = placar livre
     pontuacao: { vitoria: 2, derrota: 1 }, // padrao volei de praia FIVB (WO fica p/ depois)
     criterios: ['vitorias', 'saldo_sets', 'saldo_pontos', 'confronto'],
     criterios_validos: CRITERIOS_VALIDOS_SETS,
@@ -82,7 +85,7 @@ export const ESPORTES = [
     variante_padrao: 'Duplas 2x2',
     placar: 'sets',
     empate: false,
-    melhor_de: { opcoes: [1, 3], padrao: 3 }, // ITF melhor de 3; pro set unico no amador
+    melhor_de: { opcoes: [1, 3, 0], padrao: 3 }, // ITF melhor de 3; pro set unico; 0 = placar livre
     pontuacao: { vitoria: 2, derrota: 1 },
     // Padrao ITF adaptado: confronto direto, % de sets, % de games.
     criterios: ['confronto', 'pct_sets', 'pct_pontos'],
@@ -103,7 +106,7 @@ export const ESPORTES = [
     variante_padrao: 'Quadra 6x6',
     placar: 'sets',
     empate: false,
-    melhor_de: { opcoes: [3, 5], padrao: 5 }, // FIVB: melhor de 5; amador: melhor de 3
+    melhor_de: { opcoes: [3, 5, 0], padrao: 5 }, // FIVB melhor de 5; amador melhor de 3; 0 = placar livre
     // FIVB com bonus: vitoria sem set decisivo 3 pts; com decisivo 2; derrota no decisivo 1.
     pontuacao: { tipo: 'sets_bonus' },
     criterios: ['vitorias', 'razao_sets', 'razao_pontos', 'confronto'],
@@ -119,11 +122,21 @@ export const ESPORTES = [
     chave: 'basquete',
     nome: 'Basquete',
     icone: '/img/esportes/basquete.png',
-    disponivel: false, // fase 3
+    disponivel: true,
     variantes: ['5x5', '3x3'],
+    variante_padrao: '5x5',
     placar: 'pontos',
-    empate: false,
-    rotulos: { participante: 'Time', participantes: 'Times', artilharia: 'Cestinhas', pontos: 'pontos' },
+    empate: false, // RN-TC-09: prorrogacao resolve na quadra, placar sempre com vencedor
+    pontuacao: { vitoria: 2, derrota: 1 }, // padrao FIBA
+    // FIBA adaptado: confronto direto, saldo de pontos geral, pontos pro.
+    criterios: ['confronto', 'saldo_pontos', 'pontos_pro'],
+    criterios_validos: ['vitorias', 'confronto', 'saldo_pontos', 'pontos_pro'],
+    colunas: [
+      ['pts', 'Pts', 'Pontos'], ['pj', 'J', 'Jogos'], ['v', 'V', 'Vitórias'], ['d', 'D', 'Derrotas'],
+      ['pp', 'PP', 'Pontos pró'], ['pc', 'PC', 'Pontos contra'], ['saldo_pontos', 'SP', 'Saldo de pontos'],
+    ],
+    evento_individual: 'pontos', // cestinhas: total simples por jogador por jogo
+    rotulos: { participante: 'Time', participantes: 'Times', artilharia: 'Cestinhas', individual: 'Pontos', pontos: 'pontos' },
   },
   {
     chave: 'peteca',
@@ -134,7 +147,7 @@ export const ESPORTES = [
     variante_padrao: 'Duplas 2x2',
     placar: 'sets',
     empate: false,
-    melhor_de: { opcoes: [1, 3], padrao: 3 }, // regra oficial (MG): melhor de 3 de 12
+    melhor_de: { opcoes: [1, 3, 0], padrao: 3 }, // regra oficial (MG): melhor de 3 de 12; 0 = placar livre
     pontuacao: { vitoria: 2, derrota: 1 },
     criterios: ['confronto', 'saldo_sets', 'saldo_pontos'],
     criterios_validos: CRITERIOS_VALIDOS_SETS,
@@ -153,11 +166,12 @@ export function obterEsporte(chave) {
 }
 
 // Pontos de classificacao de UMA partida por sets, para vencedor e perdedor.
-// setsVencedor/setsPerdedor: placar do jogo em sets | melhorDe: sets maximos.
-export function pontosDaPartidaSets(pontuacao, setsVencedor, setsPerdedor, melhorDe) {
+export function pontosDaPartidaSets(pontuacao, setsVencedor, setsPerdedor) {
   if (pontuacao?.tipo === 'sets_bonus') {
     // FIVB (volei): 3-0/3-1 => 3 x 0; 3-2 => 2 x 1 (em melhor de 3: 2-0 => 3 x 0; 2-1 => 2 x 1).
-    const foiAoDecisivo = melhorDe > 1 && setsVencedor + setsPerdedor === melhorDe;
+    // "Foi ao decisivo" = perdedor terminou a um set do vencedor — vale tambem
+    // no formato de placar livre, onde nao ha numero fixo de sets.
+    const foiAoDecisivo = setsPerdedor > 0 && setsPerdedor === setsVencedor - 1;
     return foiAoDecisivo ? { vencedor: 2, perdedor: 1 } : { vencedor: 3, perdedor: 0 };
   }
   return { vencedor: pontuacao?.vitoria ?? 2, perdedor: pontuacao?.derrota ?? 1 };

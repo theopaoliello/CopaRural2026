@@ -249,19 +249,25 @@ function abaTimes() {
 // ---------- artilharia ----------
 
 function abaArtilharia() {
+  const rot = D.esporte.rotulos; // Artilharia/Gols ou Cestinhas/Pontos
+  const icone = rot.individual === 'Pontos' ? '🏀' : '⚽';
   const art = D.artilharia.length
     ? `<div class="tabela-wrap"><table class="tabela">
-        <thead><tr><th>#</th><th class="time">Jogador</th><th class="time">Time</th><th>Gols</th></tr></thead>
-        <tbody>${D.artilharia.map((a, i) => `<tr><td>${i + 1}</td><td class="time">${esc(a.nome)}</td><td class="time">${esc(a.time)}</td><td class="pts">${a.gols}</td></tr>`).join('')}</tbody>
+        <thead><tr><th>#</th><th class="time">Jogador</th><th class="time">${esc(rot.participante)}</th><th>${esc(rot.individual)}</th></tr></thead>
+        <tbody>${D.artilharia.map((a, i) => `<tr><td>${i + 1}</td><td class="time">${esc(a.nome)}</td><td class="time">${esc(a.time)}</td><td class="pts">${a.total}</td></tr>`).join('')}</tbody>
       </table></div>`
-    : '<p class="muted">Nenhum gol registrado ainda.</p>';
-  const dis = D.disciplina.length
-    ? `<div class="tabela-wrap"><table class="tabela">
-        <thead><tr><th class="time">Jogador</th><th class="time">Time</th><th>🟨</th><th>🟥</th></tr></thead>
-        <tbody>${D.disciplina.map((a) => `<tr><td class="time">${esc(a.nome)}</td><td class="time">${esc(a.time)}</td><td>${a.amarelos}</td><td>${a.vermelhos}</td></tr>`).join('')}</tbody>
-      </table></div>`
-    : '<p class="muted">Nenhum cartão registrado ainda.</p>';
-  return `<div class="card"><h3>⚽ ${esc(D.esporte.rotulos.artilharia)}</h3>${art}</div><div class="card"><h3>🟨🟥 Cartões</h3>${dis}</div>`;
+    : `<p class="muted">Nenhum ${esc(rot.individual.toLowerCase())} registrado ainda.</p>`;
+  let cartoes = '';
+  if (D.esporte.tem_cartoes) {
+    const dis = D.disciplina.length
+      ? `<div class="tabela-wrap"><table class="tabela">
+          <thead><tr><th class="time">Jogador</th><th class="time">${esc(rot.participante)}</th><th>🟨</th><th>🟥</th></tr></thead>
+          <tbody>${D.disciplina.map((a) => `<tr><td class="time">${esc(a.nome)}</td><td class="time">${esc(a.time)}</td><td>${a.amarelos}</td><td>${a.vermelhos}</td></tr>`).join('')}</tbody>
+        </table></div>`
+      : '<p class="muted">Nenhum cartão registrado ainda.</p>';
+    cartoes = `<div class="card"><h3>🟨🟥 Cartões</h3>${dis}</div>`;
+  }
+  return `<div class="card"><h3>${icone} ${esc(rot.artilharia)}</h3>${art}</div>${cartoes}`;
 }
 
 // ---------- regras ----------
@@ -283,18 +289,22 @@ $('#modal-fundo').onclick = (e) => { if (e.target === $('#modal-fundo')) fecharM
 function abrirTime(id) {
   const t = timePorId(id);
   const elenco = D.jogadores.filter((j) => j.time_id === id);
-  // Esportes sem eventos individuais (sets): elenco lista so os nomes.
-  const temEventos = !!D.esporte.rotulos.artilharia;
+  // Colunas do elenco por esporte: Gols+cartoes (futebol), Pontos (basquete),
+  // so os nomes (esportes de sets).
+  const rot = D.esporte.rotulos;
+  const temEventos = !!rot.artilharia;
+  const campoIndividual = rot.individual === 'Pontos' ? 'pontos' : 'gols';
+  const temCartoes = D.esporte.tem_cartoes;
   const jogosDoTime = D.jogos.filter((j) => j.status === 'encerrado' && (j.time_casa_id === id || j.time_fora_id === id));
   abrirModal(`
     <div style="text-align:center">${escudoHtml(t, 'escudo-grande')}<h2 style="margin:6px 0">${esc(t.nome)}</h2></div>
     ${t.foto ? `<img src="${esc(t.foto)}" style="width:100%;border-radius:10px" alt="Foto do time">` : ''}
     <h3>Elenco</h3>
     ${elenco.length ? `<div class="tabela-wrap"><table class="tabela">
-      <thead><tr><th class="time">Jogador</th>${temEventos ? '<th>Gols</th><th>🟨</th><th>🟥</th>' : ''}</tr></thead>
+      <thead><tr><th class="time">Jogador</th>${temEventos ? `<th>${esc(rot.individual)}</th>` : ''}${temCartoes ? '<th>🟨</th><th>🟥</th>' : ''}</tr></thead>
       <tbody>${elenco.map((j) => `<tr>
         <td class="time">${j.numero != null ? `<span class="badge">${j.numero}</span> ` : ''}${esc(j.nome)}</td>
-        ${temEventos ? `<td class="pts">${j.gols}</td><td>${j.amarelos}</td><td>${j.vermelhos}</td>` : ''}
+        ${temEventos ? `<td class="pts">${j[campoIndividual]}</td>` : ''}${temCartoes ? `<td>${j.amarelos}</td><td>${j.vermelhos}</td>` : ''}
       </tr>`).join('')}</tbody>
     </table></div>` : '<p class="muted">Elenco ainda não cadastrado.</p>'}
     <h3>Jogos</h3>
@@ -309,6 +319,7 @@ function abrirJogo(id) {
   const fora = timePorId(j.time_fora_id);
   const evs = D.eventos.filter((e) => e.jogo_id === id);
   const parciais = (D.sets ?? []).filter((s) => s.jogo_id === id);
+  const cestinhas = evs.filter((e) => e.tipo === 'pontos').sort((a, b) => b.valor - a.valor);
   // jogador_id null = gol lançado sem registro de autor (placar simples ou "SR" no texto).
   const nomeJogador = (jid) =>
     jid == null ? 'SR (Sem registro)' : (D.jogadores.find((x) => x.id === jid)?.nome ?? 'Não informado');
@@ -334,6 +345,8 @@ function abrirJogo(id) {
     <p class="muted" style="text-align:center">
       ${j.data ? '📅 ' + esc(formatarData(j.data)) : ''} ${j.local ? ' • 📍 ' + esc(j.local) : ''}
     </p>
+    ${cestinhas.length ? `<h3>🏀 ${esc(D.esporte.rotulos.artilharia)}</h3>
+      <ul>${cestinhas.map((e) => `<li>${esc(nomeJogador(e.jogador_id))} — <strong>${e.valor}</strong> pts <span class="muted">(${esc(nomeTime(e.time_id))})</span></li>`).join('')}</ul>` : ''}
     ${listaEv('gol', '⚽')}${listaEv('gol_contra', '⚽')}${listaEv('amarelo', '🟨')}${listaEv('vermelho', '🟥')}
     ${j.obs ? `<p class="muted">${esc(j.obs)}</p>` : ''}
     ${j.sumula ? `<h3>📋 Súmula</h3><img src="${esc(j.sumula)}" style="width:100%;border-radius:10px" alt="Súmula">` : ''}

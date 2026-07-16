@@ -65,7 +65,61 @@ export function registrarResultado(db, jogo, dados) {
   const campeonato = db.prepare('SELECT * FROM campeonatos WHERE id = ?').get(jogo.campeonato_id);
   const esporte = obterEsporte(campeonato?.esporte) ?? obterEsporte(ESPORTE_PADRAO);
   if (esporte.placar === 'sets') return registrarResultadoSets(db, jogo, campeonato, esporte, dados);
+  if (esporte.placar === 'pontos') return registrarResultadoPontos(db, jogo, esporte, dados);
   return registrarResultadoGols(db, jogo, dados);
+}
+
+// ---------- modelo C: pontos de jogo (basquete) ----------
+
+// `dados`: { pontos_casa, pontos_fora, eventos?: [{tipo:'pontos', time_id,
+//   jogador_id, valor}] } — valor = total de pontos do jogador no jogo (cestinhas).
+function registrarResultadoPontos(db, jogo, esporte, dados) {
+  if (dados.penaltis_casa != null || dados.penaltis_fora != null) {
+    throw erroValidacao(`Nao existem penaltis no ${esporte.nome}.`);
+  }
+  const pontosCasa = Number(dados.pontos_casa ?? dados.gols_casa);
+  const pontosFora = Number(dados.pontos_fora ?? dados.gols_fora);
+  if (!Number.isInteger(pontosCasa) || pontosCasa < 0 || !Number.isInteger(pontosFora) || pontosFora < 0) {
+    throw erroValidacao('Placar invalido.');
+  }
+  // RN-TC-09: prorrogacao resolve na quadra — o placar final sempre tem vencedor.
+  if (pontosCasa === pontosFora) {
+    throw erroValidacao(`O ${esporte.nome} nao tem empate: informe o placar apos a prorrogacao.`);
+  }
+
+  const eventos = dados.eventos ?? [];
+  const idsTimes = [jogo.time_casa_id, jogo.time_fora_id];
+  const somaPorTime = { [jogo.time_casa_id]: 0, [jogo.time_fora_id]: 0 };
+  for (const ev of eventos) {
+    if (ev.tipo !== 'pontos') throw erroValidacao(`Tipo de evento invalido para ${esporte.nome}: ${ev.tipo}`);
+    const timeId = Number(ev.time_id);
+    if (!idsTimes.includes(timeId)) throw erroValidacao('Evento aponta para um time que nao esta neste jogo.');
+    const valor = Number(ev.valor);
+    if (!Number.isInteger(valor) || valor < 1) throw erroValidacao('Pontos do jogador invalidos.');
+    const jogador = db.prepare('SELECT * FROM jogadores WHERE id = ?').get(Number(ev.jogador_id));
+    if (!jogador || jogador.time_id !== timeId) {
+      throw erroValidacao('Jogador do evento nao pertence ao time esperado.');
+    }
+    somaPorTime[timeId] += valor;
+  }
+  if (somaPorTime[jogo.time_casa_id] > pontosCasa || somaPorTime[jogo.time_fora_id] > pontosFora) {
+    throw erroValidacao('Ha mais pontos atribuidos a jogadores do que o placar do time.');
+  }
+
+  db.prepare(
+    `UPDATE jogos SET gols_casa = ?, gols_fora = ?, penaltis_casa = NULL, penaltis_fora = NULL,
+     status = 'encerrado' WHERE id = ?`,
+  ).run(pontosCasa, pontosFora, jogo.id);
+
+  db.prepare('DELETE FROM eventos WHERE jogo_id = ?').run(jogo.id);
+  db.prepare('DELETE FROM sets WHERE jogo_id = ?').run(jogo.id);
+  const insEv = db.prepare(
+    "INSERT INTO eventos (jogo_id, time_id, jogador_id, tipo, valor) VALUES (?, ?, ?, 'pontos', ?)",
+  );
+  for (const ev of eventos) insEv.run(jogo.id, Number(ev.time_id), Number(ev.jogador_id), Number(ev.valor));
+
+  propagarVencedor(db, db.prepare('SELECT * FROM jogos WHERE id = ?').get(jogo.id));
+  return db.prepare('SELECT * FROM jogos WHERE id = ?').get(jogo.id);
 }
 
 // ---------- modelo B: sets (futevolei, beach tennis, volei, peteca) ----------
@@ -78,8 +132,10 @@ function registrarResultadoSets(db, jogo, campeonato, esporte, dados) {
     throw erroValidacao(`O ${esporte.nome} nao registra eventos individuais.`);
   }
 
+  // melhor_de 0 = placar livre: qualquer contagem de sets, so exige vencedor.
   const melhorDe = campeonato.melhor_de ?? esporte.melhor_de?.padrao ?? 1;
-  const paraFechar = Math.ceil(melhorDe / 2); // sets que fecham o jogo
+  const livre = melhorDe === 0;
+  const paraFechar = livre ? null : Math.ceil(melhorDe / 2); // sets que fecham o jogo
 
   let setsCasa;
   let setsFora;
@@ -100,7 +156,7 @@ function registrarResultadoSets(db, jogo, campeonato, esporte, dados) {
     setsCasa = 0;
     setsFora = 0;
     for (const p of parciais) {
-      if (setsCasa === paraFechar || setsFora === paraFechar) {
+      if (!livre && (setsCasa === paraFechar || setsFora === paraFechar)) {
         throw erroValidacao(`O jogo fecha em ${paraFechar} set(s): ha parciais sobrando.`);
       }
       if (p.pontos_casa > p.pontos_fora) setsCasa += 1;
@@ -116,7 +172,10 @@ function registrarResultadoSets(db, jogo, campeonato, esporte, dados) {
   }
 
   const [vencedor, perdedor] = setsCasa > setsFora ? [setsCasa, setsFora] : [setsFora, setsCasa];
-  if (vencedor !== paraFechar || perdedor > melhorDe - paraFechar) {
+  if (livre) {
+    // Placar livre: sem regra de contagem, mas o jogo precisa ter um vencedor.
+    if (setsCasa === setsFora) throw erroValidacao('O jogo nao pode terminar empatado: informe um vencedor.');
+  } else if (vencedor !== paraFechar || perdedor > melhorDe - paraFechar) {
     throw erroValidacao(
       `Placar de sets invalido para melhor de ${melhorDe}: o vencedor fecha com ${paraFechar} set(s)` +
       (melhorDe > 1 ? ` e o perdedor faz no maximo ${melhorDe - paraFechar}.` : '.'),

@@ -195,7 +195,7 @@ function telaNovoForm(chaveEsporte) {
         ${esporte.placar === 'sets' ? `
         <label>Formato da partida</label>
         <select name="melhor_de">
-          ${esporte.melhor_de.opcoes.map((n) => `<option value="${n}" ${n === esporte.melhor_de.padrao ? 'selected' : ''}>${n === 1 ? 'Set único' : `Melhor de ${n} sets`}</option>`).join('')}
+          ${esporte.melhor_de.opcoes.map((n) => `<option value="${n}" ${n === esporte.melhor_de.padrao ? 'selected' : ''}>${n === 0 ? 'Placar livre (qualquer nº de sets)' : n === 1 ? 'Set único' : `Melhor de ${n} sets`}</option>`).join('')}
         </select>` : ''}
         <div class="grid-2">
           <div id="campo-grupos" style="display:none">
@@ -419,21 +419,89 @@ function modoResultado(modo) {
 
 function modalResultado(jogoId) {
   if (ESP?.placar === 'sets') return modalResultadoSets(jogoId);
+  if (ESP?.placar === 'pontos') return modalResultadoPontos(jogoId);
   return modalResultadoGols(jogoId);
 }
 
+// ---------- resultado por pontos de jogo (basquete) ----------
+
+function modalResultadoPontos(jogoId) {
+  const j = DET.jogos.find((x) => x.id === jogoId);
+  const casa = DET.times.find((t) => t.id === j.time_casa_id);
+  const fora = DET.times.find((t) => t.id === j.time_fora_id);
+  const evs = DET.eventos.filter((e) => e.jogo_id === jogoId && e.tipo === 'pontos');
+  const pontosDe = (jogadorId) => evs.find((e) => e.jogador_id === jogadorId)?.valor ?? '';
+  const colunaElenco = (time) => {
+    const elenco = DET.jogadores.filter((x) => x.time_id === time.id);
+    if (!elenco.length) return `<div><strong>${esc(time.nome)}</strong><p class="muted">Sem elenco cadastrado.</p></div>`;
+    return `<div><strong>${esc(time.nome)}</strong>
+      ${elenco.map((x) => `<div class="linha-flex" style="margin:4px 0">
+        <span style="flex:1">${esc(x.nome)}</span>
+        <input type="number" min="1" class="pts-jogador" data-jogador="${x.id}" data-time="${time.id}"
+          value="${pontosDe(x.id)}" placeholder="pts" style="width:70px">
+      </div>`).join('')}</div>`;
+  };
+  abrirModal(`
+    <h3>Resultado: ${esc(casa.nome)} x ${esc(fora.nome)}</h3>
+    <div class="grid-2">
+      <div><label>Pontos ${esc(casa.nome)}</label><input type="number" id="pontos-casa" min="0" value="${j.gols_casa ?? ''}"></div>
+      <div><label>Pontos ${esc(fora.nome)}</label><input type="number" id="pontos-fora" min="0" value="${j.gols_fora ?? ''}"></div>
+    </div>
+    <p class="muted">Não existe empate: havendo prorrogação, lance o placar final dela.</p>
+    <h4 style="margin:10px 0 4px">${esc(ESP.rotulos.artilharia)} (opcional)</h4>
+    <p class="muted" style="margin:0 0 8px">Total de pontos de cada jogador no jogo. Deixe em branco quem não pontuou.</p>
+    <div class="grid-2">${colunaElenco(casa)}${colunaElenco(fora)}</div>
+    <div id="aviso-res" class="aviso"></div>
+    <p><button class="botao" style="width:100%" onclick="salvarResultadoPontos(${jogoId})">Salvar resultado</button></p>
+  `);
+}
+
+async function salvarResultadoPontos(jogoId) {
+  const av = $('#aviso-res');
+  const a = $('#pontos-casa').value.trim(), b = $('#pontos-fora').value.trim();
+  if (a === '' || b === '') {
+    av.textContent = 'Informe o placar dos dois times.'; av.className = 'aviso erro';
+    return;
+  }
+  const eventos = [...document.querySelectorAll('.pts-jogador')]
+    .filter((i) => i.value.trim() !== '')
+    .map((i) => ({
+      tipo: 'pontos', time_id: Number(i.dataset.time),
+      jogador_id: Number(i.dataset.jogador), valor: Number(i.value),
+    }));
+  try {
+    await api(`/api/jogos/${jogoId}/resultado`, 'POST', { pontos_casa: Number(a), pontos_fora: Number(b), eventos });
+    fecharModal(); telaCampeonato(DET.campeonato.id, 'jogos');
+  } catch (e) {
+    av.textContent = e.message; av.className = 'aviso erro';
+  }
+}
+
 // ---------- resultado por sets (futevolei, beach tennis, volei, peteca) ----------
+
+function linhaSetHtml(i, parcial) {
+  return `<div class="linha-flex" style="margin-bottom:6px">
+    <span style="min-width:52px">Set ${i + 1}</span>
+    <input type="number" min="0" class="set-casa" data-set="${i}" value="${parcial?.pontos_casa ?? ''}" style="width:90px">
+    <span>x</span>
+    <input type="number" min="0" class="set-fora" data-set="${i}" value="${parcial?.pontos_fora ?? ''}" style="width:90px">
+  </div>`;
+}
 
 function modalResultadoSets(jogoId) {
   const j = DET.jogos.find((x) => x.id === jogoId);
   const casa = DET.times.find((t) => t.id === j.time_casa_id);
   const fora = DET.times.find((t) => t.id === j.time_fora_id);
   const melhorDe = DET.campeonato.melhor_de ?? 1;
+  const livre = melhorDe === 0; // placar livre: qualquer nº de sets, so exige vencedor
   const parciais = (DET.sets ?? []).filter((s) => s.jogo_id === jogoId);
+  const nLinhas = livre ? Math.max(3, parciais.length) : melhorDe;
   const rotuloPontos = ESP.rotulos.pontos; // "pontos" ou "games" (beach tennis)
   abrirModal(`
     <h3>Resultado: ${esc(casa.nome)} x ${esc(fora.nome)}</h3>
-    <p class="muted" style="margin:4px 0">Melhor de ${melhorDe} — fecha com ${Math.ceil(melhorDe / 2)} set(s). Não existe empate.</p>
+    <p class="muted" style="margin:4px 0">${livre
+      ? 'Placar livre — qualquer nº de sets, mas o jogo precisa ter um vencedor.'
+      : `Melhor de ${melhorDe} — fecha com ${Math.ceil(melhorDe / 2)} set(s). Não existe empate.`}</p>
     <div class="abas" style="margin-bottom:10px">
       <button class="aba" id="aba-res-simples" onclick="modoResultado('simples')">Placar em sets</button>
       <button class="aba" id="aba-res-detalhado" onclick="modoResultado('detalhado')">Parciais</button>
@@ -443,23 +511,24 @@ function modalResultadoSets(jogoId) {
         <div><label>Sets ${esc(casa.nome)}</label><input type="number" id="sets-casa" min="0" value="${j.gols_casa ?? ''}"></div>
         <div><label>Sets ${esc(fora.nome)}</label><input type="number" id="sets-fora" min="0" value="${j.gols_fora ?? ''}"></div>
       </div>
-      <p class="muted">Só o placar do jogo em sets (ex.: ${Math.ceil(melhorDe / 2)} x 0), sem as parciais.</p>
+      <p class="muted">Só o placar do jogo em sets${livre ? '' : ` (ex.: ${Math.ceil(melhorDe / 2)} x 0)`}, sem as parciais.</p>
     </div>
     <div id="res-detalhado" hidden>
       <p class="muted" style="margin:4px 0">Informe os ${esc(rotuloPontos)} de cada set jogado (deixe em branco os que não houve).</p>
-      ${Array.from({ length: melhorDe }, (_, i) => `
-        <div class="linha-flex" style="margin-bottom:6px">
-          <span style="min-width:52px">Set ${i + 1}</span>
-          <input type="number" min="0" class="set-casa" data-set="${i}" value="${parciais[i]?.pontos_casa ?? ''}" style="width:90px">
-          <span>x</span>
-          <input type="number" min="0" class="set-fora" data-set="${i}" value="${parciais[i]?.pontos_fora ?? ''}" style="width:90px">
-        </div>`).join('')}
+      <div id="linhas-sets">${Array.from({ length: nLinhas }, (_, i) => linhaSetHtml(i, parciais[i])).join('')}</div>
+      ${livre ? '<p><button type="button" class="botao secundario mini" onclick="adicionarLinhaSet()">+ Adicionar set</button></p>' : ''}
       <p style="text-align:center;font-size:1.1rem"><strong>Placar: ${esc(casa.nome)} <span id="res-placar">0 x 0</span> ${esc(fora.nome)}</strong><br>
       <span class="muted">em sets, calculado pelas parciais</span></p>
     </div>
     <div id="aviso-res" class="aviso"></div>
     <p><button class="botao" style="width:100%" onclick="salvarResultadoSets(${jogoId})">Salvar resultado</button></p>
   `);
+  ligarPlacarDerivado();
+  // Abre no placar simples (mais rapido); Parciais so quando ja ha parciais lancadas.
+  modoResultado(parciais.length ? 'detalhado' : 'simples');
+}
+
+function ligarPlacarDerivado() {
   const atualizarPlacar = () => {
     let sc = 0, sf = 0;
     for (const par of lerParciais().parciais ?? []) (par[0] > par[1] ? sc++ : sf++);
@@ -467,7 +536,12 @@ function modalResultadoSets(jogoId) {
   };
   document.querySelectorAll('#res-detalhado input').forEach((i) => { i.oninput = atualizarPlacar; });
   atualizarPlacar();
-  modoResultado(parciais.length || j.status !== 'encerrado' ? 'detalhado' : 'simples');
+}
+
+function adicionarLinhaSet() {
+  const linhas = $('#linhas-sets');
+  linhas.insertAdjacentHTML('beforeend', linhaSetHtml(linhas.children.length, null));
+  ligarPlacarDerivado();
 }
 
 // Le as parciais preenchidas no modal, na ordem, parando na primeira linha vazia.
@@ -841,7 +915,7 @@ async function abaConfig() {
       <h3>Identidade</h3>
       ${esporte ? `<p class="muted" style="display:flex;align-items:center;gap:6px">
         <img src="${esc(esporte.icone)}" alt="" style="width:22px;height:22px;object-fit:contain">
-        Esporte: <strong>${esc(esporte.nome)}</strong>${c.modalidade ? ` (${esc(c.modalidade)}${c.melhor_de ? `, melhor de ${c.melhor_de} sets` : ''})` : ''} — definido na criação, não pode ser alterado.
+        Esporte: <strong>${esc(esporte.nome)}</strong>${c.modalidade ? ` (${esc(c.modalidade)}${c.melhor_de != null ? `, ${c.melhor_de === 0 ? 'placar livre' : `melhor de ${c.melhor_de} sets`}` : ''})` : ''} — definido na criação, não pode ser alterado.
       </p>` : ''}
       <div class="grid-2">
         <div><label>Nome</label><input type="text" id="cfg-nome" value="${esc(c.nome)}"></div>

@@ -137,8 +137,10 @@ CREATE TABLE IF NOT EXISTS eventos (
   time_id INTEGER NOT NULL REFERENCES times(id) ON DELETE CASCADE,
   jogador_id INTEGER REFERENCES jogadores(id) ON DELETE SET NULL,
   -- gol_contra: gol marcado por jogador ADVERSARIO; time_id e o time beneficiado.
-  tipo TEXT NOT NULL CHECK (tipo IN ('gol', 'gol_contra', 'amarelo', 'vermelho')),
-  minuto INTEGER
+  -- pontos: total de pontos do jogador no jogo (basquete/cestinhas), em `valor`.
+  tipo TEXT NOT NULL CHECK (tipo IN ('gol', 'gol_contra', 'amarelo', 'vermelho', 'pontos')),
+  minuto INTEGER,
+  valor INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE INDEX IF NOT EXISTS idx_eventos_jogo ON eventos(jogo_id);

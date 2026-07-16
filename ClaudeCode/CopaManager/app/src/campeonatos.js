@@ -9,7 +9,8 @@ import {
   seedsDeGrupos,
 } from './tabela.js';
 import {
-  calcularClassificacao, calcularClassificacaoSets, cartoesPorTime, CRITERIOS_VALIDOS,
+  calcularClassificacao, calcularClassificacaoSets, calcularClassificacaoPontos,
+  cartoesPorTime, CRITERIOS_VALIDOS,
 } from './classificacao.js';
 import { obterEsporte, ESPORTE_PADRAO } from './esportes.js';
 
@@ -205,12 +206,11 @@ export function classificacaoDoCampeonato(db, campeonato) {
          WHERE j.campeonato_id = ? AND j.status = 'encerrado' AND j.fase = 'grupos'`,
       )
       .all(campeonato.id);
-    const opcoes = {
-      pontuacao: esporte.pontuacao,
-      melhorDe: campeonato.melhor_de ?? esporte.melhor_de?.padrao ?? 1,
-      criterios,
-    };
+    const opcoes = { pontuacao: esporte.pontuacao, criterios };
     calcular = (ts, js) => calcularClassificacaoSets(ts, js, sets, opcoes);
+  } else if (esporte.placar === 'pontos') {
+    const opcoes = { pontuacao: esporte.pontuacao, criterios };
+    calcular = (ts, js) => calcularClassificacaoPontos(ts, js, opcoes);
   } else {
     const eventos = db
       .prepare(

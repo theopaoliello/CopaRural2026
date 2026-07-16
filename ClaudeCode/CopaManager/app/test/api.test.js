@@ -123,7 +123,7 @@ test('fluxo completo: conta, campeonato, resultados, classificacao e pagina publ
   const pub = await cliente()('GET', `/api/publico/${criado.corpo.slug}`);
   assert.equal(pub.status, 200);
   assert.equal(pub.corpo.artilharia[0].nome, 'Pele');
-  assert.equal(pub.corpo.artilharia[0].gols, 1);
+  assert.equal(pub.corpo.artilharia[0].total, 1);
 
   // corrigir resultado: apagar volta o jogo para agendado e zera a tabela
   const del = await alice('DELETE', `/api/jogos/${jogo.id}/resultado`);
@@ -392,7 +392,7 @@ A,Thiago`,
 
   // artilharia: Theo 2, Fred 1 (gol contra NAO conta para o autor)
   const pub = await cliente()('GET', `/api/publico/${criado.corpo.slug}`);
-  const art = Object.fromEntries(pub.corpo.artilharia.map((a) => [a.nome, a.gols]));
+  const art = Object.fromEntries(pub.corpo.artilharia.map((a) => [a.nome, a.total]));
   assert.equal(art.Theo, 2);
   assert.equal(art.Fred, 1);
 
@@ -725,7 +725,7 @@ test('multiesporte (fase 1): catalogo, preset e validacao do esporte', async () 
   );
   assert.deepEqual(
     cat.corpo.filter((e) => e.disponivel).map((e) => e.chave),
-    ['futebol', 'futevolei', 'beach_tennis', 'volei', 'peteca'], // fase 2: esportes de sets no ar
+    ['futebol', 'futevolei', 'beach_tennis', 'volei', 'basquete', 'peteca'], // fases 2-3: sets + basquete no ar
   );
 
   // esporte ausente = futebol (API pre-multiesporte continua valida)
@@ -751,7 +751,7 @@ test('multiesporte (fase 1): catalogo, preset e validacao do esporte', async () 
   });
   assert.equal(invalido.status, 400);
   const emBreve = await rita('POST', '/api/campeonatos', {
-    nome: 'V', esporte: 'basquete', formato: 'pontos', times: ['A', 'B'],
+    nome: 'V', esporte: 'pelada_epica', formato: 'pontos', times: ['A', 'B'],
   });
   assert.equal(emBreve.status, 400);
   assert.match(emBreve.corpo.mensagem, /disponivel/i);

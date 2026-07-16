@@ -44,22 +44,29 @@ export function dadosPublicos(db, slug) {
     )
     .all(campeonato.id);
 
-  // Estatisticas por jogador (gols/cartoes) para elenco e artilharia.
+  // Rotulos e nome do esporte (RN-TC-10): a pagina publica nunca fixa
+  // "Time"/"Artilharia" no HTML — le daqui.
+  const preset = obterEsporte(campeonato.esporte) ?? obterEsporte(ESPORTE_PADRAO);
+
+  // Estatisticas por jogador (gols/pontos/cartoes) para elenco e artilharia.
   const stats = estatisticasJogadores(eventos);
   const jogadoresComStats = jogadores.map((j) => ({
     ...j,
     gols: stats.get(j.id)?.gols ?? 0,
+    pontos: stats.get(j.id)?.pontos ?? 0,
     amarelos: stats.get(j.id)?.amarelos ?? 0,
     vermelhos: stats.get(j.id)?.vermelhos ?? 0,
   }));
 
   const nomeTime = new Map(times.map((t) => [t.id, t.nome]));
-  const artilharia = jogadoresComStats
-    .filter((j) => j.gols > 0)
-    .sort((a, b) => b.gols - a.gols || a.nome.localeCompare(b.nome, 'pt-BR'))
+  // Ranking individual do esporte: gols (artilharia) ou pontos (cestinhas).
+  const campoIndividual = preset.evento_individual === 'pontos' ? 'pontos' : 'gols';
+  const artilharia = !preset.evento_individual ? [] : jogadoresComStats
+    .filter((j) => j[campoIndividual] > 0)
+    .sort((a, b) => b[campoIndividual] - a[campoIndividual] || a.nome.localeCompare(b.nome, 'pt-BR'))
     .slice(0, 20)
-    .map((j) => ({ nome: j.nome, time: nomeTime.get(j.time_id), gols: j.gols }));
-  const disciplina = jogadoresComStats
+    .map((j) => ({ nome: j.nome, time: nomeTime.get(j.time_id), total: j[campoIndividual] }));
+  const disciplina = !preset.tem_cartoes ? [] : jogadoresComStats
     .filter((j) => j.amarelos + j.vermelhos > 0)
     .sort((a, b) => b.vermelhos - a.vermelhos || b.amarelos - a.amarelos)
     .slice(0, 20)
@@ -81,10 +88,6 @@ export function dadosPublicos(db, slug) {
     };
   });
 
-  // Rotulos e nome do esporte (RN-TC-10): a pagina publica nunca fixa
-  // "Time"/"Artilharia" no HTML — le daqui.
-  const preset = obterEsporte(campeonato.esporte) ?? obterEsporte(ESPORTE_PADRAO);
-
   return {
     esporte: {
       chave: preset.chave,
@@ -93,6 +96,7 @@ export function dadosPublicos(db, slug) {
       rotulos: preset.rotulos,
       colunas: preset.colunas,
       melhor_de: campeonato.melhor_de,
+      tem_cartoes: !!preset.tem_cartoes,
     },
     campeonato: {
       nome: campeonato.nome,
