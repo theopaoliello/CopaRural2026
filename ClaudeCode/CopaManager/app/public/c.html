@@ -113,17 +113,31 @@ function mostrarAba(aba) {
 
 // ---------- classificacao ----------
 
+// Celula da classificacao dirigida pela chave da coluna (catalogo de esportes).
+function celulaClassif(l, chave) {
+  if (chave === 'ultimos') return bolinhas(l.ultimos);
+  if (chave === 'razao_sets') return razaoTexto(l.sv, l.sp);
+  if (chave === 'razao_pontos') return razaoTexto(l.pp, l.pc);
+  const v = l[chave];
+  if (chave === 'sg' || chave.startsWith('saldo')) return `${v > 0 ? '+' : ''}${v}`;
+  return String(v ?? '');
+}
+function razaoTexto(a, b) {
+  if (b === 0) return a === 0 ? '—' : 'MAX'; // FIVB: nenhum set/ponto perdido
+  return (a / b).toFixed(2);
+}
+
 function tabelaClassificacao(linhas) {
+  const colunas = D.esporte.colunas ?? [];
   return `<div class="tabela-wrap"><table class="tabela">
-    <thead><tr><th>#</th><th class="time">${esc(D.esporte.rotulos.participante)}</th><th>Pts</th><th>PJ</th><th>V</th><th>E</th><th>D</th><th>GP</th><th>GC</th><th>SG</th><th>Últ. Jogos</th></tr></thead>
+    <thead><tr><th>#</th><th class="time">${esc(D.esporte.rotulos.participante)}</th>
+      ${colunas.map(([, r, t]) => `<th title="${esc(t)}">${esc(r)}</th>`).join('')}</tr></thead>
     <tbody>${linhas.map((l) => {
       const t = timePorId(l.time_id);
       return `<tr class="abrir-time" data-time="${l.time_id}">
         <td>${l.pos}</td>
         <td class="time">${escudoHtml(t)} ${esc(l.nome)}</td>
-        <td class="pts">${l.pts}</td><td>${l.pj}</td><td>${l.v}</td><td>${l.e}</td><td>${l.d}</td>
-        <td>${l.gp}</td><td>${l.gc}</td><td>${l.sg > 0 ? '+' : ''}${l.sg}</td>
-        <td>${bolinhas(l.ultimos)}</td>
+        ${colunas.map(([k]) => `<td class="${k === 'pts' ? 'pts' : ''}">${celulaClassif(l, k)}</td>`).join('')}
       </tr>`;
     }).join('')}</tbody>
   </table></div>`;
@@ -174,11 +188,19 @@ function abaChaveamento() {
 
 // ---------- jogos ----------
 
+function parciaisTexto(jogoId) {
+  const parciais = (D.sets ?? []).filter((s) => s.jogo_id === jogoId);
+  return parciais.length ? parciais.map((p) => `${p.pontos_casa}-${p.pontos_fora}`).join(' / ') : '';
+}
+
 function linhaJogo(j) {
   const casa = timePorId(j.time_casa_id);
   const fora = timePorId(j.time_fora_id);
+  const parciais = j.status === 'encerrado' ? parciaisTexto(j.id) : '';
   const placar = j.status === 'encerrado'
-    ? `${j.gols_casa} x ${j.gols_fora}` + (j.penaltis_casa != null ? `<div class="muted" style="font-size:.7rem">(${j.penaltis_casa}x${j.penaltis_fora} pen)</div>` : '')
+    ? `${j.gols_casa} x ${j.gols_fora}`
+      + (j.penaltis_casa != null ? `<div class="muted" style="font-size:.7rem">(${j.penaltis_casa}x${j.penaltis_fora} pen)</div>` : '')
+      + (parciais ? `<div class="muted" style="font-size:.7rem">(${parciais})</div>` : '')
     : (j.data ? esc(formatarData(j.data)) : 'A definir');
   return `<div class="jogo abrir-jogo" data-jogo="${j.id}">
     <span class="mandante">${esc(casa?.nome ?? 'A definir')} ${escudoHtml(casa)}</span>
@@ -261,16 +283,18 @@ $('#modal-fundo').onclick = (e) => { if (e.target === $('#modal-fundo')) fecharM
 function abrirTime(id) {
   const t = timePorId(id);
   const elenco = D.jogadores.filter((j) => j.time_id === id);
+  // Esportes sem eventos individuais (sets): elenco lista so os nomes.
+  const temEventos = !!D.esporte.rotulos.artilharia;
   const jogosDoTime = D.jogos.filter((j) => j.status === 'encerrado' && (j.time_casa_id === id || j.time_fora_id === id));
   abrirModal(`
     <div style="text-align:center">${escudoHtml(t, 'escudo-grande')}<h2 style="margin:6px 0">${esc(t.nome)}</h2></div>
     ${t.foto ? `<img src="${esc(t.foto)}" style="width:100%;border-radius:10px" alt="Foto do time">` : ''}
     <h3>Elenco</h3>
     ${elenco.length ? `<div class="tabela-wrap"><table class="tabela">
-      <thead><tr><th class="time">Jogador</th><th>Gols</th><th>🟨</th><th>🟥</th></tr></thead>
+      <thead><tr><th class="time">Jogador</th>${temEventos ? '<th>Gols</th><th>🟨</th><th>🟥</th>' : ''}</tr></thead>
       <tbody>${elenco.map((j) => `<tr>
         <td class="time">${j.numero != null ? `<span class="badge">${j.numero}</span> ` : ''}${esc(j.nome)}</td>
-        <td class="pts">${j.gols}</td><td>${j.amarelos}</td><td>${j.vermelhos}</td>
+        ${temEventos ? `<td class="pts">${j.gols}</td><td>${j.amarelos}</td><td>${j.vermelhos}</td>` : ''}
       </tr>`).join('')}</tbody>
     </table></div>` : '<p class="muted">Elenco ainda não cadastrado.</p>'}
     <h3>Jogos</h3>
@@ -284,6 +308,7 @@ function abrirJogo(id) {
   const casa = timePorId(j.time_casa_id);
   const fora = timePorId(j.time_fora_id);
   const evs = D.eventos.filter((e) => e.jogo_id === id);
+  const parciais = (D.sets ?? []).filter((s) => s.jogo_id === id);
   // jogador_id null = gol lançado sem registro de autor (placar simples ou "SR" no texto).
   const nomeJogador = (jid) =>
     jid == null ? 'SR (Sem registro)' : (D.jogadores.find((x) => x.id === jid)?.nome ?? 'Não informado');
@@ -305,6 +330,7 @@ function abrirJogo(id) {
       <span class="visitante">${escudoHtml(fora)} ${esc(fora?.nome ?? '?')}</span>
     </div>
     ${j.penaltis_casa != null ? `<p style="text-align:center" class="muted">Pênaltis: ${j.penaltis_casa} x ${j.penaltis_fora}</p>` : ''}
+    ${parciais.length ? `<p style="text-align:center" class="muted">Parciais: ${parciais.map((p) => `${p.pontos_casa}-${p.pontos_fora}`).join(' / ')}</p>` : ''}
     <p class="muted" style="text-align:center">
       ${j.data ? '📅 ' + esc(formatarData(j.data)) : ''} ${j.local ? ' • 📍 ' + esc(j.local) : ''}
     </p>

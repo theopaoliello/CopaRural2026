@@ -42,6 +42,8 @@ function migrarColunas(db) {
   // Multiesporte (RN-TC-07): campeonatos criados antes viram Futebol,
   // preservando a modalidade antiga como variante — nada muda para eles.
   addSeFaltar('campeonatos', "esporte TEXT NOT NULL DEFAULT 'futebol'");
+  // Esportes de sets (fase 2): formato da partida; a tabela `sets` vem do schema.
+  addSeFaltar('campeonatos', 'melhor_de INTEGER');
   // Confirmacao de e-mail chegou depois: contas que ja existiam sao
   // consideradas confirmadas (nao da para pedir confirmacao retroativa).
   const tinhaVerificado = colunaExiste(db, 'contas', 'email_verificado');

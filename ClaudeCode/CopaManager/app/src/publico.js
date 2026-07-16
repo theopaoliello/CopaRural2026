@@ -36,6 +36,13 @@ export function dadosPublicos(db, slug) {
   const banners = db
     .prepare('SELECT id, imagem, link FROM banners WHERE campeonato_id = ? AND ativo = 1 ORDER BY ordem, id')
     .all(campeonato.id);
+  const sets = db
+    .prepare(
+      `SELECT s.jogo_id, s.numero, s.pontos_casa, s.pontos_fora FROM sets s
+       JOIN jogos j ON j.id = s.jogo_id
+       WHERE j.campeonato_id = ? AND j.status = 'encerrado' ORDER BY s.jogo_id, s.numero`,
+    )
+    .all(campeonato.id);
 
   // Estatisticas por jogador (gols/cartoes) para elenco e artilharia.
   const stats = estatisticasJogadores(eventos);
@@ -79,7 +86,14 @@ export function dadosPublicos(db, slug) {
   const preset = obterEsporte(campeonato.esporte) ?? obterEsporte(ESPORTE_PADRAO);
 
   return {
-    esporte: { chave: preset.chave, nome: preset.nome, rotulos: preset.rotulos },
+    esporte: {
+      chave: preset.chave,
+      nome: preset.nome,
+      placar: preset.placar,
+      rotulos: preset.rotulos,
+      colunas: preset.colunas,
+      melhor_de: campeonato.melhor_de,
+    },
     campeonato: {
       nome: campeonato.nome,
       temporada: campeonato.temporada,
@@ -99,6 +113,7 @@ export function dadosPublicos(db, slug) {
     jogadores: jogadoresComStats,
     jogos,
     eventos,
+    sets,
     artilharia,
     disciplina,
     chaveamento,

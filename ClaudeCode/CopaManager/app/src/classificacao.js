@@ -1,5 +1,6 @@
 // Classificacao DERIVADA dos jogos encerrados — nunca armazenada.
 // Corrigir/apagar um resultado recalcula tudo automaticamente por construcao.
+import { pontosDaPartidaSets } from './esportes.js';
 
 export const CRITERIOS_VALIDOS = ['vitorias', 'saldo', 'gols_pro', 'confronto', 'cartoes'];
 
@@ -91,6 +92,98 @@ export function calcularClassificacao(times, jogos, opcoes = {}) {
     pos: i + 1,
     ultimos: linha.ultimos.slice(-5), // 5 mais recentes, da mais antiga a mais nova
   }));
+}
+
+// Classificacao dos esportes de sets (modelo B). Nunca ha empate de jogo.
+// jogos encerrados carregam o placar em sets em gols_casa/gols_fora; as
+// parciais (sets) alimentam pontos pro/contra (games, no beach tennis).
+// opcoes: { pontuacao (preset do esporte), melhorDe, criterios }
+// Linhas: { time_id, pos, pts, pj, v, d, sv, sp, pp, pc, saldo_sets,
+//           saldo_pontos, ultimos } (razoes/percentuais sao derivados na ordenacao)
+export function calcularClassificacaoSets(times, jogos, sets, opcoes = {}) {
+  const { pontuacao = { vitoria: 2, derrota: 1 }, melhorDe = 1, criterios = [] } = opcoes;
+
+  const linhas = new Map();
+  for (const t of times) {
+    linhas.set(t.id, {
+      time_id: t.id, nome: t.nome,
+      pts: 0, pj: 0, v: 0, d: 0, sv: 0, sp: 0, pp: 0, pc: 0,
+      saldo_sets: 0, saldo_pontos: 0, ultimos: [],
+    });
+  }
+
+  const encerrados = jogos
+    .filter((j) => j.status === 'encerrado' && linhas.has(j.time_casa_id) && linhas.has(j.time_fora_id))
+    .sort((a, b) => a.rodada - b.rodada || a.id - b.id);
+  const parciaisPorJogo = new Map();
+  for (const s of sets) {
+    if (!parciaisPorJogo.has(s.jogo_id)) parciaisPorJogo.set(s.jogo_id, []);
+    parciaisPorJogo.get(s.jogo_id).push(s);
+  }
+
+  for (const j of encerrados) {
+    const casa = linhas.get(j.time_casa_id);
+    const fora = linhas.get(j.time_fora_id);
+    const casaVenceu = j.gols_casa > j.gols_fora;
+    const [vSets, pSets] = casaVenceu ? [j.gols_casa, j.gols_fora] : [j.gols_fora, j.gols_casa];
+    const pontos = pontosDaPartidaSets(pontuacao, vSets, pSets, melhorDe);
+    const [vencedor, perdedor] = casaVenceu ? [casa, fora] : [fora, casa];
+
+    vencedor.pj += 1; vencedor.v += 1; vencedor.pts += pontos.vencedor; vencedor.ultimos.push('V');
+    perdedor.pj += 1; perdedor.d += 1; perdedor.pts += pontos.perdedor; perdedor.ultimos.push('D');
+    casa.sv += j.gols_casa; casa.sp += j.gols_fora;
+    fora.sv += j.gols_fora; fora.sp += j.gols_casa;
+    for (const p of parciaisPorJogo.get(j.id) ?? []) {
+      casa.pp += p.pontos_casa; casa.pc += p.pontos_fora;
+      fora.pp += p.pontos_fora; fora.pc += p.pontos_casa;
+    }
+  }
+  for (const l of linhas.values()) {
+    l.saldo_sets = l.sv - l.sp;
+    l.saldo_pontos = l.pp - l.pc;
+  }
+
+  // Confronto direto: pontos de classificacao conquistados nos jogos entre os dois.
+  const pontosConfronto = (idA, idB) => {
+    let pts = 0;
+    for (const j of encerrados) {
+      const emCasa = j.time_casa_id === idA && j.time_fora_id === idB;
+      const deFora = j.time_fora_id === idA && j.time_casa_id === idB;
+      if (!emCasa && !deFora) continue;
+      const meus = emCasa ? j.gols_casa : j.gols_fora;
+      const deles = emCasa ? j.gols_fora : j.gols_casa;
+      const p = pontosDaPartidaSets(pontuacao, Math.max(meus, deles), Math.min(meus, deles), melhorDe);
+      pts += meus > deles ? p.vencedor : p.perdedor;
+    }
+    return pts;
+  };
+
+  // Razoes e percentuais: divisao por zero vira "melhor possivel" (FIVB: MAX).
+  const razao = (a, b) => (b === 0 ? (a === 0 ? 0 : Infinity) : a / b);
+  const pct = (a, b) => (a + b === 0 ? 0 : a / (a + b));
+
+  const comparadores = {
+    vitorias: (a, b) => b.v - a.v,
+    confronto: (a, b) => pontosConfronto(b.time_id, a.time_id) - pontosConfronto(a.time_id, b.time_id),
+    saldo_sets: (a, b) => b.saldo_sets - a.saldo_sets,
+    saldo_pontos: (a, b) => b.saldo_pontos - a.saldo_pontos,
+    razao_sets: (a, b) => razao(b.sv, b.sp) - razao(a.sv, a.sp),
+    razao_pontos: (a, b) => razao(b.pp, b.pc) - razao(a.pp, a.pc),
+    pct_sets: (a, b) => pct(b.sv, b.sp) - pct(a.sv, a.sp),
+    pct_pontos: (a, b) => pct(b.pp, b.pc) - pct(a.pp, a.pc),
+  };
+
+  const ordenadas = [...linhas.values()].sort((a, b) => {
+    if (b.pts !== a.pts) return b.pts - a.pts;
+    for (const c of criterios) {
+      const cmp = comparadores[c]?.(a, b) ?? 0;
+      // Infinity - Infinity = NaN: dois times sem set perdido seguem empatados.
+      if (cmp !== 0 && !Number.isNaN(cmp)) return cmp;
+    }
+    return a.nome.localeCompare(b.nome, 'pt-BR');
+  });
+
+  return ordenadas.map((linha, i) => ({ ...linha, pos: i + 1, ultimos: linha.ultimos.slice(-5) }));
 }
 
 // Peso de cartoes por time para o criterio de desempate "cartoes".

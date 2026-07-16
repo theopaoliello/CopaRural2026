@@ -136,6 +136,7 @@ async function excluirMinhaConta() {
 
 // Catalogo de esportes (carregado uma vez por sessao do painel).
 let ESPORTES = null;
+let ESP = null; // preset do esporte do campeonato aberto (setado em telaCampeonato)
 async function catalogoEsportes() {
   if (!ESPORTES) ESPORTES = await api('/api/esportes');
   return ESPORTES;
@@ -191,6 +192,11 @@ function telaNovoForm(chaveEsporte) {
           <option value="mata">Mata-mata</option>
           <option value="grupos_mata">Fase de grupos + Mata-mata</option>
         </select>
+        ${esporte.placar === 'sets' ? `
+        <label>Formato da partida</label>
+        <select name="melhor_de">
+          ${esporte.melhor_de.opcoes.map((n) => `<option value="${n}" ${n === esporte.melhor_de.padrao ? 'selected' : ''}>${n === 1 ? 'Set único' : `Melhor de ${n} sets`}</option>`).join('')}
+        </select>` : ''}
         <div class="grid-2">
           <div id="campo-grupos" style="display:none">
             <label>Quantidade de grupos</label><input type="number" name="num_grupos" value="2" min="1">
@@ -198,13 +204,13 @@ function telaNovoForm(chaveEsporte) {
           </div>
           <div>
             <div id="campo-iv-grupos"><label><input type="checkbox" name="ida_volta_grupos" style="width:auto"> Turno e returno (ida e volta)</label></div>
-            <div id="campo-iv-mata" style="display:none"><label><input type="checkbox" name="ida_volta_mata" style="width:auto"> Mata-mata com jogos de ida e volta</label></div>
+            ${esporte.chave === 'futebol' ? `<div id="campo-iv-mata" style="display:none"><label><input type="checkbox" name="ida_volta_mata" style="width:auto"> Mata-mata com jogos de ida e volta</label></div>` : ''}
           </div>
         </div>
       </fieldset>
 
-      <fieldset><legend>3. Times</legend>
-        <label>Um time por linha *</label>
+      <fieldset><legend>3. ${esc(esporte.rotulos.participantes)}</legend>
+        <label>${esc(esporte.rotulos.participante)} por linha *</label>
         <textarea name="times" rows="8" required placeholder="Real Baixada&#10;Unidos da Vila&#10;Juventude FC&#10;..."></textarea>
         <label><input type="checkbox" name="sortear" checked style="width:auto"> Sortear a distribuição (grupos/chaveamento)</label>
         <p class="muted">Desmarcado, a ordem digitada manda: os primeiros times formam o Grupo A (e assim por diante);
@@ -224,7 +230,9 @@ function telaNovoForm(chaveEsporte) {
     const f = $('#sel-formato').value;
     $('#campo-grupos').style.display = f === 'grupos_mata' ? '' : 'none';
     $('#campo-iv-grupos').style.display = f !== 'mata' ? '' : 'none';
-    $('#campo-iv-mata').style.display = f !== 'pontos' ? '' : 'none';
+    // Ida e volta no mata so existe no futebol (RN-TC-05): o campo pode nem estar na tela.
+    const ivMata = $('#campo-iv-mata');
+    if (ivMata) ivMata.style.display = f !== 'pontos' ? '' : 'none';
   };
   $('#sel-formato').onchange = mudouFormato;
   mudouFormato();
@@ -237,6 +245,7 @@ function telaNovoForm(chaveEsporte) {
         esporte: chaveEsporte,
         nome: f.get('nome'), temporada: f.get('temporada'), modalidade: f.get('modalidade'),
         descricao: f.get('descricao'), cor_tema: f.get('cor_tema'), formato: f.get('formato'),
+        melhor_de: f.get('melhor_de') ? Number(f.get('melhor_de')) : undefined,
         num_grupos: Number(f.get('num_grupos') || 1),
         classificados_por_grupo: Number(f.get('classificados_por_grupo') || 2),
         ida_volta_grupos: !!f.get('ida_volta_grupos'), ida_volta_mata: !!f.get('ida_volta_mata'),
@@ -255,6 +264,8 @@ function telaNovoForm(chaveEsporte) {
 
 async function telaCampeonato(id, aba = abaAtual) {
   DET = await api(`/api/campeonatos/${id}`);
+  // Preset do esporte do campeonato aberto: dirige rotulos, colunas e modal de resultado.
+  ESP = (await catalogoEsportes()).find((e) => e.chave === DET.campeonato.esporte) ?? null;
   abaAtual = aba;
   const c = DET.campeonato;
   $('#app').innerHTML = `
@@ -265,7 +276,7 @@ async function telaCampeonato(id, aba = abaAtual) {
     </div>
     <h2 style="margin:4px 0">${esc(c.nome)} ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}</h2>
     <div class="abas">
-      ${[['jogos', 'Jogos'], ['times', 'Times'], ['classificacao', 'Classificação'], ['regras', 'Regras'], ['banners', 'Banners'], ['config', 'Configurações']]
+      ${[['jogos', 'Jogos'], ['times', ESP?.rotulos.participantes ?? 'Times'], ['classificacao', 'Classificação'], ['regras', 'Regras'], ['banners', 'Banners'], ['config', 'Configurações']]
         .map(([k, r]) => `<button class="aba ${aba === k ? 'ativa' : ''}" onclick="telaCampeonato(${id}, '${k}')">${r}</button>`).join('')}
     </div>
     <div id="painel"></div>
@@ -275,10 +286,18 @@ async function telaCampeonato(id, aba = abaAtual) {
 
 // ---------- aba jogos ----------
 
+function parciaisTexto(jogoId) {
+  const parciais = (DET.sets ?? []).filter((s) => s.jogo_id === jogoId);
+  return parciais.length ? parciais.map((p) => `${p.pontos_casa}-${p.pontos_fora}`).join(' / ') : '';
+}
+
 function linhaJogoAdmin(j) {
   const casa = DET.times.find((t) => t.id === j.time_casa_id);
   const fora = DET.times.find((t) => t.id === j.time_fora_id);
-  const placar = j.status === 'encerrado' ? `${j.gols_casa} x ${j.gols_fora}` : (j.data ? esc(j.data.replace('T', ' ')) : 'A definir');
+  const parciais = j.status === 'encerrado' ? parciaisTexto(j.id) : '';
+  const placar = j.status === 'encerrado'
+    ? `${j.gols_casa} x ${j.gols_fora}${parciais ? `<div class="muted" style="font-size:.68rem">(${parciais})</div>` : ''}`
+    : (j.data ? esc(j.data.replace('T', ' ')) : 'A definir');
   const prontos = j.time_casa_id && j.time_fora_id;
   return `<div class="jogo" style="cursor:default">
     <span class="mandante">${esc(casa?.nome ?? 'A definir')} ${escudoHtml(casa)}</span>
@@ -399,6 +418,101 @@ function modoResultado(modo) {
 }
 
 function modalResultado(jogoId) {
+  if (ESP?.placar === 'sets') return modalResultadoSets(jogoId);
+  return modalResultadoGols(jogoId);
+}
+
+// ---------- resultado por sets (futevolei, beach tennis, volei, peteca) ----------
+
+function modalResultadoSets(jogoId) {
+  const j = DET.jogos.find((x) => x.id === jogoId);
+  const casa = DET.times.find((t) => t.id === j.time_casa_id);
+  const fora = DET.times.find((t) => t.id === j.time_fora_id);
+  const melhorDe = DET.campeonato.melhor_de ?? 1;
+  const parciais = (DET.sets ?? []).filter((s) => s.jogo_id === jogoId);
+  const rotuloPontos = ESP.rotulos.pontos; // "pontos" ou "games" (beach tennis)
+  abrirModal(`
+    <h3>Resultado: ${esc(casa.nome)} x ${esc(fora.nome)}</h3>
+    <p class="muted" style="margin:4px 0">Melhor de ${melhorDe} — fecha com ${Math.ceil(melhorDe / 2)} set(s). Não existe empate.</p>
+    <div class="abas" style="margin-bottom:10px">
+      <button class="aba" id="aba-res-simples" onclick="modoResultado('simples')">Placar em sets</button>
+      <button class="aba" id="aba-res-detalhado" onclick="modoResultado('detalhado')">Parciais</button>
+    </div>
+    <div id="res-simples" hidden>
+      <div class="grid-2">
+        <div><label>Sets ${esc(casa.nome)}</label><input type="number" id="sets-casa" min="0" value="${j.gols_casa ?? ''}"></div>
+        <div><label>Sets ${esc(fora.nome)}</label><input type="number" id="sets-fora" min="0" value="${j.gols_fora ?? ''}"></div>
+      </div>
+      <p class="muted">Só o placar do jogo em sets (ex.: ${Math.ceil(melhorDe / 2)} x 0), sem as parciais.</p>
+    </div>
+    <div id="res-detalhado" hidden>
+      <p class="muted" style="margin:4px 0">Informe os ${esc(rotuloPontos)} de cada set jogado (deixe em branco os que não houve).</p>
+      ${Array.from({ length: melhorDe }, (_, i) => `
+        <div class="linha-flex" style="margin-bottom:6px">
+          <span style="min-width:52px">Set ${i + 1}</span>
+          <input type="number" min="0" class="set-casa" data-set="${i}" value="${parciais[i]?.pontos_casa ?? ''}" style="width:90px">
+          <span>x</span>
+          <input type="number" min="0" class="set-fora" data-set="${i}" value="${parciais[i]?.pontos_fora ?? ''}" style="width:90px">
+        </div>`).join('')}
+      <p style="text-align:center;font-size:1.1rem"><strong>Placar: ${esc(casa.nome)} <span id="res-placar">0 x 0</span> ${esc(fora.nome)}</strong><br>
+      <span class="muted">em sets, calculado pelas parciais</span></p>
+    </div>
+    <div id="aviso-res" class="aviso"></div>
+    <p><button class="botao" style="width:100%" onclick="salvarResultadoSets(${jogoId})">Salvar resultado</button></p>
+  `);
+  const atualizarPlacar = () => {
+    let sc = 0, sf = 0;
+    for (const par of lerParciais().parciais ?? []) (par[0] > par[1] ? sc++ : sf++);
+    $('#res-placar').textContent = `${sc} x ${sf}`;
+  };
+  document.querySelectorAll('#res-detalhado input').forEach((i) => { i.oninput = atualizarPlacar; });
+  atualizarPlacar();
+  modoResultado(parciais.length || j.status !== 'encerrado' ? 'detalhado' : 'simples');
+}
+
+// Le as parciais preenchidas no modal, na ordem, parando na primeira linha vazia.
+function lerParciais() {
+  const casas = [...document.querySelectorAll('#res-detalhado .set-casa')];
+  const foras = [...document.querySelectorAll('#res-detalhado .set-fora')];
+  const parciais = [];
+  for (let i = 0; i < casas.length; i++) {
+    const a = casas[i].value.trim(), b = foras[i].value.trim();
+    if (a === '' && b === '') continue;
+    if (a === '' || b === '') return { erro: `Complete os dois lados do set ${i + 1}.` };
+    parciais.push([Number(a), Number(b)]);
+  }
+  return { parciais };
+}
+
+async function salvarResultadoSets(jogoId) {
+  const av = $('#aviso-res');
+  let corpo;
+  if (modoResultadoAtual === 'simples') {
+    const a = $('#sets-casa').value.trim(), b = $('#sets-fora').value.trim();
+    if (a === '' || b === '') {
+      av.textContent = 'Informe o placar em sets dos dois lados.'; av.className = 'aviso erro';
+      return;
+    }
+    corpo = { sets_casa: Number(a), sets_fora: Number(b) };
+  } else {
+    const lido = lerParciais();
+    if (lido.erro || !lido.parciais.length) {
+      av.textContent = lido.erro ?? 'Informe as parciais de pelo menos 1 set.'; av.className = 'aviso erro';
+      return;
+    }
+    corpo = { sets: lido.parciais };
+  }
+  try {
+    await api(`/api/jogos/${jogoId}/resultado`, 'POST', corpo);
+    fecharModal(); telaCampeonato(DET.campeonato.id, 'jogos');
+  } catch (e) {
+    av.textContent = e.message; av.className = 'aviso erro';
+  }
+}
+
+// ---------- resultado por gols (futebol) ----------
+
+function modalResultadoGols(jogoId) {
   const j = DET.jogos.find((x) => x.id === jogoId);
   const casa = DET.times.find((t) => t.id === j.time_casa_id);
   const fora = DET.times.find((t) => t.id === j.time_fora_id);
@@ -615,20 +729,36 @@ async function removerJogador(jogadorId, timeId) {
 
 // ---------- aba classificacao ----------
 
+// Celula de classificacao dirigida pela chave da coluna do catalogo.
+function celulaClassif(l, chave) {
+  if (chave === 'ultimos') {
+    const faltam = Math.max(0, 5 - l.ultimos.length);
+    const bolas = '<span class="bolinha vazia"></span>'.repeat(faltam) + l.ultimos.map((r) => `<span class="bolinha ${r}"></span>`).join('');
+    return `<span class="bolinhas">${bolas}</span>`;
+  }
+  if (chave === 'razao_sets') return razaoTexto(l.sv, l.sp);
+  if (chave === 'razao_pontos') return razaoTexto(l.pp, l.pc);
+  const v = l[chave];
+  if (chave === 'sg' || chave.startsWith('saldo')) return `${v > 0 ? '+' : ''}${v}`;
+  return String(v ?? '');
+}
+function razaoTexto(a, b) {
+  if (b === 0) return a === 0 ? '—' : 'MAX'; // FIVB: sem set/ponto perdido
+  return (a / b).toFixed(2);
+}
+
 function abaClassif() {
+  const colunas = ESP?.colunas ?? [];
   $('#painel').innerHTML = DET.classificacao.map((g) => `
     <div class="card">
       ${g.grupo ? `<h3>${esc(g.grupo.nome)}</h3>` : ''}
       <div class="tabela-wrap"><table class="tabela">
-        <thead><tr><th>#</th><th class="time">Time</th><th>Pts</th><th>PJ</th><th>V</th><th>E</th><th>D</th><th>GP</th><th>GC</th><th>SG</th><th>Últ. Jogos</th></tr></thead>
+        <thead><tr><th>#</th><th class="time">${esc(ESP?.rotulos.participante ?? 'Time')}</th>
+          ${colunas.map(([, r, t]) => `<th title="${esc(t)}">${esc(r)}</th>`).join('')}</tr></thead>
         <tbody>${g.linhas.map((l) => {
           const t = DET.times.find((x) => x.id === l.time_id);
-          const faltam = Math.max(0, 5 - l.ultimos.length);
-          const bolas = '<span class="bolinha vazia"></span>'.repeat(faltam) + l.ultimos.map((r) => `<span class="bolinha ${r}"></span>`).join('');
           return `<tr><td>${l.pos}</td><td class="time">${escudoHtml(t)} ${esc(l.nome)}</td>
-            <td class="pts">${l.pts}</td><td>${l.pj}</td><td>${l.v}</td><td>${l.e}</td><td>${l.d}</td>
-            <td>${l.gp}</td><td>${l.gc}</td><td>${l.sg > 0 ? '+' : ''}${l.sg}</td>
-            <td><span class="bolinhas">${bolas}</span></td></tr>`;
+            ${colunas.map(([k]) => `<td class="${k === 'pts' ? 'pts' : ''}">${celulaClassif(l, k)}</td>`).join('')}</tr>`;
         }).join('')}</tbody>
       </table></div>
     </div>`).join('');
@@ -711,7 +841,7 @@ async function abaConfig() {
       <h3>Identidade</h3>
       ${esporte ? `<p class="muted" style="display:flex;align-items:center;gap:6px">
         <img src="${esc(esporte.icone)}" alt="" style="width:22px;height:22px;object-fit:contain">
-        Esporte: <strong>${esc(esporte.nome)}</strong>${c.modalidade ? ` (${esc(c.modalidade)})` : ''} — definido na criação, não pode ser alterado.
+        Esporte: <strong>${esc(esporte.nome)}</strong>${c.modalidade ? ` (${esc(c.modalidade)}${c.melhor_de ? `, melhor de ${c.melhor_de} sets` : ''})` : ''} — definido na criação, não pode ser alterado.
       </p>` : ''}
       <div class="grid-2">
         <div><label>Nome</label><input type="text" id="cfg-nome" value="${esc(c.nome)}"></div>

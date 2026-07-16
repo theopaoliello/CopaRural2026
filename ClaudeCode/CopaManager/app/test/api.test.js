@@ -721,9 +721,12 @@ test('multiesporte (fase 1): catalogo, preset e validacao do esporte', async () 
   assert.equal(cat.status, 200);
   assert.deepEqual(
     cat.corpo.map((e) => e.chave),
-    ['futebol', 'pelada_epica', 'futvolei', 'beach_tennis', 'volei', 'basquete', 'peteca'],
+    ['futebol', 'pelada_epica', 'futevolei', 'beach_tennis', 'volei', 'basquete', 'peteca'],
   );
-  assert.deepEqual(cat.corpo.filter((e) => e.disponivel).map((e) => e.chave), ['futebol']);
+  assert.deepEqual(
+    cat.corpo.filter((e) => e.disponivel).map((e) => e.chave),
+    ['futebol', 'futevolei', 'beach_tennis', 'volei', 'peteca'], // fase 2: esportes de sets no ar
+  );
 
   // esporte ausente = futebol (API pre-multiesporte continua valida)
   const compat = await rita('POST', '/api/campeonatos', {
@@ -748,7 +751,7 @@ test('multiesporte (fase 1): catalogo, preset e validacao do esporte', async () 
   });
   assert.equal(invalido.status, 400);
   const emBreve = await rita('POST', '/api/campeonatos', {
-    nome: 'V', esporte: 'volei', formato: 'pontos', times: ['A', 'B'],
+    nome: 'V', esporte: 'basquete', formato: 'pontos', times: ['A', 'B'],
   });
   assert.equal(emBreve.status, 400);
   assert.match(emBreve.corpo.mensagem, /disponivel/i);
@@ -768,4 +771,53 @@ test('multiesporte (fase 1): catalogo, preset e validacao do esporte', async () 
   assert.equal(pub.corpo.esporte.nome, 'Futebol');
   assert.equal(pub.corpo.esporte.rotulos.participantes, 'Times');
   assert.equal(pub.corpo.campeonato.esporte, 'futebol');
+});
+
+test('multiesporte (fase 2): campeonato de sets pela API, do wizard a pagina publica', async () => {
+  const vera = cliente();
+  await registrarEntrar(vera, { nome: 'Vera', email: 'vera@teste.com', senha: 'segredo1' });
+
+  // cria um campeonato de futevolei melhor de 3
+  const criado = await vera('POST', '/api/campeonatos', {
+    nome: 'Circuito Praia', esporte: 'futevolei', melhor_de: 3,
+    formato: 'pontos', sortear: false, times: ['Dupla Sol', 'Dupla Mar'],
+  });
+  assert.equal(criado.status, 201, JSON.stringify(criado.corpo));
+  assert.equal(criado.corpo.esporte, 'futevolei');
+  assert.equal(criado.corpo.melhor_de, 3);
+  const campId = criado.corpo.id;
+
+  const det = await vera('GET', `/api/campeonatos/${campId}`);
+  const jogo = det.corpo.jogos[0];
+
+  // sumula de texto e do modelo de gols: rejeitada aqui
+  const texto = await vera('POST', `/api/jogos/${jogo.id}/resultado-texto`, { texto: 'GOLS TIME CASA' });
+  assert.equal(texto.status, 400);
+  assert.match(texto.corpo.mensagem, /sets/i);
+
+  // resultado por parciais
+  const res = await vera('POST', `/api/jogos/${jogo.id}/resultado`, {
+    sets: [[18, 16], [12, 15], [15, 13]],
+  });
+  assert.equal(res.status, 200, JSON.stringify(res.corpo));
+  assert.equal(res.corpo.gols_casa, 2);
+  assert.equal(res.corpo.gols_fora, 1);
+
+  // detalhe do admin traz as parciais; classificacao no modelo de sets
+  const det2 = await vera('GET', `/api/campeonatos/${campId}`);
+  assert.equal(det2.corpo.sets.length, 3);
+  const linhas = det2.corpo.classificacao[0].linhas;
+  assert.equal(linhas[0].pts, 2); // vitoria FIVB praia
+  assert.equal(linhas[1].pts, 1); // derrota jogada vale 1
+  assert.equal(linhas[0].sv, 2);
+  assert.equal(linhas[0].saldo_pontos, 1); // 45 x 44 nas parciais
+
+  // pagina publica: esporte com colunas e rotulos de dupla + parciais dos jogos
+  const pub = await vera('GET', `/api/publico/${criado.corpo.slug}`);
+  assert.equal(pub.corpo.esporte.chave, 'futevolei');
+  assert.equal(pub.corpo.esporte.rotulos.participante, 'Dupla');
+  assert.equal(pub.corpo.esporte.rotulos.artilharia, null);
+  assert.equal(pub.corpo.esporte.melhor_de, 3);
+  assert.ok(pub.corpo.esporte.colunas.some(([k]) => k === 'saldo_sets'));
+  assert.equal(pub.corpo.sets.length, 3);
 });

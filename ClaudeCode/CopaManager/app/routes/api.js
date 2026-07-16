@@ -23,7 +23,7 @@ import { salvarImagem, apagarImagem } from '../src/uploads.js';
 import { dadosPublicos } from '../src/publico.js';
 import { erroValidacao, erroConflito, erroProibido, erroNaoEncontrado } from '../src/erros.js';
 import { CRITERIOS_VALIDOS } from '../src/classificacao.js';
-import { ESPORTES } from '../src/esportes.js';
+import { ESPORTES, obterEsporte } from '../src/esportes.js';
 
 const MAX_BANNERS = 5;
 
@@ -328,8 +328,10 @@ export function montarRotas(db, { limites = {} } = {}) {
 
   // Catalogo estatico (sem dados de usuario): alimenta o menu do wizard.
   rotas.get('/esportes', (_req, res) => {
-    res.json(ESPORTES.map(({ chave, nome, icone, disponivel, variantes, variante_padrao, rotulos }) =>
-      ({ chave, nome, icone, disponivel, variantes, variante_padrao, rotulos })));
+    res.json(ESPORTES.map(
+      ({ chave, nome, icone, disponivel, variantes, variante_padrao, placar, empate, melhor_de, rotulos, colunas }) =>
+        ({ chave, nome, icone, disponivel, variantes, variante_padrao, placar, empate, melhor_de, rotulos, colunas }),
+    ));
   });
 
   // ---------- campeonatos (admin) ----------
@@ -370,6 +372,9 @@ export function montarRotas(db, { limites = {} } = {}) {
       eventos: db
         .prepare('SELECT e.* FROM eventos e JOIN jogos j ON j.id = e.jogo_id WHERE j.campeonato_id = ?')
         .all(c.id),
+      sets: db
+        .prepare('SELECT s.* FROM sets s JOIN jogos j ON j.id = s.jogo_id WHERE j.campeonato_id = ? ORDER BY s.jogo_id, s.numero')
+        .all(c.id),
       banners: db.prepare('SELECT * FROM banners WHERE campeonato_id = ? ORDER BY ordem, id').all(c.id),
       classificacao: classificacaoDoCampeonato(db, c),
     });
@@ -386,7 +391,8 @@ export function montarRotas(db, { limites = {} } = {}) {
     }
     let criterios = c.criterios_desempate;
     if (b.criterios_desempate !== undefined) {
-      if (!Array.isArray(b.criterios_desempate) || b.criterios_desempate.some((x) => !CRITERIOS_VALIDOS.includes(x))) {
+      const validos = obterEsporte(c.esporte)?.criterios_validos ?? CRITERIOS_VALIDOS;
+      if (!Array.isArray(b.criterios_desempate) || b.criterios_desempate.some((x) => !validos.includes(x))) {
         throw erroValidacao('Criterios de desempate invalidos.');
       }
       criterios = JSON.stringify(b.criterios_desempate);
@@ -533,6 +539,11 @@ export function montarRotas(db, { limites = {} } = {}) {
     const j = jogoDaConta(db, req.conta.id, req.params.id);
     if (!j.time_casa_id || !j.time_fora_id) {
       throw erroValidacao('Este jogo ainda nao tem os dois times definidos.');
+    }
+    // A sumula de texto descreve gols e cartoes: so faz sentido no modelo A.
+    const camp = db.prepare('SELECT esporte FROM campeonatos WHERE id = ?').get(j.campeonato_id);
+    if (obterEsporte(camp?.esporte)?.placar === 'sets') {
+      throw erroValidacao('Este esporte usa placar por sets: lance o resultado pelas parciais.');
     }
     const carregarTime = (id) => ({
       ...db.prepare('SELECT id, nome FROM times WHERE id = ?').get(id),

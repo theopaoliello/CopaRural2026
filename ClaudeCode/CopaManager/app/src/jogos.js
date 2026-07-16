@@ -1,7 +1,10 @@
 // Lancamento, correcao e exclusao de resultados, com eventos (gols e cartoes)
 // e propagacao automatica de vencedores no mata-mata.
+// O formato do lancamento e dirigido pelo modelo de placar do esporte:
+// modelo A (gols, o historico) ou modelo B (sets, com parciais opcionais).
 import { erroValidacao, erroConflito } from './erros.js';
 import { vencedorConfronto } from './tabela.js';
+import { obterEsporte, ESPORTE_PADRAO } from './esportes.js';
 
 const TIPOS_EVENTO = ['gol', 'gol_contra', 'amarelo', 'vermelho'];
 
@@ -50,12 +53,95 @@ function propagarVencedor(db, jogo) {
   }
 }
 
-// Valida e grava um resultado. `dados`: { gols_casa, gols_fora, penaltis_casa?,
-// penaltis_fora?, eventos: [{tipo, time_id, jogador_id?, minuto?}] }
+// Valida e grava um resultado, no formato do modelo de placar do esporte.
+// Modelo A (gols): { gols_casa, gols_fora, penaltis_casa?, penaltis_fora?,
+//   eventos: [{tipo, time_id, jogador_id?, minuto?}] }
+// Modelo B (sets): { sets: [[pontos_casa, pontos_fora], ...] } (parciais)
+//   ou { sets_casa, sets_fora } (placar simples, sem parciais)
 export function registrarResultado(db, jogo, dados) {
   if (!jogo.time_casa_id || !jogo.time_fora_id) {
     throw erroValidacao('Este jogo ainda nao tem os dois times definidos.');
   }
+  const campeonato = db.prepare('SELECT * FROM campeonatos WHERE id = ?').get(jogo.campeonato_id);
+  const esporte = obterEsporte(campeonato?.esporte) ?? obterEsporte(ESPORTE_PADRAO);
+  if (esporte.placar === 'sets') return registrarResultadoSets(db, jogo, campeonato, esporte, dados);
+  return registrarResultadoGols(db, jogo, dados);
+}
+
+// ---------- modelo B: sets (futevolei, beach tennis, volei, peteca) ----------
+
+function registrarResultadoSets(db, jogo, campeonato, esporte, dados) {
+  if (dados.penaltis_casa != null || dados.penaltis_fora != null) {
+    throw erroValidacao(`Nao existem penaltis no ${esporte.nome}: o jogo por sets sempre tem vencedor.`);
+  }
+  if (dados.eventos?.length) {
+    throw erroValidacao(`O ${esporte.nome} nao registra eventos individuais.`);
+  }
+
+  const melhorDe = campeonato.melhor_de ?? esporte.melhor_de?.padrao ?? 1;
+  const paraFechar = Math.ceil(melhorDe / 2); // sets que fecham o jogo
+
+  let setsCasa;
+  let setsFora;
+  let parciais = null;
+
+  if (Array.isArray(dados.sets)) {
+    // Sumula detalhada (RN-TC-08): as parciais mandam; o placar do jogo e derivado.
+    if (!dados.sets.length) throw erroValidacao('Informe as parciais de pelo menos 1 set.');
+    parciais = dados.sets.map((s, i) => {
+      const casa = Number(Array.isArray(s) ? s[0] : s?.pontos_casa);
+      const fora = Number(Array.isArray(s) ? s[1] : s?.pontos_fora);
+      if (!Number.isInteger(casa) || casa < 0 || !Number.isInteger(fora) || fora < 0) {
+        throw erroValidacao(`Parcial do ${i + 1}o set invalida.`);
+      }
+      if (casa === fora) throw erroValidacao(`O ${i + 1}o set nao pode terminar empatado.`);
+      return { numero: i + 1, pontos_casa: casa, pontos_fora: fora };
+    });
+    setsCasa = 0;
+    setsFora = 0;
+    for (const p of parciais) {
+      if (setsCasa === paraFechar || setsFora === paraFechar) {
+        throw erroValidacao(`O jogo fecha em ${paraFechar} set(s): ha parciais sobrando.`);
+      }
+      if (p.pontos_casa > p.pontos_fora) setsCasa += 1;
+      else setsFora += 1;
+    }
+  } else {
+    // Placar simples: so o placar do jogo em sets.
+    setsCasa = Number(dados.sets_casa);
+    setsFora = Number(dados.sets_fora);
+    if (!Number.isInteger(setsCasa) || setsCasa < 0 || !Number.isInteger(setsFora) || setsFora < 0) {
+      throw erroValidacao('Placar de sets invalido.');
+    }
+  }
+
+  const [vencedor, perdedor] = setsCasa > setsFora ? [setsCasa, setsFora] : [setsFora, setsCasa];
+  if (vencedor !== paraFechar || perdedor > melhorDe - paraFechar) {
+    throw erroValidacao(
+      `Placar de sets invalido para melhor de ${melhorDe}: o vencedor fecha com ${paraFechar} set(s)` +
+      (melhorDe > 1 ? ` e o perdedor faz no maximo ${melhorDe - paraFechar}.` : '.'),
+    );
+  }
+
+  db.prepare(
+    `UPDATE jogos SET gols_casa = ?, gols_fora = ?, penaltis_casa = NULL, penaltis_fora = NULL,
+     status = 'encerrado' WHERE id = ?`,
+  ).run(setsCasa, setsFora, jogo.id);
+
+  db.prepare('DELETE FROM eventos WHERE jogo_id = ?').run(jogo.id);
+  db.prepare('DELETE FROM sets WHERE jogo_id = ?').run(jogo.id);
+  if (parciais) {
+    const ins = db.prepare('INSERT INTO sets (jogo_id, numero, pontos_casa, pontos_fora) VALUES (?, ?, ?, ?)');
+    for (const p of parciais) ins.run(jogo.id, p.numero, p.pontos_casa, p.pontos_fora);
+  }
+
+  propagarVencedor(db, db.prepare('SELECT * FROM jogos WHERE id = ?').get(jogo.id));
+  return db.prepare('SELECT * FROM jogos WHERE id = ?').get(jogo.id);
+}
+
+// ---------- modelo A: gols (futebol) ----------
+
+function registrarResultadoGols(db, jogo, dados) {
   const golsCasa = Number(dados.gols_casa);
   const golsFora = Number(dados.gols_fora);
   if (!Number.isInteger(golsCasa) || golsCasa < 0 || !Number.isInteger(golsFora) || golsFora < 0) {
@@ -155,6 +241,7 @@ export function apagarResultado(db, jogo) {
      status = 'agendado' WHERE id = ?`,
   ).run(jogo.id);
   db.prepare('DELETE FROM eventos WHERE jogo_id = ?').run(jogo.id);
+  db.prepare('DELETE FROM sets WHERE jogo_id = ?').run(jogo.id);
 
   propagarVencedor(db, db.prepare('SELECT * FROM jogos WHERE id = ?').get(jogo.id));
 }

@@ -8,7 +8,9 @@ import {
   ehPotenciaDe2,
   seedsDeGrupos,
 } from './tabela.js';
-import { calcularClassificacao, cartoesPorTime, CRITERIOS_VALIDOS } from './classificacao.js';
+import {
+  calcularClassificacao, calcularClassificacaoSets, cartoesPorTime, CRITERIOS_VALIDOS,
+} from './classificacao.js';
 import { obterEsporte, ESPORTE_PADRAO } from './esportes.js';
 
 const FORMATOS = ['pontos', 'mata', 'grupos_mata'];
@@ -79,7 +81,17 @@ export function criarCampeonato(db, contaId, dados) {
   const numGrupos = formato === 'grupos_mata' ? Math.max(1, Number(dados.num_grupos ?? 1)) : 1;
   const classificadosPorGrupo = Math.max(1, Number(dados.classificados_por_grupo ?? 2));
   const idaVoltaGrupos = dados.ida_volta_grupos ? 1 : 0;
-  const idaVoltaMata = dados.ida_volta_mata ? 1 : 0;
+  // Mata-mata de ida e volta e exclusividade do futebol (RN-TC-05).
+  const idaVoltaMata = esporte.chave === 'futebol' && dados.ida_volta_mata ? 1 : 0;
+
+  // Esportes de sets: quantos sets fecham a partida (do preset ou escolhido).
+  let melhorDe = null;
+  if (esporte.placar === 'sets') {
+    melhorDe = Number(dados.melhor_de ?? esporte.melhor_de.padrao);
+    if (!esporte.melhor_de.opcoes.includes(melhorDe)) {
+      throw erroValidacao(`Formato de partida invalido. Opcoes: ${esporte.melhor_de.opcoes.map((n) => `melhor de ${n}`).join(', ')}.`);
+    }
+  }
   const sortear = dados.sortear !== false; // padrao: sorteia a distribuicao
 
   if (formato === 'mata' && !ehPotenciaDe2(nomesTimes.length)) {
@@ -99,8 +111,9 @@ export function criarCampeonato(db, contaId, dados) {
   }
 
   // O preset do esporte define os padroes; o organizador pode ajustar (RN-TC-02).
-  let criterios = dados.criterios_desempate ?? esporte.criterios ?? CRITERIOS_VALIDOS;
-  if (!Array.isArray(criterios) || criterios.some((c) => !CRITERIOS_VALIDOS.includes(c))) {
+  const criteriosValidos = esporte.criterios_validos ?? CRITERIOS_VALIDOS;
+  let criterios = dados.criterios_desempate ?? esporte.criterios ?? criteriosValidos;
+  if (!Array.isArray(criterios) || criterios.some((c) => !criteriosValidos.includes(c))) {
     throw erroValidacao('Criterios de desempate invalidos.');
   }
 
@@ -111,8 +124,8 @@ export function criarCampeonato(db, contaId, dados) {
       `INSERT INTO campeonatos
        (conta_id, nome, temporada, esporte, modalidade, descricao, cor_tema, slug, formato,
         num_grupos, ida_volta_grupos, ida_volta_mata, classificados_por_grupo,
-        pontos_vitoria, pontos_empate, criterios_desempate)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        pontos_vitoria, pontos_empate, criterios_desempate, melhor_de)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       contaId,
@@ -131,6 +144,7 @@ export function criarCampeonato(db, contaId, dados) {
       Math.max(0, Number(dados.pontos_vitoria ?? esporte.pontuacao?.vitoria ?? 3)),
       Math.max(0, Number(dados.pontos_empate ?? esporte.pontuacao?.empate ?? 1)),
       JSON.stringify(criterios),
+      melhorDe,
     );
   const campeonatoId = Number(info.lastInsertRowid);
 
@@ -173,36 +187,55 @@ export function criarCampeonato(db, contaId, dados) {
 
 // ---------- classificacao de um campeonato ----------
 
-// Calcula a classificacao da fase de grupos, agrupada por grupo (ou geral).
+// Calcula a classificacao da fase de grupos, agrupada por grupo (ou geral),
+// no modelo de placar do esporte (gols ou sets).
 export function classificacaoDoCampeonato(db, campeonato) {
+  const esporte = obterEsporte(campeonato.esporte) ?? obterEsporte(ESPORTE_PADRAO);
   const times = db.prepare('SELECT * FROM times WHERE campeonato_id = ?').all(campeonato.id);
   const jogos = db
     .prepare("SELECT * FROM jogos WHERE campeonato_id = ? AND fase = 'grupos'")
     .all(campeonato.id);
-  const eventos = db
-    .prepare(
-      `SELECT e.* FROM eventos e JOIN jogos j ON j.id = e.jogo_id
-       WHERE j.campeonato_id = ? AND j.status = 'encerrado' AND j.fase = 'grupos'`,
-    )
-    .all(campeonato.id);
+  const criterios = JSON.parse(campeonato.criterios_desempate);
 
-  const opcoes = {
-    pontosVitoria: campeonato.pontos_vitoria,
-    pontosEmpate: campeonato.pontos_empate,
-    criterios: JSON.parse(campeonato.criterios_desempate),
-    cartoesPorTime: cartoesPorTime(eventos),
-  };
+  let calcular;
+  if (esporte.placar === 'sets') {
+    const sets = db
+      .prepare(
+        `SELECT s.* FROM sets s JOIN jogos j ON j.id = s.jogo_id
+         WHERE j.campeonato_id = ? AND j.status = 'encerrado' AND j.fase = 'grupos'`,
+      )
+      .all(campeonato.id);
+    const opcoes = {
+      pontuacao: esporte.pontuacao,
+      melhorDe: campeonato.melhor_de ?? esporte.melhor_de?.padrao ?? 1,
+      criterios,
+    };
+    calcular = (ts, js) => calcularClassificacaoSets(ts, js, sets, opcoes);
+  } else {
+    const eventos = db
+      .prepare(
+        `SELECT e.* FROM eventos e JOIN jogos j ON j.id = e.jogo_id
+         WHERE j.campeonato_id = ? AND j.status = 'encerrado' AND j.fase = 'grupos'`,
+      )
+      .all(campeonato.id);
+    const opcoes = {
+      pontosVitoria: campeonato.pontos_vitoria,
+      pontosEmpate: campeonato.pontos_empate,
+      criterios,
+      cartoesPorTime: cartoesPorTime(eventos),
+    };
+    calcular = (ts, js) => calcularClassificacao(ts, js, opcoes);
+  }
 
   const grupos = db.prepare('SELECT * FROM grupos WHERE campeonato_id = ? ORDER BY nome').all(campeonato.id);
   if (!grupos.length) {
-    return [{ grupo: null, linhas: calcularClassificacao(times, jogos, opcoes) }];
+    return [{ grupo: null, linhas: calcular(times, jogos) }];
   }
   return grupos.map((g) => ({
     grupo: g,
-    linhas: calcularClassificacao(
+    linhas: calcular(
       times.filter((t) => t.grupo_id === g.id),
       jogos.filter((j) => j.grupo_id === g.id),
-      opcoes,
     ),
   }));
 }

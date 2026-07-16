@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS campeonatos (
   pontos_empate INTEGER NOT NULL DEFAULT 1,
   -- ordem dos criterios de desempate (JSON), aplicados apos pontos
   criterios_desempate TEXT NOT NULL DEFAULT '["vitorias","saldo","gols_pro","confronto","cartoes"]',
+  -- esportes de sets (modelo B): quantos sets fecham a partida (1, 3 ou 5)
+  melhor_de INTEGER,
   -- regras especificas do campeonato, texto livre exibido na pagina publica
   regras TEXT,
   publicado INTEGER NOT NULL DEFAULT 1,
@@ -140,6 +142,19 @@ CREATE TABLE IF NOT EXISTS eventos (
 );
 
 CREATE INDEX IF NOT EXISTS idx_eventos_jogo ON eventos(jogo_id);
+
+-- Parciais dos esportes de sets (modelo B): o placar do jogo em sets fica em
+-- jogos.gols_casa/gols_fora (unidade dirigida pelo esporte); aqui, cada set.
+CREATE TABLE IF NOT EXISTS sets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  jogo_id INTEGER NOT NULL REFERENCES jogos(id) ON DELETE CASCADE,
+  numero INTEGER NOT NULL,
+  pontos_casa INTEGER NOT NULL,
+  pontos_fora INTEGER NOT NULL,
+  UNIQUE (jogo_id, numero)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sets_jogo ON sets(jogo_id);
 
 CREATE TABLE IF NOT EXISTS banners (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
