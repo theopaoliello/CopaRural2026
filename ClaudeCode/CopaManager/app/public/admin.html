@@ -151,9 +151,9 @@ async function telaNovo() {
       <h3>Qual é o esporte do seu campeonato?</h3>
       <div class="grade-esportes">
         ${esportes.map((e) => `
-          <button class="botao-esporte" ${e.disponivel ? `onclick="telaNovoForm('${e.chave}')"` : 'disabled'}>
-            <img src="${esc(e.icone)}" alt="">
-            <span>${esc(e.nome)}</span>
+          <button class="botao-esporte" title="${esc(e.nome)}" aria-label="${esc(e.nome)}"
+            ${e.disponivel ? `onclick="telaNovoForm('${e.chave}')"` : 'disabled'}>
+            <img src="${esc(e.icone)}" alt="${esc(e.nome)}">
             ${e.disponivel ? '' : '<span class="badge">Em breve</span>'}
           </button>`).join('')}
       </div>

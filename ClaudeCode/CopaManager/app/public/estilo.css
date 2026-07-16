@@ -193,16 +193,17 @@ table.tabela { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
 .badge { display: inline-block; background: var(--verde-bg); color: var(--verde); border-radius: 6px; padding: 2px 8px; font-size: 0.75rem; font-weight: 700; }
 .muted { color: var(--cinza); font-size: 0.85rem; }
 
-/* menu de esportes (wizard) */
+/* menu de esportes (wizard): o botao e a propria arte do esporte (o nome ja esta na imagem) */
 .grade-esportes { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
 .botao-esporte {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
-  padding: 14px 8px; border: 2px solid var(--borda); border-radius: 12px;
-  background: #fff; cursor: pointer; font-weight: 700; font-size: 0.95rem;
+  position: relative; padding: 0; overflow: hidden;
+  border: 2px solid var(--borda); border-radius: 12px;
+  background: #fff; cursor: pointer;
 }
-.botao-esporte:hover:not(:disabled) { border-color: var(--verde); background: var(--verde-bg); }
+.botao-esporte:hover:not(:disabled) { border-color: var(--verde); }
 .botao-esporte:disabled { cursor: default; opacity: 0.5; }
-.botao-esporte img { width: 64px; height: 64px; object-fit: contain; }
+.botao-esporte img { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; }
+.botao-esporte .badge { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); }
 .linha-flex { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .espacador { flex: 1; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
