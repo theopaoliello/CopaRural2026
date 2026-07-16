@@ -66,7 +66,7 @@ function render() {
 
   const temMata = D.chaveamento.length > 0;
   const abas = [
-    ['classificacao', 'Classificação', c.formato !== 'mata'],
+    ['classificacao', E.rotulos.classificacao ?? 'Classificação', c.formato !== 'mata'],
     ['chaveamento', 'Mata-mata', temMata],
     ['jogos', 'Resultados', true],
     ['times', E.rotulos.participantes, true],
@@ -133,6 +133,13 @@ function tabelaClassificacao(linhas) {
     <thead><tr><th>#</th><th class="time">${esc(D.esporte.rotulos.participante)}</th>
       ${colunas.map(([, r, t]) => `<th title="${esc(t)}">${esc(r)}</th>`).join('')}</tr></thead>
     <tbody>${linhas.map((l) => {
+      if (D.esporte.ranking === 'individual') {
+        return `<tr>
+          <td>${l.pos}</td>
+          <td class="time">${esc(l.nome)}${l.goleiro ? ' <span class="badge">G</span>' : ''}</td>
+          ${colunas.map(([k]) => `<td class="${k === 'pts' ? 'pts' : ''}">${celulaClassif(l, k)}</td>`).join('')}
+        </tr>`;
+      }
       const t = timePorId(l.time_id);
       return `<tr class="abrir-time" data-time="${l.time_id}">
         <td>${l.pos}</td>
@@ -220,6 +227,11 @@ function abaJogos() {
   const grupos = D.jogos.filter((j) => j.fase === 'grupos');
   const mata = D.jogos.filter((j) => j.fase === 'mata');
   let html = '';
+  if (D.esporte.ranking === 'individual' && D.campeonato.jogos_temporada) {
+    const encerrados = D.jogos.filter((j) => j.status === 'encerrado').length;
+    html += `<div class="card"><span>Temporada: <strong>${encerrados}/${D.campeonato.jogos_temporada}</strong> jogos
+      ${encerrados >= D.campeonato.jogos_temporada ? ' <span class="badge">Temporada completa 🏁</span>' : ''}</span></div>`;
+  }
   if (grupos.length) {
     const rodadas = [...new Set(grupos.map((j) => j.rodada))].sort((a, b) => a - b);
     html += `<div class="card">${rodadas.map((r) => `
@@ -237,6 +249,17 @@ function abaJogos() {
 // ---------- times ----------
 
 function abaTimes() {
+  // Pelada Epica: a aba lista os jogadores (fixos e suplentes), nao times.
+  if (D.esporte.ranking === 'individual') {
+    const grupo = (titulo, lista) => lista.length ? `<h3>${titulo}</h3>
+      <div class="grade-times">${lista.map((j) => `
+        <div class="card-time"><div class="nome">${esc(j.nome)}${j.goleiro ? ' <span class="badge">G</span>' : ''}</div>
+        ${j.ativo ? '' : '<div class="muted">inativo</div>'}</div>`).join('')}</div>` : '';
+    return `<div class="card">
+      ${grupo('Fixos', D.jogadores.filter((j) => j.tipo === 'fixo'))}
+      ${grupo('Suplentes', D.jogadores.filter((j) => j.tipo === 'suplente'))}
+    </div>`;
+  }
   return `<div class="card"><div class="grade-times">
     ${D.times.map((t) => `
       <div class="card-time abrir-time" data-time="${t.id}">
@@ -251,10 +274,13 @@ function abaTimes() {
 function abaArtilharia() {
   const rot = D.esporte.rotulos; // Artilharia/Gols ou Cestinhas/Pontos
   const icone = rot.individual === 'Pontos' ? '🏀' : '⚽';
+  const individual = D.esporte.ranking === 'individual'; // pelada: sem coluna de time
   const art = D.artilharia.length
     ? `<div class="tabela-wrap"><table class="tabela">
-        <thead><tr><th>#</th><th class="time">Jogador</th><th class="time">${esc(rot.participante)}</th><th>${esc(rot.individual)}</th></tr></thead>
-        <tbody>${D.artilharia.map((a, i) => `<tr><td>${i + 1}</td><td class="time">${esc(a.nome)}</td><td class="time">${esc(a.time)}</td><td class="pts">${a.total}</td></tr>`).join('')}</tbody>
+        <thead><tr><th>#</th><th class="time">Jogador</th>${individual ? '' : `<th class="time">${esc(rot.participante)}</th>`}<th>${esc(rot.individual)}</th></tr></thead>
+        <tbody>${D.artilharia.map((a, i) => `<tr><td>${i + 1}</td>
+          <td class="time">${esc(a.nome)}${individual && a.tipo === 'suplente' ? ' <span class="muted">(suplente)</span>' : ''}</td>
+          ${individual ? '' : `<td class="time">${esc(a.time)}</td>`}<td class="pts">${a.total}</td></tr>`).join('')}</tbody>
       </table></div>`
     : `<p class="muted">Nenhum ${esc(rot.individual.toLowerCase())} registrado ainda.</p>`;
   let cartoes = '';
@@ -320,6 +346,11 @@ function abrirJogo(id) {
   const evs = D.eventos.filter((e) => e.jogo_id === id);
   const parciais = (D.sets ?? []).filter((s) => s.jogo_id === id);
   const cestinhas = evs.filter((e) => e.tipo === 'pontos').sort((a, b) => b.valor - a.valor);
+  const escalados = (D.escalacoes ?? []).filter((e) => e.jogo_id === id);
+  const nomeJogadorEscalado = (jid) => {
+    const jog = D.jogadores.find((x) => x.id === jid);
+    return jog ? `${jog.nome}${jog.goleiro ? ' (G)' : ''}${jog.tipo === 'suplente' ? ' — sup.' : ''}` : '?';
+  };
   // jogador_id null = gol lançado sem registro de autor (placar simples ou "SR" no texto).
   const nomeJogador = (jid) =>
     jid == null ? 'SR (Sem registro)' : (D.jogadores.find((x) => x.id === jid)?.nome ?? 'Não informado');
@@ -342,6 +373,9 @@ function abrirJogo(id) {
     </div>
     ${j.penaltis_casa != null ? `<p style="text-align:center" class="muted">Pênaltis: ${j.penaltis_casa} x ${j.penaltis_fora}</p>` : ''}
     ${parciais.length ? `<p style="text-align:center" class="muted">Parciais: ${parciais.map((p) => `${p.pontos_casa}-${p.pontos_fora}`).join(' / ')}</p>` : ''}
+    ${escalados.length ? `<h3>Escalações</h3><div class="grid-2">${[j.time_casa_id, j.time_fora_id].map((tid) => `
+      <div><strong>${esc(nomeTime(tid))}</strong><ul>${escalados.filter((e) => e.time_id === tid)
+        .map((e) => `<li>${esc(nomeJogadorEscalado(e.jogador_id))}</li>`).join('')}</ul></div>`).join('')}</div>` : ''}
     <p class="muted" style="text-align:center">
       ${j.data ? '📅 ' + esc(formatarData(j.data)) : ''} ${j.local ? ' • 📍 ' + esc(j.local) : ''}
     </p>

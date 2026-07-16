@@ -49,12 +49,25 @@ export const ESPORTES = [
     chave: 'pelada_epica',
     nome: 'Pelada Épica',
     icone: '/img/esportes/pelada_epica.png',
-    disponivel: false, // fase 4 (pede EF de detalhamento propria)
+    disponivel: true,
     variantes: [],
     placar: 'gols',
     empate: true,
+    // Ranking INDIVIDUAL (EF Pelada Epica v1.0): divisoes com nome fixo,
+    // jogadores fixos/suplentes, escalacao por jogo, temporada finita.
+    ranking: 'individual',
+    pontuacao: { vitoria: 3, empate: 1, presenca: 1 },
+    criterios: ['gols', 'presencas'], // desempate escolhido na criacao (RN-PE-11)
+    criterios_validos: ['goleiro', 'gols', 'presencas'],
+    colunas: [
+      ['pts', 'Pts', 'Pontos'], ['presencas', 'Pres.', 'Presenças'], ['pj', 'J', 'Jogos'],
+      ['v', 'V', 'Vitórias'], ['e', 'E', 'Empates'], ['d', 'D', 'Derrotas'], ['gols', 'Gols', 'Gols'],
+    ],
     evento_individual: 'gol',
-    rotulos: { participante: 'Jogador', participantes: 'Jogadores', artilharia: 'Artilharia', individual: 'Gols', pontos: 'pontos' },
+    rotulos: {
+      participante: 'Jogador', participantes: 'Jogadores', artilharia: 'Artilharia',
+      individual: 'Gols', pontos: 'pontos', classificacao: 'Ranking',
+    },
   },
   {
     chave: 'futevolei',

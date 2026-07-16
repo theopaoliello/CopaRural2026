@@ -170,7 +170,8 @@ test('catalogo fase 2: os 4 esportes de sets estao disponiveis', () => {
   }
   assert.equal(obterEsporte('basquete').disponivel, true); // fase 3
   assert.equal(obterEsporte('basquete').placar, 'pontos');
-  assert.equal(obterEsporte('pelada_epica').disponivel, false); // fase 4
+  assert.equal(obterEsporte('pelada_epica').disponivel, true); // fase 4a
+  assert.equal(obterEsporte('pelada_epica').ranking, 'individual');
 });
 
 test('placar livre (melhor_de 0): qualquer contagem de sets, mas exige vencedor', () => {

@@ -27,11 +27,13 @@ export function timeDaConta(db, contaId, timeId) {
 }
 
 export function jogadorDaConta(db, contaId, jogadorId) {
+  // O jogador pertence a um time (esportes de clubes) OU direto ao
+  // campeonato (Pelada Epica) — a posse vale pelos dois caminhos.
   const j = db
     .prepare(
       `SELECT j.* FROM jogadores j
-       JOIN times t ON t.id = j.time_id
-       JOIN campeonatos c ON c.id = t.campeonato_id
+       LEFT JOIN times t ON t.id = j.time_id
+       JOIN campeonatos c ON c.id = COALESCE(j.campeonato_id, t.campeonato_id)
        WHERE j.id = ? AND c.conta_id = ?`,
     )
     .get(Number(jogadorId), contaId);

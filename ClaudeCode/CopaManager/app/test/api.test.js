@@ -723,10 +723,8 @@ test('multiesporte (fase 1): catalogo, preset e validacao do esporte', async () 
     cat.corpo.map((e) => e.chave),
     ['futebol', 'pelada_epica', 'futevolei', 'beach_tennis', 'volei', 'basquete', 'peteca'],
   );
-  assert.deepEqual(
-    cat.corpo.filter((e) => e.disponivel).map((e) => e.chave),
-    ['futebol', 'futevolei', 'beach_tennis', 'volei', 'basquete', 'peteca'], // fases 2-3: sets + basquete no ar
-  );
+  // fase 4a: os 7 esportes estao disponiveis
+  assert.ok(cat.corpo.every((e) => e.disponivel));
 
   // esporte ausente = futebol (API pre-multiesporte continua valida)
   const compat = await rita('POST', '/api/campeonatos', {
@@ -750,11 +748,12 @@ test('multiesporte (fase 1): catalogo, preset e validacao do esporte', async () 
     nome: 'X', esporte: 'xadrez', formato: 'pontos', times: ['A', 'B'],
   });
   assert.equal(invalido.status, 400);
-  const emBreve = await rita('POST', '/api/campeonatos', {
-    nome: 'V', esporte: 'pelada_epica', formato: 'pontos', times: ['A', 'B'],
+  // pelada incompleta (sem temporada/jogadores) e rejeitada com mensagem propria
+  const peladaIncompleta = await rita('POST', '/api/campeonatos', {
+    nome: 'V', esporte: 'pelada_epica', times: ['A', 'B'],
   });
-  assert.equal(emBreve.status, 400);
-  assert.match(emBreve.corpo.mensagem, /disponivel/i);
+  assert.equal(peladaIncompleta.status, 400);
+  assert.match(peladaIncompleta.corpo.mensagem, /quantidade de jogos/i);
 
   // RN-TC-01: o esporte e imutavel — o PATCH ignora tentativas de troca
   const patch = await rita('PATCH', `/api/campeonatos/${compat.corpo.id}`, {

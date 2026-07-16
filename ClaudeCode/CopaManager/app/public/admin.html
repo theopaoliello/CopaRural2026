@@ -165,6 +165,7 @@ async function telaNovo() {
 
 function telaNovoForm(chaveEsporte) {
   const esporte = ESPORTES.find((e) => e.chave === chaveEsporte);
+  if (esporte.ranking === 'individual') return telaNovoFormPelada(esporte);
   $('#app').innerHTML = `
     <h2>Novo campeonato</h2>
     <div class="linha-flex" style="margin-bottom:10px">
@@ -260,6 +261,109 @@ function telaNovoForm(chaveEsporte) {
   };
 }
 
+// Wizard proprio da Pelada Epica (EF v1.0): temporada, jogadores e regras do ranking.
+function telaNovoFormPelada(esporte) {
+  $('#app').innerHTML = `
+    <h2>Novo campeonato</h2>
+    <div class="linha-flex" style="margin-bottom:10px">
+      <img src="${esc(esporte.icone)}" alt="" style="width:34px;height:34px;object-fit:contain">
+      <strong>${esc(esporte.nome)}</strong>
+      <a href="#" onclick="telaNovo();return false" class="muted">trocar esporte</a>
+    </div>
+    <form id="form-novo" class="card">
+      <fieldset><legend>1. Identidade</legend>
+        <div class="grid-2">
+          <div><label>Nome *</label><input type="text" name="nome" required placeholder="Pelada de Terça"></div>
+          <div><label>Temporada</label><input type="text" name="temporada" placeholder="2026"></div>
+          <div><label>Cor do campeonato</label><input type="color" name="cor_tema" value="#0b5c3f" style="height:42px;width:100%"></div>
+        </div>
+        <label>Descrição</label><textarea name="descricao" placeholder="Fala da pelada para a página pública…"></textarea>
+      </fieldset>
+
+      <fieldset><legend>2. Temporada</legend>
+        <div class="grid-2">
+          <div><label>Nomes dos times / divisões (um por linha) *</label>
+            <textarea name="times" rows="3" required placeholder="Camisa&#10;Sem Camisa"></textarea></div>
+          <div><label>Quantidade de jogos da temporada *</label>
+            <input type="number" name="jogos_temporada" min="1" required placeholder="40"></div>
+        </div>
+      </fieldset>
+
+      <fieldset><legend>3. Jogadores</legend>
+        <div class="grid-2">
+          <div><label>Fixos (rankeados) — um por linha *</label>
+            <textarea name="jogadores_fixos" rows="10" required placeholder="Daniel (G)&#10;Marley&#10;Theo&#10;..."></textarea></div>
+          <div><label>Suplentes (coringas) — um por linha</label>
+            <textarea name="jogadores_suplentes" rows="10" placeholder="Vitor (G)&#10;Rafael&#10;..."></textarea></div>
+        </div>
+        <p class="muted">Coloque <strong>(G)</strong> depois do nome para marcar goleiro. Suplentes jogam e marcam gols, mas ficam fora do ranking.</p>
+      </fieldset>
+
+      <fieldset><legend>4. Pontuação e desempate</legend>
+        <label><input type="checkbox" name="ponto_presenca" checked style="width:auto"> Ponto por presença (cada jogo disputado vale 1 ponto)</label>
+        <div class="grid-2" style="margin-top:8px">
+          <div><label>Critério de desempate</label>
+            <select name="criterio_desempate"><option value="gols">Gols</option><option value="presencas">Presença</option></select></div>
+          <div style="align-self:end"><label><input type="checkbox" name="prioriza_goleiro" style="width:auto"> Priorizar goleiro no empate por pontos</label></div>
+        </div>
+      </fieldset>
+
+      <fieldset><legend>5. Premiação e rebaixamento</legend>
+        <div class="grid-2">
+          <div><label>Posições premiadas</label>
+            <select name="premiacao"><option value="primeiro">Apenas o 1º colocado</option><option value="top3">1º, 2º e 3º colocados</option></select>
+            <label style="margin-top:6px"><input type="checkbox" name="premia_artilheiro" style="width:auto"> Premiar o artilheiro</label></div>
+          <div><label>Rebaixamento / penalidade</label>
+            <select name="rebaixamento_modo" id="sel-rebaixamento">
+              <option value="">Sem rebaixamento</option>
+              <option value="colocados">Últimos colocados</option>
+              <option value="pontuacoes">Últimas pontuações</option>
+            </select>
+            <div id="campo-rebaixamento-qtd" style="display:none">
+              <label>Quantidade</label><input type="number" name="rebaixamento_qtd" min="1" value="3"></div></div>
+        </div>
+      </fieldset>
+
+      <div id="aviso-novo" class="aviso"></div>
+      <div class="linha-flex">
+        <button type="button" class="botao secundario" onclick="telaLista()">Cancelar</button>
+        <span class="espacador"></span>
+        <button class="botao" type="submit">Criar campeonato 🔥</button>
+      </div>
+    </form>
+  `;
+  $('#sel-rebaixamento').onchange = () => {
+    $('#campo-rebaixamento-qtd').style.display = $('#sel-rebaixamento').value ? '' : 'none';
+  };
+  $('#form-novo').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const linhas = (campo) => String(f.get(campo) ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
+    try {
+      const c = await api('/api/campeonatos', 'POST', {
+        esporte: esporte.chave,
+        nome: f.get('nome'), temporada: f.get('temporada'),
+        descricao: f.get('descricao'), cor_tema: f.get('cor_tema'),
+        times: linhas('times'),
+        jogos_temporada: Number(f.get('jogos_temporada')),
+        jogadores_fixos: linhas('jogadores_fixos'),
+        jogadores_suplentes: linhas('jogadores_suplentes'),
+        ponto_presenca: !!f.get('ponto_presenca'),
+        criterio_desempate: f.get('criterio_desempate'),
+        prioriza_goleiro: !!f.get('prioriza_goleiro'),
+        premiacao: f.get('premiacao'),
+        premia_artilheiro: !!f.get('premia_artilheiro'),
+        rebaixamento_modo: f.get('rebaixamento_modo') || null,
+        rebaixamento_qtd: Number(f.get('rebaixamento_qtd') || 0) || null,
+      });
+      telaCampeonato(c.id);
+    } catch (err) {
+      const av = $('#aviso-novo'); av.textContent = err.message; av.className = 'aviso erro';
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }
+  };
+}
+
 // ================= CAMPEONATO =================
 
 async function telaCampeonato(id, aba = abaAtual) {
@@ -276,12 +380,13 @@ async function telaCampeonato(id, aba = abaAtual) {
     </div>
     <h2 style="margin:4px 0">${esc(c.nome)} ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}</h2>
     <div class="abas">
-      ${[['jogos', 'Jogos'], ['times', ESP?.rotulos.participantes ?? 'Times'], ['classificacao', 'Classificação'], ['regras', 'Regras'], ['banners', 'Banners'], ['config', 'Configurações']]
+      ${[['jogos', 'Jogos'], ['times', ESP?.rotulos.participantes ?? 'Times'], ['classificacao', ESP?.rotulos.classificacao ?? 'Classificação'], ['regras', 'Regras'], ['banners', 'Banners'], ['config', 'Configurações']]
         .map(([k, r]) => `<button class="aba ${aba === k ? 'ativa' : ''}" onclick="telaCampeonato(${id}, '${k}')">${r}</button>`).join('')}
     </div>
     <div id="painel"></div>
   `;
-  ({ jogos: abaJogos, times: abaTimes, classificacao: abaClassif, regras: abaRegras, banners: abaBanners, config: abaConfig }[aba])();
+  const abaParticipantes = ESP?.ranking === 'individual' ? abaJogadoresPelada : abaTimes;
+  ({ jogos: abaJogos, times: abaParticipantes, classificacao: abaClassif, regras: abaRegras, banners: abaBanners, config: abaConfig }[aba])();
 }
 
 // ---------- aba jogos ----------
@@ -308,6 +413,7 @@ function linhaJogoAdmin(j) {
       <button class="botao secundario mini" onclick="modalAgenda(${j.id})">Agenda</button>
       ${j.status === 'encerrado' ? `<button class="botao secundario mini" onclick="modalSumula(${j.id})">Súmula${j.sumula ? ' ✓' : ''}</button>
       <button class="botao perigo mini" onclick="apagarResultado(${j.id})">Apagar</button>` : ''}
+      ${ESP?.ranking === 'individual' && j.status !== 'encerrado' ? `<button class="botao perigo mini" onclick="excluirJogo(${j.id})">Excluir</button>` : ''}
     </span>
   </div>`;
 }
@@ -317,6 +423,18 @@ function abaJogos() {
   const grupos = DET.jogos.filter((j) => j.fase === 'grupos');
   const mata = DET.jogos.filter((j) => j.fase === 'mata');
   let html = '';
+
+  // Pelada Epica: progresso da temporada + criacao de jogos um a um.
+  if (ESP?.ranking === 'individual') {
+    const encerrados = DET.jogos.filter((j) => j.status === 'encerrado').length;
+    const completa = encerrados >= c.jogos_temporada;
+    html += `<div class="card linha-flex">
+      <span>Temporada: <strong>${encerrados}/${c.jogos_temporada}</strong> jogos com resultado
+        ${completa ? '<span class="badge">Temporada completa 🏁</span>' : ''}</span>
+      <span class="espacador"></span>
+      <button class="botao" onclick="modalNovoJogo()">+ Novo jogo</button>
+    </div>`;
+  }
 
   if (c.formato === 'grupos_mata' && !mata.length) {
     const pendentes = grupos.filter((j) => j.status !== 'encerrado').length;
@@ -345,6 +463,143 @@ function abaJogos() {
     }).join('')}</div>`;
   }
   $('#painel').innerHTML = html || '<div class="card"><p class="muted">Sem jogos.</p></div>';
+}
+
+// ---------- Pelada Epica: novo jogo, escalacao e jogadores ----------
+
+function modalNovoJogo() {
+  const opcoes = DET.times.map((t) => `<option value="${t.id}">${esc(t.nome)}</option>`).join('');
+  abrirModal(`
+    <h3>Novo jogo</h3>
+    <div class="grid-2">
+      <div><label>Time da casa</label><select id="nj-casa">${opcoes}</select></div>
+      <div><label>Visitante</label><select id="nj-fora">${opcoes}</select></div>
+      <div><label>Data (opcional)</label><input type="datetime-local" id="nj-data"></div>
+      <div><label>Local (opcional)</label><input type="text" id="nj-local"></div>
+    </div>
+    <div id="aviso-nj" class="aviso"></div>
+    <p><button class="botao" style="width:100%" onclick="criarNovoJogo()">Criar jogo</button></p>
+  `);
+  if (DET.times.length > 1) $('#nj-fora').selectedIndex = 1;
+}
+async function criarNovoJogo() {
+  try {
+    await api(`/api/campeonatos/${DET.campeonato.id}/jogos`, 'POST', {
+      time_casa_id: Number($('#nj-casa').value), time_fora_id: Number($('#nj-fora').value),
+      data: $('#nj-data').value || null, local: $('#nj-local').value || null,
+    });
+    fecharModal(); telaCampeonato(DET.campeonato.id, 'jogos');
+  } catch (e) {
+    const av = $('#aviso-nj'); av.textContent = e.message; av.className = 'aviso erro';
+  }
+}
+async function excluirJogo(jogoId) {
+  if (!confirm('Excluir este jogo da temporada?')) return;
+  try { await api(`/api/jogos/${jogoId}`, 'DELETE'); telaCampeonato(DET.campeonato.id, 'jogos'); }
+  catch (e) { avisar(e.message); }
+}
+
+// Resultado da pelada: placar + escalacao por time + gols por jogador.
+function modalResultadoPelada(jogoId) {
+  const j = DET.jogos.find((x) => x.id === jogoId);
+  const casa = DET.times.find((t) => t.id === j.time_casa_id);
+  const fora = DET.times.find((t) => t.id === j.time_fora_id);
+  const escalacoes = DET.escalacoes.filter((e) => e.jogo_id === jogoId);
+  const timeDe = (jid) => escalacoes.find((e) => e.jogador_id === jid)?.time_id ?? null;
+  const golsDe = (jid) => DET.eventos.filter((e) => e.jogo_id === jogoId && e.tipo === 'gol' && e.jogador_id === jid).length;
+  // Escalaveis: ativos + quem ja esta na escalacao deste jogo (mesmo se inativado depois).
+  const jogadores = DET.jogadores.filter((x) => x.ativo || timeDe(x.id) != null);
+  const linha = (x) => `
+    <div class="linha-flex" style="margin:3px 0">
+      <span style="flex:1">${esc(x.nome)}${x.goleiro ? ' <span class="badge">G</span>' : ''}${x.tipo === 'suplente' ? ' <span class="muted">(sup.)</span>' : ''}</span>
+      <label style="width:auto"><input type="radio" name="esc-${x.id}" class="esc" data-jogador="${x.id}" value="${j.time_casa_id}" ${timeDe(x.id) === j.time_casa_id ? 'checked' : ''} style="width:auto"> ${esc(casa.nome)}</label>
+      <label style="width:auto"><input type="radio" name="esc-${x.id}" class="esc" data-jogador="${x.id}" value="${j.time_fora_id}" ${timeDe(x.id) === j.time_fora_id ? 'checked' : ''} style="width:auto"> ${esc(fora.nome)}</label>
+      <label style="width:auto"><input type="radio" name="esc-${x.id}" value="" ${timeDe(x.id) == null ? 'checked' : ''} style="width:auto"> Fora</label>
+      <input type="number" min="0" class="gols-jogador" data-jogador="${x.id}" value="${golsDe(x.id) || ''}" placeholder="gols" style="width:64px">
+    </div>`;
+  abrirModal(`
+    <h3>Resultado: ${esc(casa.nome)} x ${esc(fora.nome)}</h3>
+    <div class="grid-2">
+      <div><label>Gols ${esc(casa.nome)}</label><input type="number" id="gols-casa" min="0" value="${j.gols_casa ?? ''}"></div>
+      <div><label>Gols ${esc(fora.nome)}</label><input type="number" id="gols-fora" min="0" value="${j.gols_fora ?? ''}"></div>
+    </div>
+    <h4 style="margin:10px 0 4px">Quem jogou onde?</h4>
+    <p class="muted" style="margin:0 0 6px">Marque o time de cada jogador presente — a pontuação individual vem daí. Gols por jogador são opcionais; a diferença fica sem autor (SR).</p>
+    ${jogadores.map(linha).join('')}
+    <div id="aviso-res" class="aviso"></div>
+    <p><button class="botao" style="width:100%" onclick="salvarResultadoPelada(${jogoId})">Salvar resultado</button></p>
+  `);
+}
+
+async function salvarResultadoPelada(jogoId) {
+  const av = $('#aviso-res');
+  const vCasa = $('#gols-casa').value.trim(), vFora = $('#gols-fora').value.trim();
+  if (vCasa === '' || vFora === '') {
+    av.textContent = 'Informe o placar dos dois times.'; av.className = 'aviso erro';
+    return;
+  }
+  const escalacoes = [...document.querySelectorAll('#modal-conteudo .esc:checked')]
+    .map((i) => ({ jogador_id: Number(i.dataset.jogador), time_id: Number(i.value) }));
+  const timePorJogador = new Map(escalacoes.map((e) => [e.jogador_id, e.time_id]));
+  const eventos = [];
+  for (const i of document.querySelectorAll('#modal-conteudo .gols-jogador')) {
+    const n = Number(i.value || 0);
+    const jogadorId = Number(i.dataset.jogador);
+    if (!n) continue;
+    if (!timePorJogador.has(jogadorId)) {
+      av.textContent = 'Ha gols atribuidos a um jogador que nao esta escalado.'; av.className = 'aviso erro';
+      return;
+    }
+    for (let k = 0; k < n; k++) eventos.push({ tipo: 'gol', time_id: timePorJogador.get(jogadorId), jogador_id: jogadorId });
+  }
+  try {
+    await api(`/api/jogos/${jogoId}/resultado`, 'POST', {
+      gols_casa: Number(vCasa), gols_fora: Number(vFora), escalacoes, eventos,
+    });
+    fecharModal(); telaCampeonato(DET.campeonato.id, 'jogos');
+  } catch (e) {
+    av.textContent = e.message; av.className = 'aviso erro';
+  }
+}
+
+// Gestao de jogadores da pelada (fixos, suplentes, goleiros, inativos).
+function abaJogadoresPelada() {
+  const grupo = (titulo, lista) => `
+    <h3>${titulo} <span class="badge">${lista.length}</span></h3>
+    ${lista.length ? lista.map((x) => `
+      <div class="linha-flex" style="margin:4px 0;${x.ativo ? '' : 'opacity:.5'}">
+        <span style="flex:1">${esc(x.nome)}${x.goleiro ? ' <span class="badge">G</span>' : ''}${x.ativo ? '' : ' <span class="muted">(inativo)</span>'}</span>
+        <button class="botao secundario mini" onclick="editarJogadorPelada(${x.id}, { goleiro: ${x.goleiro ? 'false' : 'true'} })">${x.goleiro ? 'Tirar G' : 'Marcar G'}</button>
+        <button class="botao secundario mini" onclick="editarJogadorPelada(${x.id}, { tipo: '${x.tipo === 'fixo' ? 'suplente' : 'fixo'}' })">${x.tipo === 'fixo' ? 'Tornar suplente' : 'Promover a fixo'}</button>
+        <button class="botao ${x.ativo ? 'perigo' : ''} mini" onclick="editarJogadorPelada(${x.id}, { ativo: ${x.ativo ? 'false' : 'true'} })">${x.ativo ? 'Inativar' : 'Reativar'}</button>
+      </div>`).join('') : '<p class="muted">Ninguém aqui ainda.</p>'}`;
+  $('#painel').innerHTML = `
+    <div class="card">
+      ${grupo('Fixos (rankeados)', DET.jogadores.filter((x) => x.tipo === 'fixo'))}
+      ${grupo('Suplentes (coringas)', DET.jogadores.filter((x) => x.tipo === 'suplente'))}
+    </div>
+    <div class="card">
+      <h3>Adicionar jogador</h3>
+      <div class="linha-flex">
+        <input type="text" id="nj-nome" placeholder="Nome" style="flex:1">
+        <select id="nj-tipo" style="width:auto"><option value="fixo">Fixo</option><option value="suplente">Suplente</option></select>
+        <label style="width:auto"><input type="checkbox" id="nj-goleiro" style="width:auto"> Goleiro</label>
+        <button class="botao mini" onclick="adicionarJogadorPelada()">Adicionar</button>
+      </div>
+      <p class="muted">Inativar preserva histórico e pontos (RN-PE-10); promover suplente a fixo leva o que ele já acumulou.</p>
+    </div>`;
+}
+async function editarJogadorPelada(id, mudanca) {
+  try { await api(`/api/jogadores/${id}`, 'PATCH', mudanca); telaCampeonato(DET.campeonato.id, 'times'); }
+  catch (e) { avisar(e.message); }
+}
+async function adicionarJogadorPelada() {
+  try {
+    await api(`/api/campeonatos/${DET.campeonato.id}/jogadores`, 'POST', {
+      nome: $('#nj-nome').value, tipo: $('#nj-tipo').value, goleiro: $('#nj-goleiro').checked,
+    });
+    telaCampeonato(DET.campeonato.id, 'times');
+  } catch (e) { avisar(e.message); }
 }
 
 async function gerarMata() {
@@ -420,6 +675,7 @@ function modoResultado(modo) {
 function modalResultado(jogoId) {
   if (ESP?.placar === 'sets') return modalResultadoSets(jogoId);
   if (ESP?.placar === 'pontos') return modalResultadoPontos(jogoId);
+  if (ESP?.ranking === 'individual') return modalResultadoPelada(jogoId);
   return modalResultadoGols(jogoId);
 }
 
@@ -831,7 +1087,10 @@ function abaClassif() {
           ${colunas.map(([, r, t]) => `<th title="${esc(t)}">${esc(r)}</th>`).join('')}</tr></thead>
         <tbody>${g.linhas.map((l) => {
           const t = DET.times.find((x) => x.id === l.time_id);
-          return `<tr><td>${l.pos}</td><td class="time">${escudoHtml(t)} ${esc(l.nome)}</td>
+          const nome = ESP?.ranking === 'individual'
+            ? `${esc(l.nome)}${l.goleiro ? ' <span class="badge">G</span>' : ''}`
+            : `${escudoHtml(t)} ${esc(l.nome)}`;
+          return `<tr><td>${l.pos}</td><td class="time">${nome}</td>
             ${colunas.map(([k]) => `<td class="${k === 'pts' ? 'pts' : ''}">${celulaClassif(l, k)}</td>`).join('')}</tr>`;
         }).join('')}</tbody>
       </table></div>

@@ -67,8 +67,15 @@ CREATE TABLE IF NOT EXISTS campeonatos (
   pontos_empate INTEGER NOT NULL DEFAULT 1,
   -- ordem dos criterios de desempate (JSON), aplicados apos pontos
   criterios_desempate TEXT NOT NULL DEFAULT '["vitorias","saldo","gols_pro","confronto","cartoes"]',
-  -- esportes de sets (modelo B): quantos sets fecham a partida (1, 3 ou 5)
+  -- esportes de sets (modelo B): quantos sets fecham a partida (1, 3, 5; 0 = placar livre)
   melhor_de INTEGER,
+  -- Pelada Epica (ranking individual)
+  jogos_temporada INTEGER,
+  pontos_presenca INTEGER,
+  premiacao TEXT,
+  premia_artilheiro INTEGER NOT NULL DEFAULT 0,
+  rebaixamento_modo TEXT,
+  rebaixamento_qtd INTEGER,
   -- regras especificas do campeonato, texto livre exibido na pagina publica
   regras TEXT,
   publicado INTEGER NOT NULL DEFAULT 1,
@@ -99,12 +106,21 @@ CREATE INDEX IF NOT EXISTS idx_times_campeonato ON times(campeonato_id);
 
 CREATE TABLE IF NOT EXISTS jogadores (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  time_id INTEGER NOT NULL REFERENCES times(id) ON DELETE CASCADE,
+  -- esportes de clubes: o jogador pertence a um time
+  time_id INTEGER REFERENCES times(id) ON DELETE CASCADE,
+  -- Pelada Epica: o jogador pertence ao campeonato (time_id fica NULL)
+  campeonato_id INTEGER REFERENCES campeonatos(id) ON DELETE CASCADE,
   nome TEXT NOT NULL,
-  numero INTEGER
+  numero INTEGER,
+  -- Pelada Epica: fixo (rankeado) ou suplente (coringa, fora do ranking)
+  tipo TEXT NOT NULL DEFAULT 'fixo' CHECK (tipo IN ('fixo', 'suplente')),
+  goleiro INTEGER NOT NULL DEFAULT 0,
+  -- inativo: saiu da pelada; historico e pontos preservados (RN-PE-10)
+  ativo INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE INDEX IF NOT EXISTS idx_jogadores_time ON jogadores(time_id);
+CREATE INDEX IF NOT EXISTS idx_jogadores_campeonato ON jogadores(campeonato_id);
 
 CREATE TABLE IF NOT EXISTS jogos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,6 +173,18 @@ CREATE TABLE IF NOT EXISTS sets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sets_jogo ON sets(jogo_id);
+
+-- Pelada Epica: quem jogou em qual time em cada jogo (RN-PE-03).
+-- A matriz de entrosamento do sorteio e derivada daqui — nunca armazenada.
+CREATE TABLE IF NOT EXISTS escalacoes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  jogo_id INTEGER NOT NULL REFERENCES jogos(id) ON DELETE CASCADE,
+  jogador_id INTEGER NOT NULL REFERENCES jogadores(id) ON DELETE CASCADE,
+  time_id INTEGER NOT NULL REFERENCES times(id) ON DELETE CASCADE,
+  UNIQUE (jogo_id, jogador_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_escalacoes_jogo ON escalacoes(jogo_id);
 
 CREATE TABLE IF NOT EXISTS banners (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -66,7 +66,80 @@ export function registrarResultado(db, jogo, dados) {
   const esporte = obterEsporte(campeonato?.esporte) ?? obterEsporte(ESPORTE_PADRAO);
   if (esporte.placar === 'sets') return registrarResultadoSets(db, jogo, campeonato, esporte, dados);
   if (esporte.placar === 'pontos') return registrarResultadoPontos(db, jogo, esporte, dados);
+  if (esporte.ranking === 'individual') return registrarResultadoPelada(db, jogo, dados);
   return registrarResultadoGols(db, jogo, dados);
+}
+
+// ---------- Pelada Epica: gols + escalacao obrigatoria (RN-PE-03) ----------
+
+// `dados`: { gols_casa, gols_fora, escalacoes: [{jogador_id, time_id}],
+//   eventos?: [{tipo:'gol', time_id, jogador_id?}] } — autor opcional (SR).
+function registrarResultadoPelada(db, jogo, dados) {
+  if (dados.penaltis_casa != null || dados.penaltis_fora != null) {
+    throw erroValidacao('A Pelada Epica nao tem penaltis: empate vale ponto.');
+  }
+  const golsCasa = Number(dados.gols_casa);
+  const golsFora = Number(dados.gols_fora);
+  if (!Number.isInteger(golsCasa) || golsCasa < 0 || !Number.isInteger(golsFora) || golsFora < 0) {
+    throw erroValidacao('Placar invalido.');
+  }
+
+  // Escalacao: quem jogou em cada time — e dela que sai a pontuacao individual.
+  const escalacoes = dados.escalacoes ?? [];
+  const idsTimes = [jogo.time_casa_id, jogo.time_fora_id];
+  const timeDoJogador = new Map();
+  for (const esc of escalacoes) {
+    const timeId = Number(esc.time_id);
+    const jogadorId = Number(esc.jogador_id);
+    if (!idsTimes.includes(timeId)) throw erroValidacao('Escalacao aponta para um time que nao esta neste jogo.');
+    if (timeDoJogador.has(jogadorId)) {
+      throw erroValidacao('Um jogador nao pode estar nos dois times do mesmo jogo.');
+    }
+    const jogador = db.prepare('SELECT * FROM jogadores WHERE id = ?').get(jogadorId);
+    if (!jogador || jogador.campeonato_id !== jogo.campeonato_id) {
+      throw erroValidacao('Jogador escalado nao pertence a este campeonato.');
+    }
+    timeDoJogador.set(jogadorId, timeId);
+  }
+  const escaladosPorTime = new Map(idsTimes.map((t) => [t, 0]));
+  for (const t of timeDoJogador.values()) escaladosPorTime.set(t, escaladosPorTime.get(t) + 1);
+  if (idsTimes.some((t) => !escaladosPorTime.get(t))) {
+    throw erroValidacao('Informe a escalacao dos dois times.');
+  }
+
+  // Gols: autor opcional (SR); com autor, ele precisa estar escalado no time do gol.
+  const eventos = dados.eventos ?? [];
+  const golsPorTime = { [jogo.time_casa_id]: 0, [jogo.time_fora_id]: 0 };
+  for (const ev of eventos) {
+    if (ev.tipo !== 'gol') throw erroValidacao(`Tipo de evento invalido para a Pelada Epica: ${ev.tipo}`);
+    const timeId = Number(ev.time_id);
+    if (!idsTimes.includes(timeId)) throw erroValidacao('Evento aponta para um time que nao esta neste jogo.');
+    if (ev.jogador_id != null && timeDoJogador.get(Number(ev.jogador_id)) !== timeId) {
+      throw erroValidacao('Autor do gol nao esta escalado no time do gol.');
+    }
+    golsPorTime[timeId] += 1;
+  }
+  if (golsPorTime[jogo.time_casa_id] > golsCasa || golsPorTime[jogo.time_fora_id] > golsFora) {
+    throw erroValidacao('Ha mais gols atribuidos do que o placar do jogo.');
+  }
+
+  db.prepare(
+    `UPDATE jogos SET gols_casa = ?, gols_fora = ?, penaltis_casa = NULL, penaltis_fora = NULL,
+     status = 'encerrado' WHERE id = ?`,
+  ).run(golsCasa, golsFora, jogo.id);
+
+  db.prepare('DELETE FROM eventos WHERE jogo_id = ?').run(jogo.id);
+  const insEv = db.prepare(
+    "INSERT INTO eventos (jogo_id, time_id, jogador_id, tipo) VALUES (?, ?, ?, 'gol')",
+  );
+  for (const ev of eventos) {
+    insEv.run(jogo.id, Number(ev.time_id), ev.jogador_id != null ? Number(ev.jogador_id) : null);
+  }
+  db.prepare('DELETE FROM escalacoes WHERE jogo_id = ?').run(jogo.id);
+  const insEsc = db.prepare('INSERT INTO escalacoes (jogo_id, jogador_id, time_id) VALUES (?, ?, ?)');
+  for (const [jogadorId, timeId] of timeDoJogador) insEsc.run(jogo.id, jogadorId, timeId);
+
+  return db.prepare('SELECT * FROM jogos WHERE id = ?').get(jogo.id);
 }
 
 // ---------- modelo C: pontos de jogo (basquete) ----------

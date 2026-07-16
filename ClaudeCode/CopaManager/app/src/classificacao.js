@@ -258,6 +258,73 @@ export function calcularClassificacaoPontos(times, jogos, opcoes = {}) {
   return ordenadas.map((linha, i) => ({ ...linha, pos: i + 1, ultimos: linha.ultimos.slice(-5) }));
 }
 
+// Ranking individual da Pelada Epica (EF v1.0). Conta apenas jogadores FIXOS
+// (RN-PE-01); pontos vem da escalacao em jogos encerrados (RN-PE-02):
+// presenca (opcional) + vitoria/empate/derrota do time em que o jogador estava.
+// opcoes: { pontosVitoria, pontosEmpate, pontosPresenca, criterios }
+// Linhas: { jogador_id, pos, nome, goleiro, pts, presencas, pj, v, e, d, gols, ultimos }
+export function calcularRankingPelada(jogadores, jogos, escalacoes, eventos, opcoes = {}) {
+  const {
+    pontosVitoria = 3, pontosEmpate = 1, pontosPresenca = 1,
+    criterios = ['gols', 'presencas'],
+  } = opcoes;
+
+  const linhas = new Map(
+    jogadores
+      .filter((j) => j.tipo === 'fixo')
+      .map((j) => [j.id, {
+        jogador_id: j.id, nome: j.nome, goleiro: j.goleiro ? 1 : 0,
+        pts: 0, presencas: 0, pj: 0, v: 0, e: 0, d: 0, gols: 0, ultimos: [],
+      }]),
+  );
+
+  const encerrados = jogos
+    .filter((j) => j.status === 'encerrado')
+    .sort((a, b) => a.rodada - b.rodada || a.id - b.id);
+  const escalacoesPorJogo = new Map();
+  for (const e of escalacoes) {
+    if (!escalacoesPorJogo.has(e.jogo_id)) escalacoesPorJogo.set(e.jogo_id, []);
+    escalacoesPorJogo.get(e.jogo_id).push(e);
+  }
+
+  for (const j of encerrados) {
+    for (const esc of escalacoesPorJogo.get(j.id) ?? []) {
+      const linha = linhas.get(esc.jogador_id);
+      if (!linha) continue; // suplente: coringa, fora do ranking
+      const gp = esc.time_id === j.time_casa_id ? j.gols_casa : j.gols_fora;
+      const gc = esc.time_id === j.time_casa_id ? j.gols_fora : j.gols_casa;
+      linha.presencas += 1;
+      linha.pj += 1;
+      linha.pts += pontosPresenca;
+      if (gp > gc) { linha.v += 1; linha.pts += pontosVitoria; linha.ultimos.push('V'); }
+      else if (gp === gc) { linha.e += 1; linha.pts += pontosEmpate; linha.ultimos.push('E'); }
+      else { linha.d += 1; linha.ultimos.push('D'); }
+    }
+  }
+  for (const ev of eventos) {
+    if (ev.tipo === 'gol' && ev.jogador_id != null) {
+      const linha = linhas.get(ev.jogador_id);
+      if (linha) linha.gols += 1;
+    }
+  }
+
+  const comparadores = {
+    goleiro: (a, b) => b.goleiro - a.goleiro, // flag "Priorizar goleiro" (RN-PE-11)
+    gols: (a, b) => b.gols - a.gols,
+    presencas: (a, b) => b.presencas - a.presencas,
+  };
+  const ordenadas = [...linhas.values()].sort((a, b) => {
+    if (b.pts !== a.pts) return b.pts - a.pts;
+    for (const c of criterios) {
+      const cmp = comparadores[c]?.(a, b) ?? 0;
+      if (cmp !== 0) return cmp;
+    }
+    return a.nome.localeCompare(b.nome, 'pt-BR');
+  });
+
+  return ordenadas.map((linha, i) => ({ ...linha, pos: i + 1, ultimos: linha.ultimos.slice(-5) }));
+}
+
 // Peso de cartoes por time para o criterio de desempate "cartoes".
 // eventos: [{jogo_id, time_id, tipo}] apenas de jogos encerrados.
 export function cartoesPorTime(eventos) {

@@ -99,11 +99,16 @@ test('migracao: banco antigo de eventos (sem valor/pontos) e reconstruido preser
   const caminho = join(dir, 'antigo.db');
   // Banco no formato pre-fase-3: eventos sem `valor` e sem 'pontos' no CHECK.
   const antigo = new DatabaseSync(caminho);
-  // Stubs com as colunas que os indices do schema referenciam.
+  // Stubs no formato antigo (a migracao de jogadores tambem roda aqui).
   antigo.exec(`
     CREATE TABLE jogos (id INTEGER PRIMARY KEY, campeonato_id INTEGER);
     CREATE TABLE times (id INTEGER PRIMARY KEY, campeonato_id INTEGER);
-    CREATE TABLE jogadores (id INTEGER PRIMARY KEY, time_id INTEGER);
+    CREATE TABLE jogadores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      time_id INTEGER NOT NULL REFERENCES times(id) ON DELETE CASCADE,
+      nome TEXT NOT NULL,
+      numero INTEGER
+    );
     CREATE TABLE eventos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       jogo_id INTEGER NOT NULL REFERENCES jogos(id) ON DELETE CASCADE,

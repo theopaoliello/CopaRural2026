@@ -44,6 +44,13 @@ function migrarColunas(db) {
   addSeFaltar('campeonatos', "esporte TEXT NOT NULL DEFAULT 'futebol'");
   // Esportes de sets (fase 2): formato da partida; a tabela `sets` vem do schema.
   addSeFaltar('campeonatos', 'melhor_de INTEGER');
+  // Pelada Epica (fase 4): temporada, presenca opcional, premiacao e rebaixamento.
+  addSeFaltar('campeonatos', 'jogos_temporada INTEGER');
+  addSeFaltar('campeonatos', 'pontos_presenca INTEGER');
+  addSeFaltar('campeonatos', 'premiacao TEXT');
+  addSeFaltar('campeonatos', 'premia_artilheiro INTEGER NOT NULL DEFAULT 0');
+  addSeFaltar('campeonatos', 'rebaixamento_modo TEXT');
+  addSeFaltar('campeonatos', 'rebaixamento_qtd INTEGER');
   // Confirmacao de e-mail chegou depois: contas que ja existiam sao
   // consideradas confirmadas (nao da para pedir confirmacao retroativa).
   const tinhaVerificado = colunaExiste(db, 'contas', 'email_verificado');
@@ -71,9 +78,31 @@ function migrarEventos(db) {
   db.exec('DROP TABLE eventos_antigo;');
 }
 
+// Pelada Epica: `jogadores` ganhou vinculo direto ao campeonato e time_id
+// deixou de ser NOT NULL — SQLite nao relaxa NOT NULL, entao reconstroi.
+// `jogadores` e REFERENCIADA por eventos/escalacoes: o RENAME moderno
+// reescreveria os REFERENCES delas para "jogadores_antigo" — por isso o
+// rename roda em modo legacy, com FKs desligadas durante a janela.
+function migrarJogadores(db) {
+  if (!tabelaExiste(db, 'jogadores') || colunaExiste(db, 'jogadores', 'campeonato_id')) return;
+  db.exec('PRAGMA foreign_keys = OFF;');
+  db.exec('PRAGMA legacy_alter_table = ON;');
+  db.exec('DROP INDEX IF EXISTS idx_jogadores_time;');
+  db.exec('ALTER TABLE jogadores RENAME TO jogadores_antigo;');
+  db.exec(readFileSync(SCHEMA_PATH, 'utf8')); // recria `jogadores` no formato novo
+  db.exec(`INSERT INTO jogadores (id, time_id, nome, numero)
+           SELECT id, time_id, nome, numero FROM jogadores_antigo;`);
+  db.exec('DROP TABLE jogadores_antigo;');
+  db.exec('PRAGMA legacy_alter_table = OFF;');
+  db.exec('PRAGMA foreign_keys = ON;');
+}
+
 export function prepararBanco(caminho = CAMINHO_PADRAO) {
   const db = abrirBanco(caminho);
   migrarColunas(db);
+  // Jogadores primeiro: as duas migracoes executam o schema.sql, e o indice
+  // novo de `jogadores` (campeonato_id) exige a tabela ja reconstruida.
+  migrarJogadores(db);
   migrarEventos(db);
   db.exec(readFileSync(SCHEMA_PATH, 'utf8'));
   return db;

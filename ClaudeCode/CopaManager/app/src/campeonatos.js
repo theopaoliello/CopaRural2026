@@ -10,7 +10,7 @@ import {
 } from './tabela.js';
 import {
   calcularClassificacao, calcularClassificacaoSets, calcularClassificacaoPontos,
-  cartoesPorTime, CRITERIOS_VALIDOS,
+  calcularRankingPelada, cartoesPorTime, CRITERIOS_VALIDOS,
 } from './classificacao.js';
 import { obterEsporte, ESPORTE_PADRAO } from './esportes.js';
 
@@ -67,6 +67,9 @@ export function criarCampeonato(db, contaId, dados) {
   const esporte = obterEsporte(dados.esporte ?? ESPORTE_PADRAO);
   if (!esporte) throw erroValidacao('Esporte invalido.');
   if (!esporte.disponivel) throw erroValidacao(`${esporte.nome} ainda nao esta disponivel. Em breve!`);
+
+  // Ranking individual (Pelada Epica): estrutura propria, sem tabela gerada.
+  if (esporte.ranking === 'individual') return criarPeladaEpica(db, contaId, dados, esporte, nome);
 
   const formato = dados.formato;
   if (!FORMATOS.includes(formato)) throw erroValidacao('Formato invalido.');
@@ -186,12 +189,177 @@ export function criarCampeonato(db, contaId, dados) {
   return db.prepare('SELECT * FROM campeonatos WHERE id = ?').get(campeonatoId);
 }
 
+// ---------- Pelada Epica (ranking individual, EF v1.0) ----------
+
+// Linhas de jogador do wizard: "Nome" ou "Nome (G)" (goleiro).
+function parsearJogadores(linhas, tipo) {
+  return (linhas ?? [])
+    .map((l) => String(l ?? '').trim())
+    .filter(Boolean)
+    .map((linha) => {
+      const goleiro = /\(g\)\s*$/i.test(linha);
+      const nome = linha.replace(/\s*\(g\)\s*$/i, '').trim();
+      if (!nome) throw erroValidacao('Jogador sem nome na lista.');
+      if (nome.length > 80) throw erroValidacao('Nome de jogador muito longo (limite: 80 caracteres).');
+      return { nome, tipo, goleiro: goleiro ? 1 : 0 };
+    });
+}
+
+function criarPeladaEpica(db, contaId, dados, esporte, nome) {
+  // Divisoes com nome fixo (RN-PE-04): reutilizadas em todos os jogos.
+  const divisoes = (dados.times ?? []).map((t) => String(t?.nome ?? t ?? '').trim()).filter(Boolean);
+  if (divisoes.length < 2) throw erroValidacao('Informe pelo menos 2 nomes de times/divisoes.');
+  if (divisoes.some((n) => n.length > 80)) throw erroValidacao('Nome de time muito longo (limite: 80 caracteres).');
+  if (new Set(divisoes.map((n) => n.toLowerCase())).size !== divisoes.length) {
+    throw erroValidacao('Ha times com nomes repetidos.');
+  }
+
+  const jogosTemporada = Number(dados.jogos_temporada);
+  if (!Number.isInteger(jogosTemporada) || jogosTemporada < 1) {
+    throw erroValidacao('Informe a quantidade de jogos da temporada.');
+  }
+
+  const jogadores = [
+    ...parsearJogadores(dados.jogadores_fixos, 'fixo'),
+    ...parsearJogadores(dados.jogadores_suplentes, 'suplente'),
+  ];
+  if (jogadores.filter((j) => j.tipo === 'fixo').length < 2) {
+    throw erroValidacao('Cadastre pelo menos 2 jogadores fixos.');
+  }
+  if (new Set(jogadores.map((j) => j.nome.toLowerCase())).size !== jogadores.length) {
+    throw erroValidacao('Ha jogadores com nomes repetidos.');
+  }
+
+  // Desempate (RN-PE-11): criterio principal Gols ou Presenca; flag prioriza goleiro.
+  let criterios = dados.criterios_desempate;
+  if (criterios === undefined) {
+    const principal = dados.criterio_desempate ?? 'gols';
+    if (!['gols', 'presencas'].includes(principal)) throw erroValidacao('Criterio de desempate invalido.');
+    criterios = [
+      ...(dados.prioriza_goleiro ? ['goleiro'] : []),
+      principal,
+      principal === 'gols' ? 'presencas' : 'gols',
+    ];
+  }
+  if (!Array.isArray(criterios) || criterios.some((c) => !esporte.criterios_validos.includes(c))) {
+    throw erroValidacao('Criterios de desempate invalidos.');
+  }
+
+  // Premiacao e rebaixamento (zonas visuais chegam na fase 4b; config ja se grava).
+  const premiacao = dados.premiacao ?? 'primeiro';
+  if (!['primeiro', 'top3'].includes(premiacao)) throw erroValidacao('Premiacao invalida.');
+  let rebaixamentoModo = dados.rebaixamento_modo ?? null;
+  if (rebaixamentoModo === 'nenhum' || rebaixamentoModo === '') rebaixamentoModo = null;
+  if (rebaixamentoModo != null && !['colocados', 'pontuacoes'].includes(rebaixamentoModo)) {
+    throw erroValidacao('Modo de rebaixamento invalido.');
+  }
+  const rebaixamentoQtd = rebaixamentoModo ? Number(dados.rebaixamento_qtd) : null;
+  if (rebaixamentoModo && (!Number.isInteger(rebaixamentoQtd) || rebaixamentoQtd < 1)) {
+    throw erroValidacao('Informe a quantidade do rebaixamento.');
+  }
+
+  const slug = slugDisponivel(db, slugificar(dados.slug || `${nome} ${dados.temporada ?? ''}`));
+  const info = db
+    .prepare(
+      `INSERT INTO campeonatos
+       (conta_id, nome, temporada, esporte, modalidade, descricao, cor_tema, slug, formato,
+        pontos_vitoria, pontos_empate, criterios_desempate, jogos_temporada, pontos_presenca,
+        premiacao, premia_artilheiro, rebaixamento_modo, rebaixamento_qtd)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pontos', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      contaId,
+      nome,
+      textoLimitado(dados.temporada, 40, 'Temporada'),
+      esporte.chave,
+      esporte.nome,
+      textoLimitado(dados.descricao, 2000, 'Descricao'),
+      validarCorTema(dados.cor_tema ?? '#0b5c3f'),
+      slug,
+      Math.max(0, Number(dados.pontos_vitoria ?? esporte.pontuacao.vitoria)),
+      Math.max(0, Number(dados.pontos_empate ?? esporte.pontuacao.empate)),
+      JSON.stringify(criterios),
+      jogosTemporada,
+      dados.ponto_presenca === false ? 0 : 1, // flag da criacao (padrao ligada)
+      premiacao,
+      dados.premia_artilheiro ? 1 : 0,
+      rebaixamentoModo,
+      rebaixamentoQtd,
+    );
+  const campeonatoId = Number(info.lastInsertRowid);
+
+  const insTime = db.prepare('INSERT INTO times (campeonato_id, grupo_id, nome) VALUES (?, NULL, ?)');
+  for (const n of divisoes) insTime.run(campeonatoId, n);
+  const insJogador = db.prepare(
+    'INSERT INTO jogadores (campeonato_id, nome, tipo, goleiro) VALUES (?, ?, ?, ?)',
+  );
+  for (const j of jogadores) insJogador.run(campeonatoId, j.nome, j.tipo, j.goleiro);
+
+  // Nenhum jogo e gerado: os jogos da temporada sao criados ao longo dela.
+  return db.prepare('SELECT * FROM campeonatos WHERE id = ?').get(campeonatoId);
+}
+
+// Cria um jogo avulso da temporada (so Pelada Epica; nos demais esportes a
+// tabela e gerada na criacao).
+export function criarJogoAvulso(db, campeonato, dados) {
+  const esporte = obterEsporte(campeonato.esporte);
+  if (esporte?.ranking !== 'individual') {
+    throw erroValidacao('A tabela deste campeonato e gerada automaticamente.');
+  }
+  const times = db.prepare('SELECT * FROM times WHERE campeonato_id = ? ORDER BY id').all(campeonato.id);
+  const casa = dados.time_casa_id != null ? Number(dados.time_casa_id) : times[0]?.id;
+  const fora = dados.time_fora_id != null ? Number(dados.time_fora_id) : times[1]?.id;
+  if (!times.some((t) => t.id === casa) || !times.some((t) => t.id === fora) || casa === fora) {
+    throw erroValidacao('Escolha dois times diferentes deste campeonato.');
+  }
+  const rodada = (db
+    .prepare('SELECT MAX(rodada) AS n FROM jogos WHERE campeonato_id = ?')
+    .get(campeonato.id).n ?? 0) + 1;
+  const info = db
+    .prepare(
+      `INSERT INTO jogos (campeonato_id, fase, rodada, perna, time_casa_id, time_fora_id, data, local)
+       VALUES (?, 'grupos', ?, 1, ?, ?, ?, ?)`,
+    )
+    .run(
+      campeonato.id, rodada, casa, fora,
+      textoLimitado(dados.data, 40, 'Data'),
+      textoLimitado(dados.local, 200, 'Local'),
+    );
+  return db.prepare('SELECT * FROM jogos WHERE id = ?').get(Number(info.lastInsertRowid));
+}
+
 // ---------- classificacao de um campeonato ----------
 
 // Calcula a classificacao da fase de grupos, agrupada por grupo (ou geral),
 // no modelo de placar do esporte (gols ou sets).
 export function classificacaoDoCampeonato(db, campeonato) {
   const esporte = obterEsporte(campeonato.esporte) ?? obterEsporte(ESPORTE_PADRAO);
+
+  // Pelada Epica: ranking individual, sem grupos.
+  if (esporte.ranking === 'individual') {
+    const jogadores = db.prepare('SELECT * FROM jogadores WHERE campeonato_id = ?').all(campeonato.id);
+    const jogosPelada = db.prepare('SELECT * FROM jogos WHERE campeonato_id = ?').all(campeonato.id);
+    const escalacoes = db
+      .prepare(
+        `SELECT e.* FROM escalacoes e JOIN jogos j ON j.id = e.jogo_id
+         WHERE j.campeonato_id = ? AND j.status = 'encerrado'`,
+      )
+      .all(campeonato.id);
+    const eventosPelada = db
+      .prepare(
+        `SELECT e.* FROM eventos e JOIN jogos j ON j.id = e.jogo_id
+         WHERE j.campeonato_id = ? AND j.status = 'encerrado'`,
+      )
+      .all(campeonato.id);
+    const linhas = calcularRankingPelada(jogadores, jogosPelada, escalacoes, eventosPelada, {
+      pontosVitoria: campeonato.pontos_vitoria,
+      pontosEmpate: campeonato.pontos_empate,
+      pontosPresenca: campeonato.pontos_presenca ?? 1,
+      criterios: JSON.parse(campeonato.criterios_desempate),
+    });
+    return [{ grupo: null, linhas }];
+  }
+
   const times = db.prepare('SELECT * FROM times WHERE campeonato_id = ?').all(campeonato.id);
   const jogos = db
     .prepare("SELECT * FROM jogos WHERE campeonato_id = ? AND fase = 'grupos'")

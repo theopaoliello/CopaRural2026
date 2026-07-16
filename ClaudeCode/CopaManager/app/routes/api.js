@@ -12,8 +12,8 @@ import {
   campeonatoDaConta, timeDaConta, jogadorDaConta, jogoDaConta, bannerDaConta,
 } from '../src/posse.js';
 import {
-  criarCampeonato, classificacaoDoCampeonato, gerarMataDoCampeonato, slugificar, slugDisponivel,
-  textoLimitado, validarCorTema,
+  criarCampeonato, classificacaoDoCampeonato, gerarMataDoCampeonato, criarJogoAvulso,
+  slugificar, slugDisponivel, textoLimitado, validarCorTema,
 } from '../src/campeonatos.js';
 import { criarLimitador } from '../src/ratelimit.js';
 import { registrarResultado, apagarResultado } from '../src/jogos.js';
@@ -329,8 +329,8 @@ export function montarRotas(db, { limites = {} } = {}) {
   // Catalogo estatico (sem dados de usuario): alimenta o menu do wizard.
   rotas.get('/esportes', (_req, res) => {
     res.json(ESPORTES.map(
-      ({ chave, nome, icone, disponivel, variantes, variante_padrao, placar, empate, melhor_de, rotulos, colunas }) =>
-        ({ chave, nome, icone, disponivel, variantes, variante_padrao, placar, empate, melhor_de, rotulos, colunas }),
+      ({ chave, nome, icone, disponivel, variantes, variante_padrao, placar, empate, ranking, melhor_de, rotulos, colunas }) =>
+        ({ chave, nome, icone, disponivel, variantes, variante_padrao, placar, empate, ranking, melhor_de, rotulos, colunas }),
     ));
   });
 
@@ -362,9 +362,12 @@ export function montarRotas(db, { limites = {} } = {}) {
       times: db.prepare('SELECT * FROM times WHERE campeonato_id = ? ORDER BY nome').all(c.id),
       jogadores: db
         .prepare(
-          `SELECT j.* FROM jogadores j JOIN times t ON t.id = j.time_id
-           WHERE t.campeonato_id = ? ORDER BY j.nome`,
+          `SELECT j.* FROM jogadores j LEFT JOIN times t ON t.id = j.time_id
+           WHERE COALESCE(j.campeonato_id, t.campeonato_id) = ? ORDER BY j.nome`,
         )
+        .all(c.id),
+      escalacoes: db
+        .prepare('SELECT e.* FROM escalacoes e JOIN jogos j ON j.id = e.jogo_id WHERE j.campeonato_id = ?')
         .all(c.id),
       jogos: db
         .prepare('SELECT * FROM jogos WHERE campeonato_id = ? ORDER BY fase, rodada, confronto, perna, id')
@@ -428,6 +431,39 @@ export function montarRotas(db, { limites = {} } = {}) {
     apagarImagem(c.logo);
     db.prepare('UPDATE campeonatos SET logo = ? WHERE id = ?').run(caminho, c.id);
     res.json({ logo: caminho });
+  });
+
+  // ---------- Pelada Epica: jogos avulsos e jogadores do campeonato ----------
+
+  rotas.post('/campeonatos/:id/jogos', logado, (req, res) => {
+    const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    res.status(201).json(criarJogoAvulso(db, c, req.body ?? {}));
+  });
+
+  // Apagar um jogo so faz sentido onde os jogos sao criados um a um.
+  rotas.delete('/jogos/:id', logado, (req, res) => {
+    const j = jogoDaConta(db, req.conta.id, req.params.id);
+    const c = db.prepare('SELECT esporte FROM campeonatos WHERE id = ?').get(j.campeonato_id);
+    if (obterEsporte(c?.esporte)?.ranking !== 'individual') {
+      throw erroValidacao('A tabela deste campeonato e gerada automaticamente e nao permite apagar jogos.');
+    }
+    db.prepare('DELETE FROM jogos WHERE id = ?').run(j.id); // eventos/escalacoes caem em cascata
+    res.json({ ok: true });
+  });
+
+  rotas.post('/campeonatos/:id/jogadores', logado, (req, res) => {
+    const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    if (obterEsporte(c.esporte)?.ranking !== 'individual') {
+      throw erroValidacao('Neste esporte o jogador e cadastrado dentro de um time.');
+    }
+    const nome = textoLimitado(req.body?.nome, 80, 'Nome do jogador');
+    if (!nome) throw erroValidacao('Informe o nome do jogador.');
+    const tipo = req.body?.tipo ?? 'fixo';
+    if (!['fixo', 'suplente'].includes(tipo)) throw erroValidacao('Tipo de jogador invalido.');
+    const info = db
+      .prepare('INSERT INTO jogadores (campeonato_id, nome, tipo, goleiro) VALUES (?, ?, ?, ?)')
+      .run(c.id, nome, tipo, req.body?.goleiro ? 1 : 0);
+    res.status(201).json(db.prepare('SELECT * FROM jogadores WHERE id = ?').get(Number(info.lastInsertRowid)));
   });
 
   rotas.post('/campeonatos/:id/gerar-mata', logado, (req, res) => {
@@ -504,7 +540,13 @@ export function montarRotas(db, { limites = {} } = {}) {
       req.body?.numero !== undefined
         ? (req.body.numero != null && req.body.numero !== '' ? Number(req.body.numero) : null)
         : j.numero;
-    db.prepare('UPDATE jogadores SET nome = ?, numero = ? WHERE id = ?').run(nome, numero, j.id);
+    // Pelada Epica: promover/rebaixar tipo, marcar goleiro e inativar (RN-PE-10).
+    const tipo = req.body?.tipo !== undefined ? req.body.tipo : j.tipo;
+    if (!['fixo', 'suplente'].includes(tipo)) throw erroValidacao('Tipo de jogador invalido.');
+    const goleiro = req.body?.goleiro !== undefined ? (req.body.goleiro ? 1 : 0) : j.goleiro;
+    const ativo = req.body?.ativo !== undefined ? (req.body.ativo ? 1 : 0) : j.ativo;
+    db.prepare('UPDATE jogadores SET nome = ?, numero = ?, tipo = ?, goleiro = ?, ativo = ? WHERE id = ?')
+      .run(nome, numero, tipo, goleiro, ativo, j.id);
     res.json(db.prepare('SELECT * FROM jogadores WHERE id = ?').get(j.id));
   });
 

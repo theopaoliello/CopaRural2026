@@ -20,8 +20,15 @@ export function dadosPublicos(db, slug) {
     .all(campeonato.id);
   const jogadores = db
     .prepare(
-      `SELECT j.id, j.time_id, j.nome, j.numero FROM jogadores j
-       JOIN times t ON t.id = j.time_id WHERE t.campeonato_id = ? ORDER BY j.nome`,
+      `SELECT j.id, j.time_id, j.nome, j.numero, j.tipo, j.goleiro, j.ativo FROM jogadores j
+       LEFT JOIN times t ON t.id = j.time_id
+       WHERE COALESCE(j.campeonato_id, t.campeonato_id) = ? ORDER BY j.nome`,
+    )
+    .all(campeonato.id);
+  const escalacoes = db
+    .prepare(
+      `SELECT e.jogo_id, e.jogador_id, e.time_id FROM escalacoes e
+       JOIN jogos j ON j.id = e.jogo_id WHERE j.campeonato_id = ?`,
     )
     .all(campeonato.id);
   const jogos = db
@@ -65,7 +72,7 @@ export function dadosPublicos(db, slug) {
     .filter((j) => j[campoIndividual] > 0)
     .sort((a, b) => b[campoIndividual] - a[campoIndividual] || a.nome.localeCompare(b.nome, 'pt-BR'))
     .slice(0, 20)
-    .map((j) => ({ nome: j.nome, time: nomeTime.get(j.time_id), total: j[campoIndividual] }));
+    .map((j) => ({ nome: j.nome, time: nomeTime.get(j.time_id), tipo: j.tipo, total: j[campoIndividual] }));
   const disciplina = !preset.tem_cartoes ? [] : jogadoresComStats
     .filter((j) => j.amarelos + j.vermelhos > 0)
     .sort((a, b) => b.vermelhos - a.vermelhos || b.amarelos - a.amarelos)
@@ -93,6 +100,7 @@ export function dadosPublicos(db, slug) {
       chave: preset.chave,
       nome: preset.nome,
       placar: preset.placar,
+      ranking: preset.ranking ?? 'times',
       rotulos: preset.rotulos,
       colunas: preset.colunas,
       melhor_de: campeonato.melhor_de,
@@ -110,6 +118,7 @@ export function dadosPublicos(db, slug) {
       formato: campeonato.formato,
       status: campeonato.status,
       regras: campeonato.regras,
+      jogos_temporada: campeonato.jogos_temporada,
     },
     classificacao: classificacaoDoCampeonato(db, campeonato),
     grupos,
@@ -118,6 +127,7 @@ export function dadosPublicos(db, slug) {
     jogos,
     eventos,
     sets,
+    escalacoes,
     artilharia,
     disciplina,
     chaveamento,
