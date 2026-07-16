@@ -243,7 +243,7 @@ test('integracao: classificacao do campeonato e pagina publica da pelada', () =>
   assert.deepEqual(pub.artilharia[0], { nome: 'Vitor', time: undefined, tipo: 'suplente', total: 1 });
 });
 
-test('faltas: fixo ausente conta falta apenas quando um suplente jogou no lugar', () => {
+test('faltas: jogos realizados menos jogos do jogador (jogo agendado nao conta)', () => {
   const jogadores = [
     { id: 1, nome: 'Daniel', tipo: 'fixo', goleiro: 1 },
     { id: 2, nome: 'Marley', tipo: 'fixo', goleiro: 0 },
@@ -256,18 +256,20 @@ test('faltas: fixo ausente conta falta apenas quando um suplente jogou no lugar'
     { id: 3, rodada: 3, status: 'agendado', time_casa_id: 10, time_fora_id: 20, gols_casa: null, gols_fora: null },
   ];
   const escalacoes = [
-    // jogo 1: Theo faltou e o suplente Vitor cobriu -> falta do Theo
+    // jogo 1: Theo faltou (suplente Vitor jogou)
     { jogo_id: 1, jogador_id: 1, time_id: 10 }, { jogo_id: 1, jogador_id: 4, time_id: 10 },
     { jogo_id: 1, jogador_id: 2, time_id: 20 },
-    // jogo 2: Theo faltou mas NINGUEM cobriu (sem suplente) -> nao e falta
+    // jogo 2: Theo faltou de novo (ninguem cobriu — falta do mesmo jeito)
     { jogo_id: 2, jogador_id: 1, time_id: 10 }, { jogo_id: 2, jogador_id: 2, time_id: 20 },
   ];
 
   const linhas = calcularRankingPelada(jogadores, jogos, escalacoes, [], { criterios: ['gols', 'presencas'] });
   const porNome = Object.fromEntries(linhas.map((l) => [l.nome, l]));
-  assert.equal(porNome.Theo.faltas, 1); // so o jogo 1 (jogo agendado nao conta)
+  assert.equal(porNome.Theo.faltas, 2); // 2 jogos realizados, 0 participacoes
   assert.equal(porNome.Daniel.faltas, 0);
   assert.equal(porNome.Marley.faltas, 0);
+  // ultimos 5 jogos com bolinhas, como nos campeonatos de times
+  assert.deepEqual(porNome.Daniel.ultimos, ['V', 'E']);
 });
 
 test('zonas do ranking (RN-PE-06): medalhas, rebaixamento por colocados e por pontuacoes', () => {

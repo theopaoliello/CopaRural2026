@@ -62,7 +62,8 @@ export const ESPORTES = [
     colunas: [
       ['pts', 'Pts', 'Pontos'], ['gols', 'Gols', 'Gols'], ['pj', 'J', 'Jogos'],
       ['v', 'V', 'Vitórias'], ['e', 'E', 'Empates'], ['d', 'D', 'Derrotas'],
-      ['faltas', 'Faltas', 'Jogos em que não foi e um suplente jogou'],
+      ['faltas', 'Faltas', 'Jogos realizados sem o jogador'],
+      ['ultimos', 'Últ. Jogos', 'Últimos jogos'],
     ],
     evento_individual: 'gol',
     rotulos: {
