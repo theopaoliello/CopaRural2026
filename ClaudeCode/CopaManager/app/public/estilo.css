@@ -104,6 +104,11 @@ table.tabela { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
 .tabela td { padding: 7px 8px; border-bottom: 1px solid var(--borda); text-align: center; white-space: nowrap; }
 .tabela td.time, .tabela th.time { text-align: left; }
 .tabela tr.zona-classifica td:first-child { box-shadow: inset 3px 0 0 var(--verde-claro); }
+/* zonas do ranking da pelada (RN-PE-06): premiacao no topo, rebaixamento na base */
+.tabela tr.zona-premiacao td:first-child { box-shadow: inset 3px 0 0 #eab308; }
+.tabela tr.zona-rebaixamento { background: #fef2f2; }
+.tabela tr.zona-rebaixamento td:first-child { box-shadow: inset 3px 0 0 #ef4444; }
+.legenda-zonas { font-size: 0.82rem; color: var(--cinza); margin: 6px 2px 0; }
 .tabela .pts { font-weight: 800; }
 
 /* bolinhas dos ultimos 5 jogos */

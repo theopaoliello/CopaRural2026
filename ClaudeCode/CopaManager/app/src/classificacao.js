@@ -261,8 +261,11 @@ export function calcularClassificacaoPontos(times, jogos, opcoes = {}) {
 // Ranking individual da Pelada Epica (EF v1.0). Conta apenas jogadores FIXOS
 // (RN-PE-01); pontos vem da escalacao em jogos encerrados (RN-PE-02):
 // presenca (opcional) + vitoria/empate/derrota do time em que o jogador estava.
+// Falta = jogo encerrado em que o fixo NAO foi escalado e um suplente jogou
+// (alguem cobriu a ausencia) — decisao do Theo em 2026-07-16.
 // opcoes: { pontosVitoria, pontosEmpate, pontosPresenca, criterios }
-// Linhas: { jogador_id, pos, nome, goleiro, pts, presencas, pj, v, e, d, gols, ultimos }
+// Linhas: { jogador_id, pos, nome, goleiro, pts, presencas, pj, v, e, d,
+//           gols, faltas, ultimos }
 export function calcularRankingPelada(jogadores, jogos, escalacoes, eventos, opcoes = {}) {
   const {
     pontosVitoria = 3, pontosEmpate = 1, pontosPresenca = 1,
@@ -274,9 +277,10 @@ export function calcularRankingPelada(jogadores, jogos, escalacoes, eventos, opc
       .filter((j) => j.tipo === 'fixo')
       .map((j) => [j.id, {
         jogador_id: j.id, nome: j.nome, goleiro: j.goleiro ? 1 : 0,
-        pts: 0, presencas: 0, pj: 0, v: 0, e: 0, d: 0, gols: 0, ultimos: [],
+        pts: 0, presencas: 0, pj: 0, v: 0, e: 0, d: 0, gols: 0, faltas: 0, ultimos: [],
       }]),
   );
+  const suplentes = new Set(jogadores.filter((j) => j.tipo === 'suplente').map((j) => j.id));
 
   const encerrados = jogos
     .filter((j) => j.status === 'encerrado')
@@ -288,7 +292,8 @@ export function calcularRankingPelada(jogadores, jogos, escalacoes, eventos, opc
   }
 
   for (const j of encerrados) {
-    for (const esc of escalacoesPorJogo.get(j.id) ?? []) {
+    const doJogo = escalacoesPorJogo.get(j.id) ?? [];
+    for (const esc of doJogo) {
       const linha = linhas.get(esc.jogador_id);
       if (!linha) continue; // suplente: coringa, fora do ranking
       const gp = esc.time_id === j.time_casa_id ? j.gols_casa : j.gols_fora;
@@ -299,6 +304,13 @@ export function calcularRankingPelada(jogadores, jogos, escalacoes, eventos, opc
       if (gp > gc) { linha.v += 1; linha.pts += pontosVitoria; linha.ultimos.push('V'); }
       else if (gp === gc) { linha.e += 1; linha.pts += pontosEmpate; linha.ultimos.push('E'); }
       else { linha.d += 1; linha.ultimos.push('D'); }
+    }
+    // Faltas: fixo ausente num jogo em que um suplente entrou.
+    if (doJogo.some((esc) => suplentes.has(esc.jogador_id))) {
+      const escalados = new Set(doJogo.map((esc) => esc.jogador_id));
+      for (const linha of linhas.values()) {
+        if (!escalados.has(linha.jogador_id)) linha.faltas += 1;
+      }
     }
   }
   for (const ev of eventos) {

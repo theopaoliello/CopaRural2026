@@ -6,7 +6,10 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { prepararBanco } from '../db/db.js';
-import { criarCampeonato, criarJogoAvulso, classificacaoDoCampeonato } from '../src/campeonatos.js';
+import {
+  criarCampeonato, criarJogoAvulso, classificacaoDoCampeonato,
+  aplicarZonasPelada, validarPremiacaoRebaixamento,
+} from '../src/campeonatos.js';
 import { registrarResultado, apagarResultado } from '../src/jogos.js';
 import { calcularRankingPelada } from '../src/classificacao.js';
 import { dadosPublicos } from '../src/publico.js';
@@ -238,6 +241,99 @@ test('integracao: classificacao do campeonato e pagina publica da pelada', () =>
   assert.equal(pub.escalacoes.length, 3);
   // suplente aparece na artilharia, marcado
   assert.deepEqual(pub.artilharia[0], { nome: 'Vitor', time: undefined, tipo: 'suplente', total: 1 });
+});
+
+test('faltas: fixo ausente conta falta apenas quando um suplente jogou no lugar', () => {
+  const jogadores = [
+    { id: 1, nome: 'Daniel', tipo: 'fixo', goleiro: 1 },
+    { id: 2, nome: 'Marley', tipo: 'fixo', goleiro: 0 },
+    { id: 3, nome: 'Theo', tipo: 'fixo', goleiro: 0 },
+    { id: 4, nome: 'Vitor', tipo: 'suplente', goleiro: 0 },
+  ];
+  const jogos = [
+    { id: 1, rodada: 1, status: 'encerrado', time_casa_id: 10, time_fora_id: 20, gols_casa: 1, gols_fora: 0 },
+    { id: 2, rodada: 2, status: 'encerrado', time_casa_id: 10, time_fora_id: 20, gols_casa: 0, gols_fora: 0 },
+    { id: 3, rodada: 3, status: 'agendado', time_casa_id: 10, time_fora_id: 20, gols_casa: null, gols_fora: null },
+  ];
+  const escalacoes = [
+    // jogo 1: Theo faltou e o suplente Vitor cobriu -> falta do Theo
+    { jogo_id: 1, jogador_id: 1, time_id: 10 }, { jogo_id: 1, jogador_id: 4, time_id: 10 },
+    { jogo_id: 1, jogador_id: 2, time_id: 20 },
+    // jogo 2: Theo faltou mas NINGUEM cobriu (sem suplente) -> nao e falta
+    { jogo_id: 2, jogador_id: 1, time_id: 10 }, { jogo_id: 2, jogador_id: 2, time_id: 20 },
+  ];
+
+  const linhas = calcularRankingPelada(jogadores, jogos, escalacoes, [], { criterios: ['gols', 'presencas'] });
+  const porNome = Object.fromEntries(linhas.map((l) => [l.nome, l]));
+  assert.equal(porNome.Theo.faltas, 1); // so o jogo 1 (jogo agendado nao conta)
+  assert.equal(porNome.Daniel.faltas, 0);
+  assert.equal(porNome.Marley.faltas, 0);
+});
+
+test('zonas do ranking (RN-PE-06): medalhas, rebaixamento por colocados e por pontuacoes', () => {
+  const linhas = (pts) => pts.map((p, i) => ({ jogador_id: i + 1, pos: i + 1, nome: `J${i + 1}`, pj: 1, pts: p }));
+
+  // antes do 1o resultado (todos com pj 0) nao ha zona nenhuma
+  const semJogos = [{ pos: 1, nome: 'A', pj: 0, pts: 0 }, { pos: 2, nome: 'B', pj: 0, pts: 0 }];
+  aplicarZonasPelada(semJogos, { premiacao: 'top3' });
+  assert.ok(semJogos.every((l) => !l.zona));
+
+  // premiacao 'primeiro': so o lider leva medalha
+  const primeiro = linhas([9, 7, 5]);
+  aplicarZonasPelada(primeiro, { premiacao: 'primeiro' });
+  assert.deepEqual(primeiro.map((l) => l.medalha ?? null), [1, null, null]);
+
+  // top3 + rebaixamento por colocados: base do ranking, sem sobrepor premiacao
+  const colocados = linhas([9, 7, 5, 3, 1]);
+  aplicarZonasPelada(colocados, { premiacao: 'top3', rebaixamento_modo: 'colocados', rebaixamento_qtd: 2 });
+  assert.deepEqual(colocados.map((l) => l.zona ?? null), ['premiacao', 'premiacao', 'premiacao', 'rebaixamento', 'rebaixamento']);
+  assert.deepEqual(colocados.slice(0, 3).map((l) => l.medalha), [1, 2, 3]);
+
+  // pontuacoes: N menores valores DISTINTOS, empates incluidos (exemplo canonico:
+  // Chico 10, Manuel 10, Bernardo 8, Theo 5, Thiago 5 com qtd 2 -> caem 8 e 5)
+  const pontuacoes = linhas([10, 10, 8, 5, 5]);
+  aplicarZonasPelada(pontuacoes, { premiacao: 'primeiro', rebaixamento_modo: 'pontuacoes', rebaixamento_qtd: 2 });
+  assert.deepEqual(pontuacoes.map((l) => l.zona ?? null), ['premiacao', null, 'rebaixamento', 'rebaixamento', 'rebaixamento']);
+});
+
+test('config de premiacao editavel: validacao parcial preserva o que nao mudou', () => {
+  const base = { premiacao: 'top3', premia_artilheiro: 1, rebaixamento_modo: 'colocados', rebaixamento_qtd: 3 };
+  // troca so o modo: quantidade atual e preservada
+  const mudouModo = validarPremiacaoRebaixamento({ rebaixamento_modo: 'pontuacoes' }, base);
+  assert.deepEqual(mudouModo, { premiacao: 'top3', premia_artilheiro: 1, rebaixamento_modo: 'pontuacoes', rebaixamento_qtd: 3 });
+  // desligar o rebaixamento limpa a quantidade
+  const desligou = validarPremiacaoRebaixamento({ rebaixamento_modo: null }, base);
+  assert.equal(desligou.rebaixamento_modo, null);
+  assert.equal(desligou.rebaixamento_qtd, null);
+  // ligar sem quantidade (e sem valor anterior) e erro
+  assert.throws(
+    () => validarPremiacaoRebaixamento({ rebaixamento_modo: 'colocados' }, { premiacao: 'primeiro' }),
+    /quantidade do rebaixamento/,
+  );
+  assert.throws(() => validarPremiacaoRebaixamento({ premiacao: 'segundo' }, base), /Premiacao invalida/);
+});
+
+test('integracao: zonas chegam na classificacao e na pagina publica', () => {
+  const camp = criar({ premiacao: 'top3', rebaixamento_modo: 'colocados', rebaixamento_qtd: 1 });
+  const jogo = criarJogoAvulso(db, camp, {});
+  const daniel = jogadorPorNome(camp.id, 'Daniel');
+  const marley = jogadorPorNome(camp.id, 'Marley');
+  registrarResultado(db, jogo, {
+    gols_casa: 2, gols_fora: 0,
+    escalacoes: [
+      { jogador_id: daniel.id, time_id: jogo.time_casa_id },
+      { jogador_id: marley.id, time_id: jogo.time_fora_id },
+    ],
+  });
+
+  const [{ linhas }] = classificacaoDoCampeonato(db, camp);
+  assert.equal(linhas[0].zona, 'premiacao');
+  assert.equal(linhas[0].medalha, 1);
+  assert.equal(linhas.at(-1).zona, 'rebaixamento');
+
+  const pub = dadosPublicos(db, camp.slug);
+  assert.equal(pub.classificacao[0].linhas[0].medalha, 1);
+  assert.equal(pub.classificacao[0].linhas.at(-1).zona, 'rebaixamento');
 });
 
 test('migracao: banco antigo de jogadores (time_id NOT NULL) e reconstruido com FKs integras', () => {

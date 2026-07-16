@@ -820,3 +820,53 @@ test('multiesporte (fase 2): campeonato de sets pela API, do wizard a pagina pub
   assert.ok(pub.corpo.esporte.colunas.some(([k]) => k === 'saldo_sets'));
   assert.equal(pub.corpo.sets.length, 3);
 });
+
+test('pelada (fase 4b): premiacao e rebaixamento editaveis pela API', async () => {
+  const caio = cliente();
+  await registrarEntrar(caio, { nome: 'Caio', email: 'caio@teste.com', senha: 'segredo1' });
+
+  const criado = await caio('POST', '/api/campeonatos', {
+    nome: 'Pelada do Caio', esporte: 'pelada_epica',
+    times: ['Camisa', 'Sem Camisa'], jogos_temporada: 20,
+    jogadores_fixos: ['Ana', 'Bia', 'Caio'],
+  });
+  assert.equal(criado.status, 201, JSON.stringify(criado.corpo));
+  assert.equal(criado.corpo.premiacao, 'primeiro');
+  assert.equal(criado.corpo.rebaixamento_modo, null);
+  const campId = criado.corpo.id;
+
+  // liga tudo pela aba Config
+  const patch = await caio('PATCH', `/api/campeonatos/${campId}`, {
+    premiacao: 'top3', premia_artilheiro: true,
+    rebaixamento_modo: 'pontuacoes', rebaixamento_qtd: 2,
+  });
+  assert.equal(patch.status, 200);
+  assert.equal(patch.corpo.premiacao, 'top3');
+  assert.equal(patch.corpo.premia_artilheiro, 1);
+  assert.equal(patch.corpo.rebaixamento_modo, 'pontuacoes');
+  assert.equal(patch.corpo.rebaixamento_qtd, 2);
+
+  // edicao parcial: trocar so o modo preserva a quantidade
+  const soModo = await caio('PATCH', `/api/campeonatos/${campId}`, { rebaixamento_modo: 'colocados' });
+  assert.equal(soModo.corpo.rebaixamento_modo, 'colocados');
+  assert.equal(soModo.corpo.rebaixamento_qtd, 2);
+
+  // valores invalidos sao rejeitados sem alterar nada
+  assert.equal((await caio('PATCH', `/api/campeonatos/${campId}`, { premiacao: 'todos' })).status, 400);
+  assert.equal((await caio('PATCH', `/api/campeonatos/${campId}`, { rebaixamento_modo: 'sorteio' })).status, 400);
+  const depois = await caio('GET', `/api/campeonatos/${campId}`);
+  assert.equal(depois.corpo.campeonato.premiacao, 'top3');
+
+  // desligar o rebaixamento limpa a quantidade
+  const desligado = await caio('PATCH', `/api/campeonatos/${campId}`, { rebaixamento_modo: null });
+  assert.equal(desligado.corpo.rebaixamento_modo, null);
+  assert.equal(desligado.corpo.rebaixamento_qtd, null);
+
+  // fora da pelada esses campos nao existem: o PATCH os ignora
+  const futebol = await caio('POST', '/api/campeonatos', {
+    nome: 'Copa do Caio', formato: 'pontos', times: ['A', 'B'],
+  });
+  const futPatch = await caio('PATCH', `/api/campeonatos/${futebol.corpo.id}`, { premiacao: 'top3' });
+  assert.equal(futPatch.status, 200);
+  assert.equal(futPatch.corpo.premiacao, null);
+});

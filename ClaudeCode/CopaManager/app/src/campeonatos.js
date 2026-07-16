@@ -205,6 +205,29 @@ function parsearJogadores(linhas, tipo) {
     });
 }
 
+// Config de premiacao e rebaixamento da pelada (RN-PE-06), usada na criacao e
+// na edicao (aba Config). `base` traz os valores atuais para edicao parcial;
+// na criacao fica vazio e valem os padroes.
+export function validarPremiacaoRebaixamento(dados, base = {}) {
+  const premiacao = dados.premiacao ?? base.premiacao ?? 'primeiro';
+  if (!['primeiro', 'top3'].includes(premiacao)) throw erroValidacao('Premiacao invalida.');
+  let modo = dados.rebaixamento_modo !== undefined ? dados.rebaixamento_modo : (base.rebaixamento_modo ?? null);
+  if (modo === 'nenhum' || modo === '') modo = null;
+  if (modo != null && !['colocados', 'pontuacoes'].includes(modo)) {
+    throw erroValidacao('Modo de rebaixamento invalido.');
+  }
+  const qtd = modo ? Number(dados.rebaixamento_qtd ?? base.rebaixamento_qtd) : null;
+  if (modo && (!Number.isInteger(qtd) || qtd < 1)) {
+    throw erroValidacao('Informe a quantidade do rebaixamento.');
+  }
+  return {
+    premiacao,
+    premia_artilheiro: (dados.premia_artilheiro ?? base.premia_artilheiro) ? 1 : 0,
+    rebaixamento_modo: modo,
+    rebaixamento_qtd: qtd,
+  };
+}
+
 function criarPeladaEpica(db, contaId, dados, esporte, nome) {
   // Divisoes com nome fixo (RN-PE-04): reutilizadas em todos os jogos.
   const divisoes = (dados.times ?? []).map((t) => String(t?.nome ?? t ?? '').trim()).filter(Boolean);
@@ -245,18 +268,7 @@ function criarPeladaEpica(db, contaId, dados, esporte, nome) {
     throw erroValidacao('Criterios de desempate invalidos.');
   }
 
-  // Premiacao e rebaixamento (zonas visuais chegam na fase 4b; config ja se grava).
-  const premiacao = dados.premiacao ?? 'primeiro';
-  if (!['primeiro', 'top3'].includes(premiacao)) throw erroValidacao('Premiacao invalida.');
-  let rebaixamentoModo = dados.rebaixamento_modo ?? null;
-  if (rebaixamentoModo === 'nenhum' || rebaixamentoModo === '') rebaixamentoModo = null;
-  if (rebaixamentoModo != null && !['colocados', 'pontuacoes'].includes(rebaixamentoModo)) {
-    throw erroValidacao('Modo de rebaixamento invalido.');
-  }
-  const rebaixamentoQtd = rebaixamentoModo ? Number(dados.rebaixamento_qtd) : null;
-  if (rebaixamentoModo && (!Number.isInteger(rebaixamentoQtd) || rebaixamentoQtd < 1)) {
-    throw erroValidacao('Informe a quantidade do rebaixamento.');
-  }
+  const premios = validarPremiacaoRebaixamento(dados);
 
   const slug = slugDisponivel(db, slugificar(dados.slug || `${nome} ${dados.temporada ?? ''}`));
   const info = db
@@ -281,10 +293,10 @@ function criarPeladaEpica(db, contaId, dados, esporte, nome) {
       JSON.stringify(criterios),
       jogosTemporada,
       dados.ponto_presenca === false ? 0 : 1, // flag da criacao (padrao ligada)
-      premiacao,
-      dados.premia_artilheiro ? 1 : 0,
-      rebaixamentoModo,
-      rebaixamentoQtd,
+      premios.premiacao,
+      premios.premia_artilheiro,
+      premios.rebaixamento_modo,
+      premios.rebaixamento_qtd,
     );
   const campeonatoId = Number(info.lastInsertRowid);
 
@@ -357,6 +369,7 @@ export function classificacaoDoCampeonato(db, campeonato) {
       pontosPresenca: campeonato.pontos_presenca ?? 1,
       criterios: JSON.parse(campeonato.criterios_desempate),
     });
+    aplicarZonasPelada(linhas, campeonato);
     return [{ grupo: null, linhas }];
   }
 
@@ -406,6 +419,30 @@ export function classificacaoDoCampeonato(db, campeonato) {
       jogos.filter((j) => j.grupo_id === g.id),
     ),
   }));
+}
+
+// Zonas visuais do ranking da pelada (fase 4b, RN-PE-06): premiacao no topo
+// (medalhas) e zona de rebaixamento na base. So marca depois do 1o resultado.
+export function aplicarZonasPelada(linhas, campeonato) {
+  if (!linhas.some((l) => l.pj > 0)) return;
+  const nPremiados = Math.min(campeonato.premiacao === 'top3' ? 3 : 1, linhas.length);
+  linhas.slice(0, nPremiados).forEach((l, i) => { l.zona = 'premiacao'; l.medalha = i + 1; });
+
+  if (!campeonato.rebaixamento_modo || !campeonato.rebaixamento_qtd) return;
+  if (campeonato.rebaixamento_modo === 'colocados') {
+    // Ultimas N posicoes do ranking ja desempatado.
+    for (const l of linhas.slice(Math.max(0, linhas.length - campeonato.rebaixamento_qtd))) {
+      if (!l.zona) l.zona = 'rebaixamento';
+    }
+  } else {
+    // 'pontuacoes': os N menores valores DISTINTOS de pontos, empates incluidos.
+    const menores = new Set(
+      [...new Set(linhas.map((l) => l.pts))].sort((a, b) => a - b).slice(0, campeonato.rebaixamento_qtd),
+    );
+    for (const l of linhas) {
+      if (!l.zona && menores.has(l.pts)) l.zona = 'rebaixamento';
+    }
+  }
 }
 
 // ---------- geracao do mata-mata (formato grupos_mata) ----------

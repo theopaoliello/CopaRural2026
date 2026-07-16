@@ -1077,6 +1077,15 @@ function razaoTexto(a, b) {
   return (a / b).toFixed(2);
 }
 
+// Zonas do ranking da pelada (RN-PE-06): medalha na premiacao, faixa no rebaixamento.
+function posOuMedalha(l) {
+  return l.medalha ? ['🥇', '🥈', '🥉'][l.medalha - 1] : l.pos;
+}
+function legendaZonas(linhas) {
+  if (!linhas.some((l) => l.zona === 'rebaixamento')) return '';
+  return '<p class="legenda-zonas">Linhas em vermelho: zona de rebaixamento.</p>';
+}
+
 function abaClassif() {
   const colunas = ESP?.colunas ?? [];
   $('#painel').innerHTML = DET.classificacao.map((g) => `
@@ -1090,10 +1099,11 @@ function abaClassif() {
           const nome = ESP?.ranking === 'individual'
             ? `${esc(l.nome)}${l.goleiro ? ' <span class="badge">G</span>' : ''}`
             : `${escudoHtml(t)} ${esc(l.nome)}`;
-          return `<tr><td>${l.pos}</td><td class="time">${nome}</td>
+          return `<tr${l.zona ? ` class="zona-${l.zona}"` : ''}><td>${posOuMedalha(l)}</td><td class="time">${nome}</td>
             ${colunas.map(([k]) => `<td class="${k === 'pts' ? 'pts' : ''}">${celulaClassif(l, k)}</td>`).join('')}</tr>`;
         }).join('')}</tbody>
       </table></div>
+      ${legendaZonas(g.linhas)}
     </div>`).join('');
 }
 
@@ -1186,19 +1196,54 @@ async function abaConfig() {
       <label>Descrição</label><textarea id="cfg-descricao">${esc(c.descricao ?? '')}</textarea>
       <p><button class="botao" onclick="salvarConfig()">Salvar alterações</button></p>
     </div>
+    ${esporte?.ranking !== 'individual' ? '' : `
+    <div class="card">
+      <h3>Premiação e rebaixamento</h3>
+      <p class="muted">As zonas aparecem no ranking depois do primeiro resultado.</p>
+      <div class="grid-2">
+        <div><label>Posições premiadas</label>
+          <select id="cfg-premiacao">
+            <option value="primeiro" ${c.premiacao !== 'top3' ? 'selected' : ''}>Apenas o 1º colocado</option>
+            <option value="top3" ${c.premiacao === 'top3' ? 'selected' : ''}>1º, 2º e 3º colocados</option>
+          </select>
+          <label style="margin-top:6px"><input type="checkbox" id="cfg-premia-artilheiro" style="width:auto" ${c.premia_artilheiro ? 'checked' : ''}> Premiar o artilheiro</label></div>
+        <div><label>Rebaixamento / penalidade</label>
+          <select id="cfg-rebaixamento-modo">
+            <option value="">Sem rebaixamento</option>
+            <option value="colocados" ${c.rebaixamento_modo === 'colocados' ? 'selected' : ''}>Últimos colocados</option>
+            <option value="pontuacoes" ${c.rebaixamento_modo === 'pontuacoes' ? 'selected' : ''}>Últimas pontuações</option>
+          </select>
+          <div id="cfg-campo-rebaixamento-qtd" style="display:${c.rebaixamento_modo ? '' : 'none'}">
+            <label>Quantidade</label><input type="number" id="cfg-rebaixamento-qtd" min="1" value="${c.rebaixamento_qtd ?? 3}"></div></div>
+      </div>
+      <p><button class="botao" onclick="salvarConfig()">Salvar alterações</button></p>
+    </div>`}
     <div class="card">
       <h3>Zona de perigo</h3>
       <p class="muted">Excluir o campeonato apaga times, jogos, resultados e banners. Não tem volta.</p>
       <button class="botao perigo" onclick="excluirCampeonato()">Excluir campeonato</button>
     </div>`;
+  const selReb = $('#cfg-rebaixamento-modo');
+  if (selReb) {
+    selReb.onchange = () => {
+      $('#cfg-campo-rebaixamento-qtd').style.display = selReb.value ? '' : 'none';
+    };
+  }
 }
 async function salvarConfig() {
+  const dados = {
+    nome: $('#cfg-nome').value, temporada: $('#cfg-temporada').value || null,
+    descricao: $('#cfg-descricao').value || null, cor_tema: $('#cfg-cor').value,
+    publicado: $('#cfg-publicado').checked,
+  };
+  if ($('#cfg-premiacao')) { // card da pelada (premiacao e rebaixamento)
+    dados.premiacao = $('#cfg-premiacao').value;
+    dados.premia_artilheiro = $('#cfg-premia-artilheiro').checked;
+    dados.rebaixamento_modo = $('#cfg-rebaixamento-modo').value || null;
+    dados.rebaixamento_qtd = Number($('#cfg-rebaixamento-qtd').value || 0) || null;
+  }
   try {
-    await api(`/api/campeonatos/${DET.campeonato.id}`, 'PATCH', {
-      nome: $('#cfg-nome').value, temporada: $('#cfg-temporada').value || null,
-      descricao: $('#cfg-descricao').value || null, cor_tema: $('#cfg-cor').value,
-      publicado: $('#cfg-publicado').checked,
-    });
+    await api(`/api/campeonatos/${DET.campeonato.id}`, 'PATCH', dados);
     avisar('Alterações salvas!'); telaCampeonato(DET.campeonato.id, 'config');
   } catch (e) { avisar(e.message); }
 }

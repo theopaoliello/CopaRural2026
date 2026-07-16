@@ -60,8 +60,9 @@ export const ESPORTES = [
     criterios: ['gols', 'presencas'], // desempate escolhido na criacao (RN-PE-11)
     criterios_validos: ['goleiro', 'gols', 'presencas'],
     colunas: [
-      ['pts', 'Pts', 'Pontos'], ['presencas', 'Pres.', 'Presenças'], ['pj', 'J', 'Jogos'],
-      ['v', 'V', 'Vitórias'], ['e', 'E', 'Empates'], ['d', 'D', 'Derrotas'], ['gols', 'Gols', 'Gols'],
+      ['pts', 'Pts', 'Pontos'], ['gols', 'Gols', 'Gols'], ['pj', 'J', 'Jogos'],
+      ['v', 'V', 'Vitórias'], ['e', 'E', 'Empates'], ['d', 'D', 'Derrotas'],
+      ['faltas', 'Faltas', 'Jogos em que não foi e um suplente jogou'],
     ],
     evento_individual: 'gol',
     rotulos: {

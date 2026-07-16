@@ -13,7 +13,7 @@ import {
 } from '../src/posse.js';
 import {
   criarCampeonato, classificacaoDoCampeonato, gerarMataDoCampeonato, criarJogoAvulso,
-  slugificar, slugDisponivel, textoLimitado, validarCorTema,
+  slugificar, slugDisponivel, textoLimitado, validarCorTema, validarPremiacaoRebaixamento,
 } from '../src/campeonatos.js';
 import { criarLimitador } from '../src/ratelimit.js';
 import { registrarResultado, apagarResultado } from '../src/jogos.js';
@@ -400,9 +400,18 @@ export function montarRotas(db, { limites = {} } = {}) {
       }
       criterios = JSON.stringify(b.criterios_desempate);
     }
+    // Premiacao e rebaixamento so existem na pelada (fase 4b: config editavel).
+    let premios = {
+      premiacao: c.premiacao, premia_artilheiro: c.premia_artilheiro,
+      rebaixamento_modo: c.rebaixamento_modo, rebaixamento_qtd: c.rebaixamento_qtd,
+    };
+    if (obterEsporte(c.esporte)?.ranking === 'individual') {
+      premios = validarPremiacaoRebaixamento(b, premios);
+    }
     db.prepare(
       `UPDATE campeonatos SET nome = ?, temporada = ?, modalidade = ?, descricao = ?, cor_tema = ?,
-       slug = ?, criterios_desempate = ?, regras = ?, publicado = ?, status = ? WHERE id = ?`,
+       slug = ?, criterios_desempate = ?, regras = ?, publicado = ?, status = ?,
+       premiacao = ?, premia_artilheiro = ?, rebaixamento_modo = ?, rebaixamento_qtd = ? WHERE id = ?`,
     ).run(
       nome,
       b.temporada !== undefined ? textoLimitado(b.temporada, 40, 'Temporada') : c.temporada,
@@ -414,6 +423,10 @@ export function montarRotas(db, { limites = {} } = {}) {
       b.regras !== undefined ? textoLimitado(b.regras, 10000, 'Regras') : c.regras,
       b.publicado !== undefined ? (b.publicado ? 1 : 0) : c.publicado,
       b.status !== undefined && ['ativo', 'arquivado'].includes(b.status) ? b.status : c.status,
+      premios.premiacao,
+      premios.premia_artilheiro,
+      premios.rebaixamento_modo,
+      premios.rebaixamento_qtd,
       c.id,
     );
     res.json(db.prepare('SELECT * FROM campeonatos WHERE id = ?').get(c.id));

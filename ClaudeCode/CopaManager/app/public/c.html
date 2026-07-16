@@ -134,8 +134,10 @@ function tabelaClassificacao(linhas) {
       ${colunas.map(([, r, t]) => `<th title="${esc(t)}">${esc(r)}</th>`).join('')}</tr></thead>
     <tbody>${linhas.map((l) => {
       if (D.esporte.ranking === 'individual') {
-        return `<tr>
-          <td>${l.pos}</td>
+        // Zonas da pelada (RN-PE-06): medalha na premiacao, faixa no rebaixamento.
+        const pos = l.medalha ? ['🥇', '🥈', '🥉'][l.medalha - 1] : l.pos;
+        return `<tr${l.zona ? ` class="zona-${l.zona}"` : ''}>
+          <td>${pos}</td>
           <td class="time">${esc(l.nome)}${l.goleiro ? ' <span class="badge">G</span>' : ''}</td>
           ${colunas.map(([k]) => `<td class="${k === 'pts' ? 'pts' : ''}">${celulaClassif(l, k)}</td>`).join('')}
         </tr>`;
@@ -155,6 +157,8 @@ function abaClassificacao() {
     <div class="card">
       ${g.grupo ? `<h3>${esc(g.grupo.nome)}</h3>` : ''}
       ${tabelaClassificacao(g.linhas)}
+      ${g.linhas.some((l) => l.zona === 'rebaixamento')
+        ? '<p class="legenda-zonas">Linhas em vermelho: zona de rebaixamento.</p>' : ''}
     </div>`).join('');
 }
 
