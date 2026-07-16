@@ -13,6 +13,7 @@ import {
   calcularRankingPelada, cartoesPorTime, CRITERIOS_VALIDOS,
 } from './classificacao.js';
 import { obterEsporte, ESPORTE_PADRAO } from './esportes.js';
+import { validarEscalacoes, gravarEscalacoes } from './jogos.js';
 
 const FORMATOS = ['pontos', 'mata', 'grupos_mata'];
 const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -312,7 +313,8 @@ function criarPeladaEpica(db, contaId, dados, esporte, nome) {
 }
 
 // Cria um jogo avulso da temporada (so Pelada Epica; nos demais esportes a
-// tabela e gerada na criacao).
+// tabela e gerada na criacao). `dados.escalacoes` opcional: a confirmacao do
+// sorteio cria o jogo ja com os times do dia preenchidos (EF 7.2 passo 4).
 export function criarJogoAvulso(db, campeonato, dados) {
   const esporte = obterEsporte(campeonato.esporte);
   if (esporte?.ranking !== 'individual') {
@@ -324,6 +326,10 @@ export function criarJogoAvulso(db, campeonato, dados) {
   if (!times.some((t) => t.id === casa) || !times.some((t) => t.id === fora) || casa === fora) {
     throw erroValidacao('Escolha dois times diferentes deste campeonato.');
   }
+  // Valida a escalacao ANTES de inserir, para nao deixar jogo pela metade.
+  const timeDoJogador = dados.escalacoes?.length
+    ? validarEscalacoes(db, { time_casa_id: casa, time_fora_id: fora, campeonato_id: campeonato.id }, dados.escalacoes)
+    : null;
   const rodada = (db
     .prepare('SELECT MAX(rodada) AS n FROM jogos WHERE campeonato_id = ?')
     .get(campeonato.id).n ?? 0) + 1;
@@ -337,7 +343,9 @@ export function criarJogoAvulso(db, campeonato, dados) {
       textoLimitado(dados.data, 40, 'Data'),
       textoLimitado(dados.local, 200, 'Local'),
     );
-  return db.prepare('SELECT * FROM jogos WHERE id = ?').get(Number(info.lastInsertRowid));
+  const jogo = db.prepare('SELECT * FROM jogos WHERE id = ?').get(Number(info.lastInsertRowid));
+  if (timeDoJogador) gravarEscalacoes(db, jogo.id, timeDoJogador);
+  return jogo;
 }
 
 // ---------- classificacao de um campeonato ----------

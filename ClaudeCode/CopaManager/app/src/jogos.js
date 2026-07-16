@@ -72,20 +72,10 @@ export function registrarResultado(db, jogo, dados) {
 
 // ---------- Pelada Epica: gols + escalacao obrigatoria (RN-PE-03) ----------
 
-// `dados`: { gols_casa, gols_fora, escalacoes: [{jogador_id, time_id}],
-//   eventos?: [{tipo:'gol', time_id, jogador_id?}] } — autor opcional (SR).
-function registrarResultadoPelada(db, jogo, dados) {
-  if (dados.penaltis_casa != null || dados.penaltis_fora != null) {
-    throw erroValidacao('A Pelada Epica nao tem penaltis: empate vale ponto.');
-  }
-  const golsCasa = Number(dados.gols_casa);
-  const golsFora = Number(dados.gols_fora);
-  if (!Number.isInteger(golsCasa) || golsCasa < 0 || !Number.isInteger(golsFora) || golsFora < 0) {
-    throw erroValidacao('Placar invalido.');
-  }
-
-  // Escalacao: quem jogou em cada time — e dela que sai a pontuacao individual.
-  const escalacoes = dados.escalacoes ?? [];
+// Valida uma lista de escalacoes { jogador_id, time_id } contra o jogo e devolve
+// o Map jogador -> time. Usada no resultado e na confirmacao do sorteio (jogo
+// criado com escalacoes preenchidas).
+export function validarEscalacoes(db, jogo, escalacoes) {
   const idsTimes = [jogo.time_casa_id, jogo.time_fora_id];
   const timeDoJogador = new Map();
   for (const esc of escalacoes) {
@@ -106,6 +96,31 @@ function registrarResultadoPelada(db, jogo, dados) {
   if (idsTimes.some((t) => !escaladosPorTime.get(t))) {
     throw erroValidacao('Informe a escalacao dos dois times.');
   }
+  return timeDoJogador;
+}
+
+// Grava as escalacoes de um jogo (substituindo as anteriores).
+export function gravarEscalacoes(db, jogoId, timeDoJogador) {
+  db.prepare('DELETE FROM escalacoes WHERE jogo_id = ?').run(jogoId);
+  const ins = db.prepare('INSERT INTO escalacoes (jogo_id, jogador_id, time_id) VALUES (?, ?, ?)');
+  for (const [jogadorId, timeId] of timeDoJogador) ins.run(jogoId, jogadorId, timeId);
+}
+
+// `dados`: { gols_casa, gols_fora, escalacoes: [{jogador_id, time_id}],
+//   eventos?: [{tipo:'gol', time_id, jogador_id?}] } — autor opcional (SR).
+function registrarResultadoPelada(db, jogo, dados) {
+  if (dados.penaltis_casa != null || dados.penaltis_fora != null) {
+    throw erroValidacao('A Pelada Epica nao tem penaltis: empate vale ponto.');
+  }
+  const golsCasa = Number(dados.gols_casa);
+  const golsFora = Number(dados.gols_fora);
+  if (!Number.isInteger(golsCasa) || golsCasa < 0 || !Number.isInteger(golsFora) || golsFora < 0) {
+    throw erroValidacao('Placar invalido.');
+  }
+
+  // Escalacao: quem jogou em cada time — e dela que sai a pontuacao individual.
+  const timeDoJogador = validarEscalacoes(db, jogo, dados.escalacoes ?? []);
+  const idsTimes = [jogo.time_casa_id, jogo.time_fora_id];
 
   // Gols: autor opcional (SR); com autor, ele precisa estar escalado no time do gol.
   const eventos = dados.eventos ?? [];
@@ -135,9 +150,7 @@ function registrarResultadoPelada(db, jogo, dados) {
   for (const ev of eventos) {
     insEv.run(jogo.id, Number(ev.time_id), ev.jogador_id != null ? Number(ev.jogador_id) : null);
   }
-  db.prepare('DELETE FROM escalacoes WHERE jogo_id = ?').run(jogo.id);
-  const insEsc = db.prepare('INSERT INTO escalacoes (jogo_id, jogador_id, time_id) VALUES (?, ?, ?)');
-  for (const [jogadorId, timeId] of timeDoJogador) insEsc.run(jogo.id, jogadorId, timeId);
+  gravarEscalacoes(db, jogo.id, timeDoJogador);
 
   return db.prepare('SELECT * FROM jogos WHERE id = ?').get(jogo.id);
 }

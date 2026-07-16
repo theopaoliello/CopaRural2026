@@ -870,3 +870,84 @@ test('pelada (fase 4b): premiacao e rebaixamento editaveis pela API', async () =
   assert.equal(futPatch.status, 200);
   assert.equal(futPatch.corpo.premiacao, null);
 });
+
+test('pelada (fase 4c): matriz de entrosamento e sorteio de times pela API', async () => {
+  const davi = cliente();
+  await registrarEntrar(davi, { nome: 'Davi', email: 'davi@teste.com', senha: 'segredo1' });
+
+  const criado = await davi('POST', '/api/campeonatos', {
+    nome: 'Pelada do Davi', esporte: 'pelada_epica',
+    times: ['Camisa', 'Sem Camisa'], jogos_temporada: 10,
+    jogadores_fixos: ['Ana (G)', 'Bia', 'Caio', 'Duda'], jogadores_suplentes: ['Edu'],
+  });
+  assert.equal(criado.status, 201, JSON.stringify(criado.corpo));
+  const campId = criado.corpo.id;
+  const det = await davi('GET', `/api/campeonatos/${campId}`);
+  const jog = Object.fromEntries(det.corpo.jogadores.map((j) => [j.nome, j.id]));
+  const [camisa, semCamisa] = det.corpo.times.map((t) => t.id);
+
+  // um jogo encerrado: Ana+Bia juntas, Caio do outro lado
+  const j1 = await davi('POST', `/api/campeonatos/${campId}/jogos`, {});
+  await davi('POST', `/api/jogos/${j1.corpo.id}/resultado`, {
+    gols_casa: 1, gols_fora: 0,
+    escalacoes: [
+      { jogador_id: jog.Ana, time_id: j1.corpo.time_casa_id },
+      { jogador_id: jog.Bia, time_id: j1.corpo.time_casa_id },
+      { jogador_id: jog.Caio, time_id: j1.corpo.time_fora_id },
+    ],
+  });
+
+  // GET sorteio: jogadores ativos, matriz alinhada com `fixos`
+  const tela = await davi('GET', `/api/campeonatos/${campId}/sorteio`);
+  assert.equal(tela.status, 200);
+  assert.equal(tela.corpo.jogadores.length, 5);
+  assert.equal(tela.corpo.fixos.length, 4);
+  const idx = (id) => tela.corpo.fixos.indexOf(id);
+  assert.equal(tela.corpo.matriz[idx(jog.Ana)][idx(jog.Bia)], 1); // 1 jogo juntas
+  assert.equal(tela.corpo.matriz[idx(jog.Ana)][idx(jog.Caio)], 0); // opostos
+  assert.equal(tela.corpo.matriz[idx(jog.Ana)][idx(jog.Ana)], 1); // diagonal: jogos da Ana
+  assert.equal(tela.corpo.matriz[idx(jog.Duda)][idx(jog.Duda)], 0); // nao jogou
+
+  // POST sorteio: proposta com todos os presentes, nada gravado
+  const proposta = await davi('POST', `/api/campeonatos/${campId}/sorteio`, {
+    presentes: [jog.Ana, jog.Bia, jog.Caio, jog.Duda, jog.Edu], premium: true,
+  });
+  assert.equal(proposta.status, 200, JSON.stringify(proposta.corpo));
+  const sorteados = proposta.corpo.times.flatMap((t) => t.jogadores.map((j) => j.id)).sort((a, b) => a - b);
+  assert.deepEqual(sorteados, [jog.Ana, jog.Bia, jog.Caio, jog.Duda, jog.Edu].sort((a, b) => a - b));
+  const tamanhos = proposta.corpo.times.map((t) => t.jogadores.length);
+  assert.ok(Math.abs(tamanhos[0] - tamanhos[1]) <= 1);
+
+  // validacoes
+  assert.equal((await davi('POST', `/api/campeonatos/${campId}/sorteio`, { presentes: [jog.Ana] })).status, 400);
+  assert.equal((await davi('POST', `/api/campeonatos/${campId}/sorteio`, { presentes: [jog.Ana, 99999] })).status, 400);
+
+  // confirmacao: cria o jogo agendado com as escalacoes preenchidas
+  const confirmado = await davi('POST', `/api/campeonatos/${campId}/jogos`, {
+    time_casa_id: camisa, time_fora_id: semCamisa,
+    escalacoes: proposta.corpo.times.flatMap((t) => t.jogadores.map((j) => ({ jogador_id: j.id, time_id: t.time_id }))),
+  });
+  assert.equal(confirmado.status, 201, JSON.stringify(confirmado.corpo));
+  assert.equal(confirmado.corpo.status, 'agendado');
+  const depois = await davi('GET', `/api/campeonatos/${campId}`);
+  assert.equal(depois.corpo.escalacoes.filter((e) => e.jogo_id === confirmado.corpo.id).length, 5);
+
+  // escalacao invalida NAO cria o jogo (validada antes do INSERT)
+  const nJogos = depois.corpo.jogos.length;
+  const ruim = await davi('POST', `/api/campeonatos/${campId}/jogos`, {
+    escalacoes: [{ jogador_id: jog.Ana, time_id: 99999 }],
+  });
+  assert.equal(ruim.status, 400);
+  assert.equal((await davi('GET', `/api/campeonatos/${campId}`)).corpo.jogos.length, nJogos);
+
+  // fora da pelada o sorteio nao existe
+  const futebol = await davi('POST', '/api/campeonatos', {
+    nome: 'Copa do Davi', formato: 'pontos', times: ['A', 'B'],
+  });
+  assert.equal((await davi('GET', `/api/campeonatos/${futebol.corpo.id}/sorteio`)).status, 400);
+
+  // posse: outra conta nao acessa o sorteio
+  const gil = cliente();
+  await registrarEntrar(gil, { nome: 'Gil', email: 'gil@teste.com', senha: 'segredo1' });
+  assert.equal((await gil('GET', `/api/campeonatos/${campId}/sorteio`)).status, 404);
+});

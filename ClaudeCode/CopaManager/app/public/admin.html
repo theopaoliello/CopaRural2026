@@ -380,13 +380,15 @@ async function telaCampeonato(id, aba = abaAtual) {
     </div>
     <h2 style="margin:4px 0">${esc(c.nome)} ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}</h2>
     <div class="abas">
-      ${[['jogos', 'Jogos'], ['times', ESP?.rotulos.participantes ?? 'Times'], ['classificacao', ESP?.rotulos.classificacao ?? 'Classificação'], ['regras', 'Regras'], ['banners', 'Banners'], ['config', 'Configurações']]
+      ${[['jogos', 'Jogos'], ['times', ESP?.rotulos.participantes ?? 'Times'],
+        ...(ESP?.ranking === 'individual' ? [['sorteio', 'Sorteio']] : []),
+        ['classificacao', ESP?.rotulos.classificacao ?? 'Classificação'], ['regras', 'Regras'], ['banners', 'Banners'], ['config', 'Configurações']]
         .map(([k, r]) => `<button class="aba ${aba === k ? 'ativa' : ''}" onclick="telaCampeonato(${id}, '${k}')">${r}</button>`).join('')}
     </div>
     <div id="painel"></div>
   `;
   const abaParticipantes = ESP?.ranking === 'individual' ? abaJogadoresPelada : abaTimes;
-  ({ jogos: abaJogos, times: abaParticipantes, classificacao: abaClassif, regras: abaRegras, banners: abaBanners, config: abaConfig }[aba])();
+  ({ jogos: abaJogos, times: abaParticipantes, sorteio: abaSorteio, classificacao: abaClassif, regras: abaRegras, banners: abaBanners, config: abaConfig }[aba])();
 }
 
 // ---------- aba jogos ----------
@@ -599,6 +601,128 @@ async function adicionarJogadorPelada() {
       nome: $('#nj-nome').value, tipo: $('#nj-tipo').value, goleiro: $('#nj-goleiro').checked,
     });
     telaCampeonato(DET.campeonato.id, 'times');
+  } catch (e) { avisar(e.message); }
+}
+
+// ---------- aba sorteio (Pelada Épica, EF seção 7) ----------
+
+let SORTEIO = null;  // dados da tela: jogadores ativos, matriz dos fixos, divisões
+let PROPOSTA = null; // proposta corrente (nada gravado até confirmar)
+
+async function abaSorteio() {
+  SORTEIO = await api(`/api/campeonatos/${DET.campeonato.id}/sorteio`);
+  PROPOSTA = null;
+  const fixos = SORTEIO.jogadores.filter((j) => j.tipo === 'fixo');
+  const suplentes = SORTEIO.jogadores.filter((j) => j.tipo === 'suplente');
+  const check = (j, marcado) => `
+    <label style="width:auto;font-weight:400"><input type="checkbox" class="presente" value="${j.id}" ${marcado ? 'checked' : ''} style="width:auto">
+    ${esc(j.nome)}${j.goleiro ? ' <span class="badge">G</span>' : ''}</label>`;
+  const selTimes = SORTEIO.times.length > 2 ? `
+    <div class="grid-2" style="margin-top:8px">
+      <div><label>Time 1</label><select id="sorteio-casa">${SORTEIO.times.map((t, i) => `<option value="${t.id}" ${i === 0 ? 'selected' : ''}>${esc(t.nome)}</option>`).join('')}</select></div>
+      <div><label>Time 2</label><select id="sorteio-fora">${SORTEIO.times.map((t, i) => `<option value="${t.id}" ${i === 1 ? 'selected' : ''}>${esc(t.nome)}</option>`).join('')}</select></div>
+    </div>` : '';
+  $('#painel').innerHTML = `
+    <div class="card">
+      <h3>Presença do dia</h3>
+      <p class="muted">Marque quem vai jogar hoje e sorteie os times. Suplentes entram por último, sem ponderação.</p>
+      <strong>Fixos</strong>
+      <div class="grade-presenca">${fixos.map((j) => check(j, true)).join('') || '<p class="muted">Nenhum fixo ativo.</p>'}</div>
+      ${suplentes.length ? `<strong>Suplentes</strong><div class="grade-presenca">${suplentes.map((j) => check(j, false)).join('')}</div>` : ''}
+      ${selTimes}
+      <div class="linha-flex" style="margin-top:10px">
+        <button class="botao" onclick="sortearDia(true)">✨ Sorteio Premium</button>
+        <button class="botao secundario" onclick="sortearDia(false)">Sorteio simples</button>
+      </div>
+    </div>
+    <div id="area-proposta"></div>
+    <div class="card">
+      <h3>Matriz de entrosamento</h3>
+      <p class="muted">Quantos jogos cada dupla de fixos fez <strong>no mesmo time</strong> (diagonal: total de jogos do jogador).
+      O Sorteio Premium tende a separar duplas quentes (azul) e aproximar duplas frias (vermelho). Suplentes ficam fora.</p>
+      ${matrizHtml()}
+    </div>`;
+}
+
+function matrizHtml() {
+  const fixos = SORTEIO.fixos.map((id) => SORTEIO.jogadores.find((j) => j.id === id));
+  if (fixos.length < 2) return '<p class="muted">A matriz aparece com 2 ou mais fixos ativos.</p>';
+  const m = SORTEIO.matriz;
+  const max = Math.max(1, ...m.flatMap((linha, i) => linha.filter((_, k) => k !== i)));
+  const cor = (v, diagonal) => {
+    if (diagonal) return 'background:#111;color:#fff';
+    const t = Math.min(1, v / max); // frio (vermelho) -> quente (azul)
+    const luz = Math.round(88 - t * 36);
+    return `background:hsl(${Math.round(t * 220)},70%,${luz}%);color:${luz < 62 ? '#fff' : '#111'}`;
+  };
+  const curto = (nome) => nome.split(' ')[0];
+  return `<div class="tabela-wrap"><table class="tabela matriz-entrosamento">
+    <thead><tr><th></th>${fixos.map((j) => `<th title="${esc(j.nome)}">${esc(curto(j.nome))}</th>`).join('')}</tr></thead>
+    <tbody>${fixos.map((j, i) => `<tr>
+      <td class="time" title="${esc(j.nome)}"><strong>${esc(curto(j.nome))}</strong></td>
+      ${fixos.map((_, k) => `<td style="${cor(m[i][k], i === k)}">${m[i][k]}</td>`).join('')}
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+async function sortearDia(premium) {
+  const presentes = [...document.querySelectorAll('.presente:checked')].map((i) => Number(i.value));
+  const corpo = { presentes, premium };
+  if ($('#sorteio-casa')) {
+    corpo.time_casa_id = Number($('#sorteio-casa').value);
+    corpo.time_fora_id = Number($('#sorteio-fora').value);
+  }
+  try {
+    PROPOSTA = await api(`/api/campeonatos/${DET.campeonato.id}/sorteio`, 'POST', corpo);
+    desenharProposta();
+  } catch (e) { avisar(e.message); }
+}
+
+function desenharProposta() {
+  if (!PROPOSTA) { $('#area-proposta').innerHTML = ''; return; }
+  const dataAntes = $('#sorteio-data')?.value ?? '';
+  const localAntes = $('#sorteio-local')?.value ?? '';
+  const [a, b] = PROPOSTA.times;
+  const coluna = (t, outro) => `
+    <div><strong>${esc(t.nome)}</strong> <span class="badge">${t.jogadores.length}</span>
+      ${t.jogadores.map((j) => `<div class="linha-flex" style="margin:3px 0">
+        <span style="flex:1">${esc(j.nome)}${j.goleiro ? ' <span class="badge">G</span>' : ''}${j.tipo === 'suplente' ? ' <span class="muted">(sup.)</span>' : ''}</span>
+        <button class="botao secundario mini" title="Mover para ${esc(outro.nome)}" onclick="moverSorteado(${t.time_id}, ${j.id})">⇄</button>
+      </div>`).join('') || '<p class="muted">Ninguém aqui.</p>'}
+    </div>`;
+  $('#area-proposta').innerHTML = `
+    <div class="card">
+      <h3>Times do dia ${PROPOSTA.premium ? '✨' : ''} <span class="badge">proposta — nada gravado</span></h3>
+      <p class="muted">Re-sorteie quantas vezes quiser, mova jogadores com ⇄ e confirme: o jogo é criado com as escalações preenchidas, pronto para receber o placar no fim do dia.</p>
+      <div class="grid-2">${coluna(a, b)}${coluna(b, a)}</div>
+      <div class="grid-2" style="margin-top:8px">
+        <div><label>Data (opcional)</label><input type="text" id="sorteio-data" value="${esc(dataAntes)}" placeholder="ex.: sábado 19/07, 16h"></div>
+        <div><label>Local (opcional)</label><input type="text" id="sorteio-local" value="${esc(localAntes)}" placeholder="ex.: quadra do bairro"></div>
+      </div>
+      <p><button class="botao" style="width:100%" onclick="confirmarSorteio()">Confirmar times e criar o jogo</button></p>
+    </div>`;
+  $('#area-proposta').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function moverSorteado(deTimeId, jogadorId) {
+  const de = PROPOSTA.times.find((t) => t.time_id === deTimeId);
+  const para = PROPOSTA.times.find((t) => t.time_id !== deTimeId);
+  const i = de.jogadores.findIndex((j) => j.id === jogadorId);
+  para.jogadores.push(de.jogadores.splice(i, 1)[0]);
+  desenharProposta();
+}
+
+async function confirmarSorteio() {
+  const [a, b] = PROPOSTA.times;
+  if (!a.jogadores.length || !b.jogadores.length) { avisar('Os dois times precisam ter jogadores.'); return; }
+  try {
+    await api(`/api/campeonatos/${DET.campeonato.id}/jogos`, 'POST', {
+      time_casa_id: a.time_id, time_fora_id: b.time_id,
+      data: $('#sorteio-data').value || null, local: $('#sorteio-local').value || null,
+      escalacoes: PROPOSTA.times.flatMap((t) => t.jogadores.map((j) => ({ jogador_id: j.id, time_id: t.time_id }))),
+    });
+    avisar('Jogo criado com os times do dia!');
+    telaCampeonato(DET.campeonato.id, 'jogos');
   } catch (e) { avisar(e.message); }
 }
 

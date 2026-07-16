@@ -17,6 +17,7 @@ import {
 } from '../src/campeonatos.js';
 import { criarLimitador } from '../src/ratelimit.js';
 import { registrarResultado, apagarResultado } from '../src/jogos.js';
+import { matrizEntrosamento, sortearTimes } from '../src/sorteio.js';
 import { inserirLoteJogadores } from '../src/jogadores.js';
 import { parsearResultadoTexto } from '../src/resultado-texto.js';
 import { salvarImagem, apagarImagem } from '../src/uploads.js';
@@ -451,6 +452,72 @@ export function montarRotas(db, { limites = {} } = {}) {
   rotas.post('/campeonatos/:id/jogos', logado, (req, res) => {
     const c = campeonatoDaConta(db, req.conta.id, req.params.id);
     res.status(201).json(criarJogoAvulso(db, c, req.body ?? {}));
+  });
+
+  // ---------- Pelada Epica: sorteio de times (EF secao 7) ----------
+
+  function campeonatoPelada(req) {
+    const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    if (obterEsporte(c.esporte)?.ranking !== 'individual') {
+      throw erroValidacao('O sorteio de times e um recurso da Pelada Epica.');
+    }
+    return c;
+  }
+  function dadosDaMatriz(c) {
+    const jogadores = db
+      .prepare("SELECT * FROM jogadores WHERE campeonato_id = ? AND ativo = 1 ORDER BY tipo = 'suplente', nome COLLATE NOCASE")
+      .all(c.id);
+    const fixos = jogadores.filter((j) => j.tipo === 'fixo');
+    const jogos = db.prepare('SELECT id, status FROM jogos WHERE campeonato_id = ?').all(c.id);
+    const escalacoes = db
+      .prepare('SELECT e.* FROM escalacoes e JOIN jogos j ON j.id = e.jogo_id WHERE j.campeonato_id = ?')
+      .all(c.id);
+    return { jogadores, fixos, matriz: matrizEntrosamento(fixos, jogos, escalacoes) };
+  }
+
+  // Dados da tela: jogadores ativos, matriz de entrosamento (fixos) e divisoes.
+  rotas.get('/campeonatos/:id/sorteio', logado, (req, res) => {
+    const c = campeonatoPelada(req);
+    const { jogadores, fixos, matriz } = dadosDaMatriz(c);
+    res.json({
+      jogadores: jogadores.map((j) => ({ id: j.id, nome: j.nome, tipo: j.tipo, goleiro: j.goleiro })),
+      fixos: fixos.map((j) => j.id),
+      matriz,
+      times: db.prepare('SELECT id, nome FROM times WHERE campeonato_id = ? ORDER BY id').all(c.id),
+    });
+  });
+
+  // Proposta de times do dia: nada e gravado (a confirmacao usa POST .../jogos
+  // com as escalacoes). body: { presentes: [ids], premium, time_casa_id?, time_fora_id? }
+  rotas.post('/campeonatos/:id/sorteio', logado, (req, res) => {
+    const c = campeonatoPelada(req);
+    const b = req.body ?? {};
+    const times = db.prepare('SELECT id, nome FROM times WHERE campeonato_id = ? ORDER BY id').all(c.id);
+    const casa = times.find((t) => t.id === (b.time_casa_id != null ? Number(b.time_casa_id) : times[0]?.id));
+    const fora = times.find((t) => t.id === (b.time_fora_id != null ? Number(b.time_fora_id) : times[1]?.id));
+    if (!casa || !fora || casa.id === fora.id) throw erroValidacao('Escolha dois times diferentes deste campeonato.');
+
+    const { jogadores, fixos, matriz } = dadosDaMatriz(c);
+    const porId = new Map(jogadores.map((j) => [j.id, j]));
+    const idsPresentes = [...new Set((Array.isArray(b.presentes) ? b.presentes : []).map(Number))];
+    const presentes = idsPresentes.map((id) => {
+      const j = porId.get(id);
+      if (!j) throw erroValidacao('Ha presenca marcada para um jogador que nao esta ativo neste campeonato.');
+      return j;
+    });
+    if (presentes.length < 2) throw erroValidacao('Marque pelo menos 2 presentes para sortear.');
+
+    const proposta = sortearTimes({
+      times: [casa, fora], presentes, fixos, matriz, premium: b.premium !== false,
+    });
+    res.json({
+      premium: b.premium !== false,
+      times: proposta.map((t) => ({
+        time_id: t.time_id,
+        nome: (t.time_id === casa.id ? casa : fora).nome,
+        jogadores: t.jogadores.map((j) => ({ id: j.id, nome: j.nome, tipo: j.tipo, goleiro: j.goleiro })),
+      })),
+    });
   });
 
   // Apagar um jogo so faz sentido onde os jogos sao criados um a um.

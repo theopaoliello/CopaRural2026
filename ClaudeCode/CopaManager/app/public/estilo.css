@@ -109,6 +109,10 @@ table.tabela { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
 .tabela tr.zona-rebaixamento { background: #fef2f2; }
 .tabela tr.zona-rebaixamento td:first-child { box-shadow: inset 3px 0 0 #ef4444; }
 .legenda-zonas { font-size: 0.82rem; color: var(--cinza); margin: 6px 2px 0; }
+
+/* sorteio da pelada: presenca do dia e matriz de entrosamento */
+.grade-presenca { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 2px 10px; margin: 6px 0 12px; }
+.matriz-entrosamento td, .matriz-entrosamento th { padding: 5px 7px; font-size: 0.82rem; }
 .tabela .pts { font-weight: 800; }
 
 /* bolinhas dos ultimos 5 jogos */
