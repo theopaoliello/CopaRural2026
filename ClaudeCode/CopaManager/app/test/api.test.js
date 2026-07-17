@@ -325,6 +325,121 @@ test('grupos + mata: so gera o mata quando os grupos terminam', async () => {
   for (const s of semis) {
     assert.notEqual(grupoDe(s.time_casa_id), grupoDe(s.time_fora_id), 'semi cruza grupos');
   }
+
+  // potencia exata: payload de vagas confirma que nada muda no chaveamento
+  assert.equal(det2.corpo.vagas.modo, 'exata');
+  assert.equal(det2.corpo.vagas.chave, 4);
+  // zona verde nos classificados diretos de cada grupo
+  for (const g of det2.corpo.classificacao) {
+    assert.deepEqual(g.linhas.map((l) => l.zona ?? null), ['classifica', 'classifica', null]);
+  }
+});
+
+test('melhores colocados: 3x2 classifica os 2 melhores 3os e gera chave de 8', async () => {
+  const c = cliente();
+  await registrarEntrar(c, { nome: 'MC', email: 'mc@teste.com', senha: 'segredo1' });
+  // 3 grupos x 4 times, 2 classificados: 6 diretos + 2 melhores 3os = 8.
+  const nomes = ['A1', 'A2', 'A3', 'A4', 'B1', 'B2', 'B3', 'B4', 'C1', 'C2', 'C3', 'C4'];
+  const criado = await c('POST', '/api/campeonatos', {
+    nome: 'Melhores Cup', formato: 'grupos_mata', num_grupos: 3, classificados_por_grupo: 2,
+    sortear: false, times: nomes, slug: 'melhores-cup',
+  });
+  assert.equal(criado.status, 201, JSON.stringify(criado.corpo));
+  const campId = criado.corpo.id;
+
+  const det = await c('GET', `/api/campeonatos/${campId}`);
+  assert.equal(det.corpo.vagas.modo, 'repescagem');
+  assert.equal(det.corpo.vagas.chave, 8);
+  assert.equal(det.corpo.vagas.posicao_disputa, 3);
+  assert.equal(det.corpo.vagas.em_disputa, 2);
+  assert.match(det.corpo.vagas.resumo, /6 classificados diretos/);
+
+  // Resultados deterministicos: o time de numero menor vence; a margem cai
+  // por grupo (A vence por 3, B por 2, C por 1) — 3os terminam com 1 vitoria
+  // cada e saldo -3 (A3), -2 (B3), -1 (C3): repescados = C3 e B3.
+  const timeDe = new Map(det.corpo.times.map((t) => [t.id, t.nome]));
+  const margem = { A: 3, B: 2, C: 1 };
+  for (const j of det.corpo.jogos) {
+    const casa = timeDe.get(j.time_casa_id);
+    const fora = timeDe.get(j.time_fora_id);
+    const gols = margem[casa[0]];
+    const casaVence = Number(casa[1]) < Number(fora[1]);
+    const r = await c('POST', `/api/jogos/${j.id}/resultado`, {
+      gols_casa: casaVence ? gols : 0, gols_fora: casaVence ? 0 : gols,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.corpo));
+  }
+
+  const antes = await c('GET', `/api/campeonatos/${campId}`);
+  const idDe = (nome) => antes.corpo.times.find((t) => t.nome === nome).id;
+  // ranking entre grupos ao vivo: C3 > B3 > A3 pelo saldo por jogo
+  assert.deepEqual(antes.corpo.vagas.ranking.map((l) => l.nome), ['C3', 'B3', 'A3']);
+  assert.deepEqual(antes.corpo.vagas.repescados, [idDe('C3'), idDe('B3')]);
+  // zonas: verde nos 2 primeiros, ambar no 3o (posicao em disputa)
+  for (const g of antes.corpo.classificacao) {
+    assert.deepEqual(
+      g.linhas.map((l) => l.zona ?? null),
+      ['classifica', 'classifica', 'disputa', null],
+      g.grupo.nome,
+    );
+  }
+
+  const gerado = await c('POST', `/api/campeonatos/${campId}/gerar-mata`);
+  assert.equal(gerado.status, 201, JSON.stringify(gerado.corpo));
+  assert.equal(gerado.corpo.jogos_criados, 7); // chave de 8: 4 + 2 + 1
+
+  const det2 = await c('GET', `/api/campeonatos/${campId}`);
+  const r1 = det2.corpo.jogos.filter((j) => j.fase === 'mata' && j.rodada === 1);
+  assert.equal(r1.length, 4);
+  const naChave = r1.flatMap((j) => [j.time_casa_id, j.time_fora_id]).map((id) => timeDe.get(id)).sort();
+  assert.deepEqual(naChave, ['A1', 'A2', 'B1', 'B2', 'B3', 'C1', 'C2', 'C3']);
+  // nenhum reencontro do mesmo grupo na 1a fase (a troca de pote resolve)
+  const grupoDe = (id) => det2.corpo.times.find((t) => t.id === id).grupo_id;
+  for (const j of r1) {
+    assert.notEqual(grupoDe(j.time_casa_id), grupoDe(j.time_fora_id), 'sem reencontro na 1a fase');
+  }
+  assert.deepEqual(det2.corpo.vagas.reencontros, []);
+
+  // pagina publica carrega o mesmo bloco de vagas
+  await c('PATCH', `/api/campeonatos/${campId}`, { publicado: true });
+  const pub = await c('GET', '/api/publico/melhores-cup');
+  assert.equal(pub.status, 200);
+  assert.equal(pub.corpo.vagas.modo, 'repescagem');
+  assert.deepEqual(pub.corpo.vagas.repescados, [idDe('C3'), idDe('B3')]);
+});
+
+test('melhores colocados: combinacao inviavel e rejeitada com sugestao', async () => {
+  const c = cliente();
+  await registrarEntrar(c, { nome: 'Inv', email: 'inv@teste.com', senha: 'segredo1' });
+  const times = Array.from({ length: 30 }, (_, i) => `T${i + 1}`);
+  const r = await c('POST', '/api/campeonatos', {
+    nome: 'Inviavel', formato: 'grupos_mata', num_grupos: 5, classificados_por_grupo: 5,
+    sortear: false, times,
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.corpo.mensagem, /Sugestao: 3 classificados por grupo/);
+});
+
+test('vagas-preview: resumo ao vivo do wizard com o mesmo motor do servidor', async () => {
+  const c = cliente();
+  await registrarEntrar(c, { nome: 'Prev', email: 'prev@teste.com', senha: 'segredo1' });
+
+  const rep = await c('GET', '/api/vagas-preview?grupos=3&classificados=2&times=12');
+  assert.equal(rep.status, 200);
+  assert.equal(rep.corpo.modo, 'repescagem');
+  assert.match(rep.corpo.resumo, /Chave de 8: 6 classificados diretos/);
+
+  const corte = await c('GET', '/api/vagas-preview?grupos=5&classificados=2&times=15');
+  assert.equal(corte.corpo.modo, 'corte');
+  assert.match(corte.corpo.resumo, /apenas os 3 melhores 2ºs/);
+
+  const inv = await c('GET', '/api/vagas-preview?grupos=5&classificados=5&times=30');
+  assert.equal(inv.corpo.modo, 'inviavel');
+  assert.match(inv.corpo.sugestao, /3 classificados/);
+
+  // sem login nao ha preview
+  const anonimo = cliente();
+  assert.equal((await anonimo('GET', '/api/vagas-preview?grupos=3&classificados=2')).status, 401);
 });
 
 test('jogadores em lote: cadastra varios de uma vez e respeita a posse', async () => {

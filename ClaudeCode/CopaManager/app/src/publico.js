@@ -1,7 +1,7 @@
 // Montagem dos dados publicos de um campeonato (pagina do torcedor).
 // Somente leitura; nada aqui exige login.
 import { erroNaoEncontrado } from './erros.js';
-import { classificacaoDoCampeonato } from './campeonatos.js';
+import { classificacaoDoCampeonato, vagasDoCampeonato } from './campeonatos.js';
 import { estatisticasJogadores } from './classificacao.js';
 import { nomeFaseMata, vencedorConfronto } from './tabela.js';
 import { obterEsporte, ESPORTE_PADRAO } from './esportes.js';
@@ -79,6 +79,8 @@ export function dadosPublicos(db, slug) {
     .slice(0, 20)
     .map((j) => ({ nome: j.nome, time: nomeTime.get(j.time_id), amarelos: j.amarelos, vermelhos: j.vermelhos }));
 
+  const classificacao = classificacaoDoCampeonato(db, campeonato);
+
   // Chaveamento do mata-mata agrupado por rodada, com nome da fase e vencedor.
   const mata = jogos.filter((j) => j.fase === 'mata');
   const rodadasMata = [...new Set(mata.map((j) => j.rodada))].sort((a, b) => a - b);
@@ -120,7 +122,8 @@ export function dadosPublicos(db, slug) {
       regras: campeonato.regras,
       jogos_temporada: campeonato.jogos_temporada,
     },
-    classificacao: classificacaoDoCampeonato(db, campeonato),
+    classificacao,
+    vagas: vagasDoCampeonato(db, campeonato, classificacao),
     grupos,
     times,
     jogadores: jogadoresComStats,

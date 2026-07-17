@@ -14,6 +14,11 @@ import {
 } from './classificacao.js';
 import { obterEsporte, ESPORTE_PADRAO } from './esportes.js';
 import { validarEscalacoes, gravarEscalacoes } from './jogos.js';
+import {
+  planoDeVagas, sugerirCombinacao, textoSugestao, resumoDoPlano, tamanhosPrevistos,
+  criteriosDeMedia, mediaDoCriterio, rankearEntreGrupos,
+  montarSeeds, confrontosDaPrimeiraFase, ajustarReencontros,
+} from './melhores.js';
 
 const FORMATOS = ['pontos', 'mata', 'grupos_mata'];
 const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -103,14 +108,26 @@ export function criarCampeonato(db, contaId, dados) {
     throw erroValidacao('Mata-mata puro exige 2, 4, 8, 16... times.');
   }
   if (formato === 'grupos_mata') {
-    const classificados = numGrupos * classificadosPorGrupo;
-    if (!ehPotenciaDe2(classificados)) {
+    // Melhores Colocados (RN-MC-02/06): potencia exata segue como sempre;
+    // fora dela, o plano completa (repescagem) ou corta. So rejeita quando
+    // nem completar nem cortar fecham uma chave — com sugestao de ajuste.
+    const plano = planoDeVagas({
+      numGrupos,
+      classificados: classificadosPorGrupo,
+      tamanhos: tamanhosPrevistos(nomesTimes.length, numGrupos),
+    });
+    if (plano.modo === 'inviavel') {
+      const sugestao = textoSugestao(
+        sugerirCombinacao({ numGrupos, classificados: classificadosPorGrupo, totalTimes: nomesTimes.length }),
+        { numGrupos, classificados: classificadosPorGrupo },
+      );
       throw erroValidacao(
-        `Grupos x classificados deve resultar em 2, 4, 8, 16... (hoje: ${numGrupos} x ${classificadosPorGrupo} = ${classificados}).`,
+        `Nao ha chave de mata-mata viavel para ${numGrupos} grupo(s) x ${classificadosPorGrupo} classificado(s).`
+        + (sugestao ? ` Sugestao: ${sugestao}.` : ''),
       );
     }
     const porGrupo = Math.floor(nomesTimes.length / numGrupos);
-    if (classificadosPorGrupo >= porGrupo && nomesTimes.length % numGrupos === 0) {
+    if (plano.modo === 'exata' && classificadosPorGrupo >= porGrupo && nomesTimes.length % numGrupos === 0) {
       throw erroValidacao('Ha grupos em que todos os times se classificariam. Ajuste a configuracao.');
     }
   }
@@ -420,13 +437,33 @@ export function classificacaoDoCampeonato(db, campeonato) {
   if (!grupos.length) {
     return [{ grupo: null, linhas: calcular(times, jogos) }];
   }
-  return grupos.map((g) => ({
+  const resultado = grupos.map((g) => ({
     grupo: g,
     linhas: calcular(
       times.filter((t) => t.grupo_id === g.id),
       jogos.filter((j) => j.grupo_id === g.id),
     ),
   }));
+  if (campeonato.formato === 'grupos_mata') aplicarZonasGrupos(resultado, campeonato);
+  return resultado;
+}
+
+// Zonas visuais da fase de grupos (Melhores Colocados, EF 5.2): verde nos
+// classificados diretos e ambar na posicao em disputa quando ha repescagem ou
+// corte. Como na pelada, so marca grupos que ja tem resultado.
+export function aplicarZonasGrupos(classificacao, campeonato) {
+  const plano = planoDeVagas({
+    numGrupos: classificacao.length,
+    classificados: campeonato.classificados_por_grupo,
+    tamanhos: classificacao.map((g) => g.linhas.length),
+  });
+  if (plano.modo === 'inviavel') return;
+  for (const { linhas } of classificacao) {
+    if (!linhas.some((l) => l.pj > 0)) continue;
+    for (const l of linhas.slice(0, plano.diretosPorGrupo)) l.zona = 'classifica';
+    const emDisputa = plano.modo !== 'exata' && linhas[plano.diretosPorGrupo];
+    if (emDisputa) emDisputa.zona = 'disputa';
+  }
 }
 
 // Zonas visuais do ranking da pelada (fase 4b, RN-PE-06): premiacao no topo
@@ -453,6 +490,91 @@ export function aplicarZonasPelada(linhas, campeonato) {
   }
 }
 
+// ---------- melhores colocados: plano de vagas e ranking entre grupos ----------
+
+// Plano de vagas + ranking entre grupos derivados da classificacao ja
+// calculada (nada e armazenado). Base comum do payload `vagas` e da geracao
+// do mata-mata.
+function analiseDeVagas(campeonato, classificacao) {
+  const porGrupo = classificacao.filter((g) => g.grupo);
+  if (!porGrupo.length) return null;
+  const plano = planoDeVagas({
+    numGrupos: porGrupo.length,
+    classificados: campeonato.classificados_por_grupo,
+    tamanhos: porGrupo.map((g) => g.linhas.length),
+  });
+  let ranking = [];
+  if (plano.modo === 'repescagem' || plano.modo === 'corte') {
+    const candidatos = porGrupo
+      .map((g) => {
+        const linha = g.linhas[plano.posicaoDisputa - 1];
+        return linha ? { ...linha, grupo_id: g.grupo.id, grupo_nome: g.grupo.nome } : null;
+      })
+      .filter(Boolean);
+    ranking = rankearEntreGrupos(candidatos, JSON.parse(campeonato.criterios_desempate));
+  }
+  return { porGrupo, plano, ranking };
+}
+
+// Bloco derivado `vagas` dos payloads do admin e da pagina publica (EF 7):
+// modo, posicao em disputa, resumo e o ranking entre grupos ao vivo.
+// Recebe a classificacao ja calculada para nao computar duas vezes.
+export function vagasDoCampeonato(db, campeonato, classificacao) {
+  if (campeonato.formato !== 'grupos_mata') return null;
+  const analise = analiseDeVagas(campeonato, classificacao);
+  if (!analise) return null;
+  const { porGrupo, plano, ranking } = analise;
+  const numGrupos = porGrupo.length;
+  const classificados = campeonato.classificados_por_grupo;
+  const tamanhos = porGrupo.map((g) => g.linhas.length);
+  const criteriosMedia = plano.modo === 'repescagem' || plano.modo === 'corte'
+    ? criteriosDeMedia(JSON.parse(campeonato.criterios_desempate))
+    : [];
+
+  // Reencontros de mesmo grupo na 1a fase de um mata ja gerado (RN-MC-04).
+  const primeiraFase = db
+    .prepare(
+      `SELECT confronto, time_casa_id, time_fora_id FROM jogos
+       WHERE campeonato_id = ? AND fase = 'mata' AND rodada = 1 AND perna = 1`,
+    )
+    .all(campeonato.id);
+  const grupoDoTime = new Map(
+    db.prepare('SELECT id, grupo_id FROM times WHERE campeonato_id = ?').all(campeonato.id)
+      .map((t) => [t.id, t.grupo_id]),
+  );
+  const reencontros = primeiraFase
+    .filter((j) => j.time_casa_id != null && j.time_fora_id != null
+      && grupoDoTime.get(j.time_casa_id) === grupoDoTime.get(j.time_fora_id))
+    .map((j) => j.confronto);
+
+  return {
+    modo: plano.modo,
+    chave: plano.vagas,
+    diretos_por_grupo: plano.diretosPorGrupo,
+    total_diretos: plano.diretosPorGrupo == null ? null : plano.diretosPorGrupo * numGrupos,
+    posicao_disputa: plano.posicaoDisputa,
+    em_disputa: plano.emDisputa,
+    resumo: resumoDoPlano(plano, { numGrupos, classificados, tamanhos }),
+    grupos_desiguais: new Set(tamanhos).size > 1,
+    criterios_media: criteriosMedia,
+    // Infinity (razao "MAX") nao sobrevive a JSON: vira null e a UI mostra MAX.
+    ranking: ranking.map((l, i) => ({
+      time_id: l.time_id,
+      nome: l.nome,
+      grupo_id: l.grupo_id,
+      grupo_nome: l.grupo_nome,
+      pj: l.pj,
+      medias: Object.fromEntries(criteriosMedia.map((c) => {
+        const v = mediaDoCriterio(l, c);
+        return [c, v === Infinity ? null : Math.round(v * 1000) / 1000];
+      })),
+      classifica: i < plano.emDisputa,
+    })),
+    repescados: ranking.slice(0, plano.emDisputa).map((l) => l.time_id),
+    reencontros,
+  };
+}
+
 // ---------- geracao do mata-mata (formato grupos_mata) ----------
 
 export function gerarMataDoCampeonato(db, campeonato) {
@@ -471,16 +593,36 @@ export function gerarMataDoCampeonato(db, campeonato) {
     throw erroValidacao(`Ainda ha ${pendentes} jogo(s) da fase de grupos sem resultado.`);
   }
 
-  const porGrupo = classificacaoDoCampeonato(db, campeonato).map((g) =>
-    g.linhas.slice(0, campeonato.classificados_por_grupo).map((l) => l.time_id),
-  );
-  const seeds = seedsDeGrupos(porGrupo, campeonato.classificados_por_grupo);
+  const classificacao = classificacaoDoCampeonato(db, campeonato);
+  const analise = analiseDeVagas(campeonato, classificacao);
+  let jogos;
+  if (!analise || analise.plano.modo === 'exata') {
+    // Potencia exata: caminho original, intocado.
+    const porGrupo = classificacao.map((g) =>
+      g.linhas.slice(0, campeonato.classificados_por_grupo).map((l) => l.time_id),
+    );
+    const seeds = seedsDeGrupos(porGrupo, campeonato.classificados_por_grupo);
+    jogos = gerarMataMata(seeds, { idaEVolta: !!campeonato.ida_volta_mata });
+  } else if (analise.plano.modo === 'inviavel') {
+    // Barrado na criacao; so acontece se os grupos mudarem por fora.
+    throw erroValidacao('A configuracao de grupos e classificados nao fecha uma chave de mata-mata.');
+  } else {
+    // Repescagem ou corte (RN-MC-04): seeds por potes de posicao, repescados
+    // por ultimo, e reencontros de grupo desfeitos por troca dentro do pote.
+    const { porGrupo, plano, ranking } = analise;
+    const { seeds, poteDoTime } = montarSeeds(porGrupo.map((g) => g.linhas), plano, ranking);
+    const grupoDoTime = new Map(
+      db.prepare('SELECT id, grupo_id FROM times WHERE campeonato_id = ?').all(campeonato.id)
+        .map((t) => [t.id, t.grupo_id]),
+    );
+    const { pares } = ajustarReencontros(confrontosDaPrimeiraFase(seeds), grupoDoTime, poteDoTime);
+    jogos = gerarMataMata(pares.flat(), { idaEVolta: !!campeonato.ida_volta_mata, pareamento: 'lista' });
+  }
 
   const insJogo = db.prepare(
     `INSERT INTO jogos (campeonato_id, fase, rodada, confronto, perna, time_casa_id, time_fora_id)
      VALUES (?, 'mata', ?, ?, ?, ?, ?)`,
   );
-  const jogos = gerarMataMata(seeds, { idaEVolta: !!campeonato.ida_volta_mata });
   for (const j of jogos) {
     insJogo.run(campeonato.id, j.rodada, j.confronto, j.perna, j.time_casa_id, j.time_fora_id);
   }

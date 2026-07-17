@@ -143,7 +143,7 @@ function tabelaClassificacao(linhas) {
         </tr>`;
       }
       const t = timePorId(l.time_id);
-      return `<tr class="abrir-time" data-time="${l.time_id}">
+      return `<tr class="abrir-time${l.zona ? ` zona-${l.zona}` : ''}" data-time="${l.time_id}">
         <td>${l.pos}</td>
         <td class="time">${escudoHtml(t)} ${esc(l.nome)}</td>
         ${colunas.map(([k]) => `<td class="${k === 'pts' ? 'pts' : ''}">${celulaClassif(l, k)}</td>`).join('')}
@@ -153,13 +153,55 @@ function tabelaClassificacao(linhas) {
 }
 
 function abaClassificacao() {
-  return D.classificacao.map((g) => `
+  const v = D.vagas;
+  // Cabecalho com a regra em uma linha (Melhores Colocados, EF 5.3).
+  const cabecalho = v && v.modo !== 'inviavel'
+    ? `<p class="legenda-zonas" style="margin:0 2px 10px">${esc(v.resumo)}</p>` : '';
+  const temZona = D.classificacao.some((g) => g.linhas.some((l) => l.zona === 'classifica' || l.zona === 'disputa'));
+  const legenda = v && temZona
+    ? `<p class="legenda-zonas">Linhas em verde: classificação ao mata-mata.${v.modo !== 'exata'
+      ? ` Linha em âmbar: ${v.posicao_disputa}º colocado, em disputa entre os grupos.` : ''}</p>` : '';
+  return cabecalho + D.classificacao.map((g) => `
     <div class="card">
       ${g.grupo ? `<h3>${esc(g.grupo.nome)}</h3>` : ''}
       ${tabelaClassificacao(g.linhas)}
       ${g.linhas.some((l) => l.zona === 'rebaixamento')
         ? '<p class="legenda-zonas">Linhas em vermelho: zona de rebaixamento.</p>' : ''}
-    </div>`).join('');
+    </div>`).join('') + legenda + cardMelhores();
+}
+
+// Card "Melhores N-esimos": ranking entre grupos ao vivo, com linha de corte.
+const ROTULOS_MEDIA = {
+  pts: ['Pts/J', 'Pontos por jogo'], vitorias: ['V/J', 'Vitórias por jogo'],
+  saldo: ['SG/J', 'Saldo de gols por jogo'], gols_pro: ['GP/J', 'Gols pró por jogo'],
+  saldo_sets: ['ΔSets/J', 'Saldo de sets por jogo'], saldo_pontos: ['ΔPts/J', 'Saldo de pontos por jogo'],
+  pontos_pro: ['PP/J', 'Pontos pró por jogo'], razao_sets: ['RSet', 'Razão de sets'],
+  razao_pontos: ['RPts', 'Razão de pontos'], pct_sets: ['%Sets', 'Percentual de sets'],
+  pct_pontos: ['%Pts', 'Percentual de pontos'],
+};
+function cardMelhores() {
+  const v = D.vagas;
+  if (!v || !v.ranking?.length) return '';
+  const media = (m) => (m == null ? 'MAX' : Number(m).toFixed(2));
+  return `
+    <div class="card">
+      <h3>Melhores ${v.posicao_disputa}ºs <span class="badge">${v.em_disputa} vaga${v.em_disputa === 1 ? '' : 's'}</span></h3>
+      ${v.grupos_desiguais ? '<p class="legenda-zonas">Grupos de tamanhos diferentes: a comparação usa médias por jogo.</p>' : ''}
+      <div class="tabela-wrap"><table class="tabela">
+        <thead><tr><th>#</th><th class="time">${esc(D.esporte.rotulos.participante)}</th><th>Grupo</th><th title="Jogos">J</th>
+          ${v.criterios_media.map((c) => `<th title="${esc(ROTULOS_MEDIA[c]?.[1] ?? c)}">${esc(ROTULOS_MEDIA[c]?.[0] ?? c)}</th>`).join('')}</tr></thead>
+        <tbody>${v.ranking.map((l, i) => {
+          const t = timePorId(l.time_id);
+          const classes = ['abrir-time', l.classifica ? 'zona-classifica' : '', i === v.em_disputa ? 'linha-corte' : '']
+            .filter(Boolean).join(' ');
+          return `<tr class="${classes}" data-time="${l.time_id}"><td>${i + 1}</td>
+            <td class="time">${escudoHtml(t)} ${esc(l.nome)}</td>
+            <td>${esc((l.grupo_nome ?? '').replace('Grupo ', ''))}</td><td>${l.pj}</td>
+            ${v.criterios_media.map((c) => `<td>${media(l.medias[c])}</td>`).join('')}</tr>`;
+        }).join('')}</tbody>
+      </table></div>
+      <p class="legenda-zonas">Acima da linha de corte: ${v.modo === 'corte' ? 'avançam ao mata-mata' : 'levam as vagas extras'}. As vagas só se confirmam com todos os jogos dos grupos encerrados.</p>
+    </div>`;
 }
 
 // ---------- chaveamento ----------
@@ -187,10 +229,17 @@ function abaChaveamento() {
           }
           const agg = (n) => n != null ? `<strong style="min-width:1.4em;display:inline-block;text-align:center;background:var(--verde-bg);border-radius:5px;padding:0 4px">${n}</strong> ` : '';
           const placares = jogos.map((j) => j.status === 'encerrado' ? `${j.gols_casa}x${j.gols_fora}${j.penaltis_casa != null ? ` (${j.penaltis_casa}x${j.penaltis_fora} pen)` : ''}` : '—').join(' / ');
+          // Melhores colocados: repescados e reencontros sinalizados na 1a fase.
+          const na1aFase = r.rodada === 1;
+          const repescado = (id) => (na1aFase && D.vagas?.repescados?.includes(id)
+            ? ` <span class="badge repescado" title="Vaga pelo ranking dos melhores ${D.vagas.posicao_disputa}ºs">${D.vagas.posicao_disputa}º</span>` : '');
+          const reencontro = na1aFase && D.vagas?.reencontros?.includes(cf.confronto)
+            ? '<div class="linha muted"><span>⚠️ Times do mesmo grupo (reencontro inevitável)</span></div>' : '';
           return `<div class="confronto-box">
-            <div class="linha ${cf.vencedor === j1.time_casa_id ? 'vencedor' : ''}"><span>${agg(aggCasa)}${escudoHtml(casa)} ${esc(casa?.nome ?? 'A definir')}</span></div>
-            <div class="linha ${cf.vencedor === j1.time_fora_id ? 'vencedor' : ''}"><span>${agg(aggFora)}${escudoHtml(fora)} ${esc(fora?.nome ?? 'A definir')}</span></div>
+            <div class="linha ${cf.vencedor === j1.time_casa_id ? 'vencedor' : ''}"><span>${agg(aggCasa)}${escudoHtml(casa)} ${esc(casa?.nome ?? 'A definir')}${repescado(j1.time_casa_id)}</span></div>
+            <div class="linha ${cf.vencedor === j1.time_fora_id ? 'vencedor' : ''}"><span>${agg(aggFora)}${escudoHtml(fora)} ${esc(fora?.nome ?? 'A definir')}${repescado(j1.time_fora_id)}</span></div>
             <div class="linha muted"><span>${placares}</span></div>
+            ${reencontro}
           </div>`;
         }).join('')}
       </div>`).join('')}

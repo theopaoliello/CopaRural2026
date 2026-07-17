@@ -202,6 +202,7 @@ function telaNovoForm(chaveEsporte) {
           <div id="campo-grupos" style="display:none">
             <label>Quantidade de grupos</label><input type="number" name="num_grupos" value="2" min="1">
             <label>Classificados por grupo</label><input type="number" name="classificados_por_grupo" value="2" min="1">
+            <p id="resumo-vagas" class="muted" style="display:none"></p>
           </div>
           <div>
             <div id="campo-iv-grupos"><label><input type="checkbox" name="ida_volta_grupos" style="width:auto"> Turno e returno (ida e volta)</label></div>
@@ -234,8 +235,37 @@ function telaNovoForm(chaveEsporte) {
     // Ida e volta no mata so existe no futebol (RN-TC-05): o campo pode nem estar na tela.
     const ivMata = $('#campo-iv-mata');
     if (ivMata) ivMata.style.display = f !== 'pontos' ? '' : 'none';
+    atualizarResumoVagas();
   };
   $('#sel-formato').onchange = mudouFormato;
+
+  // Resumo ao vivo do efeito de grupos x classificados (Melhores Colocados):
+  // a mesma regra do servidor, via /api/vagas-preview, com debounce.
+  let timerResumo = null;
+  const atualizarResumoVagas = () => {
+    const el = $('#resumo-vagas');
+    if ($('#sel-formato').value !== 'grupos_mata') { el.style.display = 'none'; return; }
+    clearTimeout(timerResumo);
+    timerResumo = setTimeout(async () => {
+      const form = $('#form-novo');
+      const grupos = Number(form.num_grupos.value || 1);
+      const classificados = Number(form.classificados_por_grupo.value || 2);
+      const times = String(form.times.value).split('\n').map((s) => s.trim()).filter(Boolean).length;
+      try {
+        const p = await api(`/api/vagas-preview?grupos=${grupos}&classificados=${classificados}&times=${times}`);
+        const partes = [p.aviso ?? p.resumo];
+        if (p.modo === 'inviavel' && p.sugestao) partes.push(`Sugestão: ${p.sugestao}.`);
+        if (p.grupos_desiguais && (p.modo === 'repescagem' || p.modo === 'corte')) {
+          partes.push('Grupos de tamanhos diferentes: o ranking dos melhores colocados usa médias por jogo.');
+        }
+        el.textContent = partes.join(' ');
+        el.style.display = '';
+      } catch { el.style.display = 'none'; }
+    }, 250);
+  };
+  ['num_grupos', 'classificados_por_grupo', 'times'].forEach((campo) => {
+    $('#form-novo')[campo].addEventListener('input', atualizarResumoVagas);
+  });
   mudouFormato();
 
   $('#form-novo').onsubmit = async (e) => {
@@ -440,10 +470,13 @@ function abaJogos() {
 
   if (c.formato === 'grupos_mata' && !mata.length) {
     const pendentes = grupos.filter((j) => j.status !== 'encerrado').length;
-    html += `<div class="card linha-flex">
-      <span>Fase de grupos: <strong>${grupos.length - pendentes}/${grupos.length}</strong> jogos com resultado.</span>
-      <span class="espacador"></span>
-      <button class="botao" ${pendentes ? 'disabled' : ''} onclick="gerarMata()">Gerar mata-mata 🏆</button>
+    html += `<div class="card">
+      <div class="linha-flex">
+        <span>Fase de grupos: <strong>${grupos.length - pendentes}/${grupos.length}</strong> jogos com resultado.</span>
+        <span class="espacador"></span>
+        <button class="botao" ${pendentes ? 'disabled' : ''} onclick="gerarMata()">Gerar mata-mata 🏆</button>
+      </div>
+      ${DET.vagas?.resumo ? `<p class="muted" style="margin:6px 0 0">${esc(DET.vagas.resumo)}</p>` : ''}
     </div>`;
   }
 
@@ -727,7 +760,8 @@ async function confirmarSorteio() {
 }
 
 async function gerarMata() {
-  if (!confirm('Gerar o mata-mata com os classificados atuais? A fase de grupos será considerada encerrada.')) return;
+  const resumo = DET.vagas?.resumo ? `\n\n${DET.vagas.resumo}` : '';
+  if (!confirm(`Gerar o mata-mata com os classificados atuais? A fase de grupos será considerada encerrada.${resumo}`)) return;
   try { await api(`/api/campeonatos/${DET.campeonato.id}/gerar-mata`, 'POST'); telaCampeonato(DET.campeonato.id, 'jogos'); }
   catch (e) { avisar(e.message); }
 }
@@ -1228,7 +1262,57 @@ function abaClassif() {
         }).join('')}</tbody>
       </table></div>
       ${legendaZonas(g.linhas)}
-    </div>`).join('');
+    </div>`).join('')
+    + legendaVagas(DET.vagas, DET.classificacao)
+    + cardMelhores(DET.vagas, DET.times, ESP?.rotulos.participante ?? 'Time');
+}
+
+// ---------- melhores colocados (vagas extras / corte) ----------
+
+// Legenda das zonas da fase de grupos: verde (diretos) e ambar (em disputa).
+function legendaVagas(v, classificacao) {
+  if (!v || v.modo === 'inviavel') return '';
+  if (!classificacao.some((g) => g.linhas.some((l) => l.zona))) return '';
+  let txt = 'Linhas em verde: classificação ao mata-mata.';
+  if (v.modo !== 'exata') txt += ` Linha em âmbar: ${v.posicao_disputa}º colocado, em disputa entre os grupos.`;
+  return `<p class="legenda-zonas">${txt}</p>`;
+}
+
+// Rotulos das colunas por jogo do card "Melhores N-ésimos".
+const ROTULOS_MEDIA = {
+  pts: ['Pts/J', 'Pontos por jogo'], vitorias: ['V/J', 'Vitórias por jogo'],
+  saldo: ['SG/J', 'Saldo de gols por jogo'], gols_pro: ['GP/J', 'Gols pró por jogo'],
+  saldo_sets: ['ΔSets/J', 'Saldo de sets por jogo'], saldo_pontos: ['ΔPts/J', 'Saldo de pontos por jogo'],
+  pontos_pro: ['PP/J', 'Pontos pró por jogo'], razao_sets: ['RSet', 'Razão de sets'],
+  razao_pontos: ['RPts', 'Razão de pontos'], pct_sets: ['%Sets', 'Percentual de sets'],
+  pct_pontos: ['%Pts', 'Percentual de pontos'],
+};
+const mediaTexto = (m) => (m == null ? 'MAX' : Number(m).toFixed(2));
+
+// Card do ranking entre grupos (EF 5.2): ao vivo, com a linha de corte.
+function cardMelhores(v, times, rotuloTime) {
+  if (!v || !v.ranking?.length) return '';
+  const aviso = v.grupos_desiguais
+    ? ' Grupos de tamanhos diferentes: a comparação usa médias por jogo.' : '';
+  return `
+    <div class="card">
+      <h3>Melhores ${v.posicao_disputa}ºs <span class="badge">${v.em_disputa} vaga${v.em_disputa === 1 ? '' : 's'}</span></h3>
+      <p class="muted">${esc(v.resumo)}${aviso}</p>
+      <div class="tabela-wrap"><table class="tabela">
+        <thead><tr><th>#</th><th class="time">${esc(rotuloTime)}</th><th>Grupo</th><th title="Jogos">J</th>
+          ${v.criterios_media.map((c) => `<th title="${esc(ROTULOS_MEDIA[c]?.[1] ?? c)}">${esc(ROTULOS_MEDIA[c]?.[0] ?? c)}</th>`).join('')}</tr></thead>
+        <tbody>${v.ranking.map((l, i) => {
+          const t = times?.find((x) => x.id === l.time_id);
+          const classes = [l.classifica ? 'zona-classifica' : '', i === v.em_disputa ? 'linha-corte' : '']
+            .filter(Boolean).join(' ');
+          return `<tr${classes ? ` class="${classes}"` : ''}><td>${i + 1}</td>
+            <td class="time">${t ? escudoHtml(t) : ''} ${esc(l.nome)}</td>
+            <td>${esc((l.grupo_nome ?? '').replace('Grupo ', ''))}</td><td>${l.pj}</td>
+            ${v.criterios_media.map((c) => `<td>${mediaTexto(l.medias[c])}</td>`).join('')}</tr>`;
+        }).join('')}</tbody>
+      </table></div>
+      <p class="legenda-zonas">Acima da linha de corte: ${v.modo === 'corte' ? 'avançam ao mata-mata' : 'levam as vagas extras'}. As vagas só se confirmam com todos os jogos dos grupos encerrados.</p>
+    </div>`;
 }
 
 // ---------- aba banners ----------
@@ -1342,6 +1426,11 @@ async function abaConfig() {
       </div>
       <p><button class="botao" onclick="salvarConfig()">Salvar alterações</button></p>
     </div>`}
+    ${c.formato === 'grupos_mata' ? `<div class="card">
+      <h3>Fase de grupos + Mata-mata</h3>
+      <p class="muted">${c.num_grupos} grupo${c.num_grupos === 1 ? '' : 's'} × ${c.classificados_por_grupo} classificado${c.classificados_por_grupo === 1 ? '' : 's'} por grupo — definido na criação, não pode ser alterado.</p>
+      ${DET.vagas?.resumo ? `<p class="muted">${esc(DET.vagas.resumo)}</p>` : ''}
+    </div>` : ''}
     <div class="card">
       <h3>Zona de perigo</h3>
       <p class="muted">Excluir o campeonato apaga times, jogos, resultados e banners. Não tem volta.</p>

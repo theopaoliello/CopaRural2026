@@ -104,11 +104,16 @@ table.tabela { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
 .tabela td { padding: 7px 8px; border-bottom: 1px solid var(--borda); text-align: center; white-space: nowrap; }
 .tabela td.time, .tabela th.time { text-align: left; }
 .tabela tr.zona-classifica td:first-child { box-shadow: inset 3px 0 0 var(--verde-claro); }
+/* melhores colocados: posicao em disputa entre grupos (repescagem/corte) */
+.tabela tr.zona-disputa { background: #fffbeb; }
+.tabela tr.zona-disputa td:first-child { box-shadow: inset 3px 0 0 var(--amarelo); }
+.tabela tr.linha-corte td { border-top: 2px dashed var(--amarelo); }
 /* zonas do ranking da pelada (RN-PE-06): premiacao no topo, rebaixamento na base */
 .tabela tr.zona-premiacao td:first-child { box-shadow: inset 3px 0 0 #eab308; }
 .tabela tr.zona-rebaixamento { background: #fef2f2; }
 .tabela tr.zona-rebaixamento td:first-child { box-shadow: inset 3px 0 0 #ef4444; }
 .legenda-zonas { font-size: 0.82rem; color: var(--cinza); margin: 6px 2px 0; }
+.badge.repescado { background: #fef3c7; color: #92400e; }
 
 /* sorteio da pelada: presenca do dia e matriz de entrosamento */
 .grade-presenca { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 2px 10px; margin: 6px 0 12px; }

@@ -14,7 +14,11 @@ import {
 import {
   criarCampeonato, classificacaoDoCampeonato, gerarMataDoCampeonato, criarJogoAvulso,
   slugificar, slugDisponivel, textoLimitado, validarCorTema, validarPremiacaoRebaixamento,
+  vagasDoCampeonato,
 } from '../src/campeonatos.js';
+import {
+  planoDeVagas, sugerirCombinacao, textoSugestao, resumoDoPlano, tamanhosPrevistos,
+} from '../src/melhores.js';
 import { criarLimitador } from '../src/ratelimit.js';
 import { registrarResultado, apagarResultado } from '../src/jogos.js';
 import { matrizEntrosamento, sortearTimes } from '../src/sorteio.js';
@@ -335,6 +339,40 @@ export function montarRotas(db, { limites = {} } = {}) {
     ));
   });
 
+  // Resumo ao vivo do wizard (Melhores Colocados, RN-MC-06): mesmo motor da
+  // validacao do servidor — o cliente nao duplica a regra.
+  rotas.get('/vagas-preview', logado, (req, res) => {
+    const numGrupos = Math.max(1, Math.trunc(Number(req.query.grupos) || 1));
+    const classificados = Math.max(1, Math.trunc(Number(req.query.classificados) || 2));
+    const totalTimes = Math.max(0, Math.trunc(Number(req.query.times) || 0));
+    // Sem times digitados ainda, assume grupos grandes o bastante.
+    const tamanhos = totalTimes > 0
+      ? tamanhosPrevistos(totalTimes, numGrupos)
+      : Array(numGrupos).fill(Infinity);
+    const plano = planoDeVagas({ numGrupos, classificados, tamanhos });
+    let sugestao = null;
+    if (plano.modo === 'inviavel') {
+      sugestao = textoSugestao(
+        sugerirCombinacao({
+          numGrupos, classificados, totalTimes: totalTimes || numGrupos * (classificados + 2),
+        }),
+        { numGrupos, classificados },
+      );
+    }
+    res.json({
+      modo: plano.modo,
+      chave: plano.vagas,
+      posicao_disputa: plano.posicaoDisputa,
+      em_disputa: plano.emDisputa,
+      resumo: resumoDoPlano(plano, { numGrupos, classificados, tamanhos: totalTimes > 0 ? tamanhos : [] }),
+      sugestao,
+      grupos_desiguais: totalTimes > 0 && new Set(tamanhos).size > 1,
+      aviso: totalTimes > 0 && totalTimes < numGrupos * 2
+        ? `Cadastre pelo menos ${numGrupos * 2} times (2 por grupo).`
+        : null,
+    });
+  });
+
   // ---------- campeonatos (admin) ----------
 
   rotas.get('/campeonatos', logado, (req, res) => {
@@ -357,6 +395,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   // Detalhe completo para o painel: times, jogadores, jogos, eventos, banners.
   rotas.get('/campeonatos/:id', logado, (req, res) => {
     const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    const classificacao = classificacaoDoCampeonato(db, c);
     res.json({
       campeonato: c,
       grupos: db.prepare('SELECT * FROM grupos WHERE campeonato_id = ? ORDER BY nome').all(c.id),
@@ -380,7 +419,8 @@ export function montarRotas(db, { limites = {} } = {}) {
         .prepare('SELECT s.* FROM sets s JOIN jogos j ON j.id = s.jogo_id WHERE j.campeonato_id = ? ORDER BY s.jogo_id, s.numero')
         .all(c.id),
       banners: db.prepare('SELECT * FROM banners WHERE campeonato_id = ? ORDER BY ordem, id').all(c.id),
-      classificacao: classificacaoDoCampeonato(db, c),
+      classificacao,
+      vagas: vagasDoCampeonato(db, c, classificacao),
     });
   });
 
