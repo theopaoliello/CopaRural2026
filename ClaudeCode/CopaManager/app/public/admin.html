@@ -232,7 +232,7 @@ function telaNovoForm(chaveEsporte) {
       </fieldset>
 
       <fieldset><legend>3. ${esc(esporte.rotulos.participantes)}</legend>
-        <label>${esc(esporte.rotulos.participante)} por linha *</label>
+        <label>${esc(esporte.rotulos.participante)} por linha * <span class="muted">(até 18 caracteres cada)</span></label>
         <textarea name="times" rows="8" required placeholder="Real Baixada&#10;Unidos da Vila&#10;Juventude FC&#10;..."></textarea>
         <label><input type="checkbox" name="sortear" checked style="width:auto"> Sortear a distribuição (grupos/chaveamento)</label>
         <p class="muted">Desmarcado, a ordem digitada manda: os primeiros times formam o Grupo A (e assim por diante);
@@ -332,7 +332,7 @@ function telaNovoFormPelada(esporte) {
 
       <fieldset><legend>2. Temporada</legend>
         <div class="grid-2">
-          <div><label>Nomes dos times / divisões (um por linha) *</label>
+          <div><label>Nomes dos times / divisões (um por linha) * <span class="muted">(até 18 caracteres cada)</span></label>
             <textarea name="times" rows="3" required placeholder="Camisa&#10;Sem Camisa"></textarea></div>
           <div><label>Quantidade de jogos da temporada *</label>
             <input type="number" name="jogos_temporada" min="1" required placeholder="40"></div>
@@ -341,9 +341,9 @@ function telaNovoFormPelada(esporte) {
 
       <fieldset><legend>3. Jogadores</legend>
         <div class="grid-2">
-          <div><label>Fixos (rankeados) — um por linha *</label>
+          <div><label>Fixos (rankeados) — um por linha * <span class="muted">(nome até 15 caracteres)</span></label>
             <textarea name="jogadores_fixos" rows="10" required placeholder="Daniel (G)&#10;Marley&#10;Theo&#10;..."></textarea></div>
-          <div><label>Suplentes (coringas) — um por linha</label>
+          <div><label>Suplentes (coringas) — um por linha <span class="muted">(nome até 15 caracteres)</span></label>
             <textarea name="jogadores_suplentes" rows="10" placeholder="Vitor (G)&#10;Rafael&#10;..."></textarea></div>
         </div>
         <p class="muted">Coloque <strong>(G)</strong> depois do nome para marcar goleiro. Suplentes jogam e marcam gols, mas ficam fora do ranking.</p>
@@ -636,7 +636,7 @@ function abaJogadoresPelada() {
     <div class="card">
       <h3>Adicionar jogador</h3>
       <div class="linha-flex">
-        <input type="text" id="nj-nome" placeholder="Nome" style="flex:1">
+        <input type="text" id="nj-nome" placeholder="Nome" maxlength="15" style="flex:1">
         <select id="nj-tipo" style="width:auto"><option value="fixo">Fixo</option><option value="suplente">Suplente</option></select>
         <label style="width:auto"><input type="checkbox" id="nj-goleiro" style="width:auto"> Goleiro</label>
         <button class="botao mini" onclick="adicionarJogadorPelada()">Adicionar</button>
@@ -1170,7 +1170,7 @@ function modalTime(timeId) {
   abrirModal(`
     <h3>${esc(t.nome)}</h3>
     <label>Nome do time</label>
-    <div class="linha-flex"><input type="text" id="time-nome" value="${esc(t.nome)}" style="flex:1">
+    <div class="linha-flex"><input type="text" id="time-nome" value="${esc(t.nome)}" maxlength="18" style="flex:1">
     <button class="botao mini" onclick="renomearTime(${timeId})">Salvar</button></div>
 
     <div class="grid-2" style="margin-top:10px">
@@ -1190,13 +1190,13 @@ function modalTime(timeId) {
       </li>`).join('') || '<li class="muted">Nenhum jogador cadastrado.</li>'}
     </ul>
     <div class="linha-flex">
-      <input type="text" id="novo-jogador" placeholder="Nome do jogador" style="flex:2">
+      <input type="text" id="novo-jogador" placeholder="Nome do jogador" maxlength="15" style="flex:2">
       <input type="number" id="novo-numero" placeholder="Nº" style="width:64px">
       <button class="botao mini" onclick="addJogador(${timeId})">Adicionar</button>
     </div>
 
     <h4 style="margin-bottom:2px">Cadastrar vários de uma vez</h4>
-    <p class="muted" style="margin:2px 0 6px">Um jogador por linha, no formato <strong>nome,número</strong> (o número é opcional).</p>
+    <p class="muted" style="margin:2px 0 6px">Um jogador por linha, no formato <strong>nome,número</strong> (o número é opcional). Nome até 15 caracteres.</p>
     <textarea id="lote-jogadores" rows="6" placeholder="Theo,10&#10;Leandro Domingues,7&#10;Junior&#10;Bernardo&#10;Miguel,11"></textarea>
     <p><button class="botao" onclick="addLoteJogadores(${timeId})">Cadastrar lista</button></p>
   `);

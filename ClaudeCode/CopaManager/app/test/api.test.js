@@ -452,13 +452,13 @@ test('jogadores em lote: cadastra varios de uma vez e respeita a posse', async (
   const timeA = det.corpo.times.find((t) => t.nome === 'A');
 
   const r = await c('POST', `/api/times/${timeA.id}/jogadores/lote`, {
-    texto: 'Theo,10\nLeandro Domingues,7\nJunior\nBernardo\nMiguel,11',
+    texto: 'Theo,10\nLeandro,7\nJunior\nBernardo\nMiguel,11',
   });
   assert.equal(r.status, 201);
   assert.equal(r.corpo.length, 5);
   assert.deepEqual(
     r.corpo.map((j) => [j.nome, j.numero]),
-    [['Theo', 10], ['Leandro Domingues', 7], ['Junior', null], ['Bernardo', null], ['Miguel', 11]],
+    [['Theo', 10], ['Leandro', 7], ['Junior', null], ['Bernardo', null], ['Miguel', 11]],
   );
 
   // linha invalida: nada e criado (400)
@@ -472,6 +472,36 @@ test('jogadores em lote: cadastra varios de uma vez e respeita a posse', async (
     (await intruso('POST', `/api/times/${timeA.id}/jogadores/lote`, { texto: 'Invasor,1' })).status,
     404,
   );
+});
+
+test('limites de nome: time ate 18 e jogador ate 15 caracteres', async () => {
+  const c = cliente();
+  await registrarEntrar(c, { nome: 'Lim', email: 'limites@teste.com', senha: 'segredo1' });
+
+  // Criacao pelo wizard: nome de time com 19 caracteres e recusado.
+  const nomeLongo = 'A'.repeat(19);
+  const wiz = await c('POST', '/api/campeonatos', {
+    nome: 'Limites FC', formato: 'pontos', sortear: false, times: [nomeLongo, 'B'],
+  });
+  assert.equal(wiz.status, 400);
+  assert.match(wiz.corpo.mensagem, /18 caracteres/);
+
+  const criado = await c('POST', '/api/campeonatos', {
+    nome: 'Limites FC', formato: 'pontos', sortear: false, times: ['A'.repeat(18), 'B'],
+  });
+  assert.equal(criado.status, 201);
+
+  // Adicionar time avulso: 19 recusa, 18 aceita — mas so antes de gerar a tabela;
+  // aqui a tabela ja existe, entao validamos o limite na renomeacao.
+  const det = await c('GET', `/api/campeonatos/${criado.corpo.id}`);
+  const timeB = det.corpo.times.find((t) => t.nome === 'B');
+  assert.equal((await c('PATCH', `/api/times/${timeB.id}`, { nome: 'B'.repeat(19) })).status, 400);
+  assert.equal((await c('PATCH', `/api/times/${timeB.id}`, { nome: 'B'.repeat(18) })).status, 200);
+
+  // Jogador: 16 recusa, 15 aceita.
+  const timeA = det.corpo.times.find((t) => t.nome === 'A'.repeat(18));
+  assert.equal((await c('POST', `/api/times/${timeA.id}/jogadores`, { nome: 'J'.repeat(16) })).status, 400);
+  assert.equal((await c('POST', `/api/times/${timeA.id}/jogadores`, { nome: 'J'.repeat(15) })).status, 201);
 });
 
 test('resultado por texto: placar automatico, gol contra e validacao de elenco', async () => {

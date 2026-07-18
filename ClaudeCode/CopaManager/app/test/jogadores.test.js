@@ -5,15 +5,22 @@ import { parsearLoteJogadores } from '../src/jogadores.js';
 
 test('lote: exemplo da especificacao (numero opcional)', () => {
   const lote = parsearLoteJogadores(
-    'Theo,10\nLeandro Domingues,7\nJunior\nBernardo\nMiguel,11',
+    'Theo,10\nLeandro,7\nJunior\nBernardo\nMiguel,11',
   );
   assert.deepEqual(lote, [
     { nome: 'Theo', numero: 10 },
-    { nome: 'Leandro Domingues', numero: 7 },
+    { nome: 'Leandro', numero: 7 },
     { nome: 'Junior', numero: null },
     { nome: 'Bernardo', numero: null },
     { nome: 'Miguel', numero: 11 },
   ]);
+});
+
+test('lote: rejeita nome acima de 15 caracteres', () => {
+  assert.throws(
+    () => parsearLoteJogadores('Theo,10\nJose Carlos da Silva,7'),
+    /Linha 2: nome muito longo \(limite: 15 caracteres\)/,
+  );
 });
 
 test('lote: ignora linhas vazias e espacos extras', () => {

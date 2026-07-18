@@ -38,6 +38,11 @@ export function textoLimitado(valor, max, campo) {
   return texto;
 }
 
+// Limites de nome (caracteres) para jogadores e times — enforcados no servidor
+// e refletidos como maxlength nos campos do admin (public/admin.html).
+export const MAX_NOME_JOGADOR = 15;
+export const MAX_NOME_TIME = 18;
+
 // A cor do tema vai para contexto CSS na pagina publica: so aceita hex.
 export function validarCorTema(valor) {
   const cor = String(valor ?? '').trim();
@@ -88,8 +93,8 @@ export function criarCampeonato(db, contaId, dados) {
   if (!FORMATOS.includes(formato)) throw erroValidacao('Formato invalido.');
 
   const nomesTimes = (dados.times ?? []).map((t) => String(t?.nome ?? t ?? '').trim()).filter(Boolean);
-  if (nomesTimes.some((n) => n.length > 80)) {
-    throw erroValidacao('Nome de time muito longo (limite: 80 caracteres).');
+  if (nomesTimes.some((n) => n.length > MAX_NOME_TIME)) {
+    throw erroValidacao(`Nome de time muito longo (limite: ${MAX_NOME_TIME} caracteres).`);
   }
   const nomesUnicos = new Set(nomesTimes.map((n) => n.toLowerCase()));
   if (nomesUnicos.size !== nomesTimes.length) throw erroValidacao('Ha times com nomes repetidos.');
@@ -226,7 +231,7 @@ function parsearJogadores(linhas, tipo) {
       const goleiro = /\(g\)\s*$/i.test(linha);
       const nome = linha.replace(/\s*\(g\)\s*$/i, '').trim();
       if (!nome) throw erroValidacao('Jogador sem nome na lista.');
-      if (nome.length > 80) throw erroValidacao('Nome de jogador muito longo (limite: 80 caracteres).');
+      if (nome.length > MAX_NOME_JOGADOR) throw erroValidacao(`Nome de jogador muito longo (limite: ${MAX_NOME_JOGADOR} caracteres).`);
       return { nome, tipo, goleiro: goleiro ? 1 : 0 };
     });
 }
@@ -258,7 +263,7 @@ function criarPeladaEpica(db, contaId, dados, esporte, nome) {
   // Divisoes com nome fixo (RN-PE-04): reutilizadas em todos os jogos.
   const divisoes = (dados.times ?? []).map((t) => String(t?.nome ?? t ?? '').trim()).filter(Boolean);
   if (divisoes.length < 2) throw erroValidacao('Informe pelo menos 2 nomes de times/divisoes.');
-  if (divisoes.some((n) => n.length > 80)) throw erroValidacao('Nome de time muito longo (limite: 80 caracteres).');
+  if (divisoes.some((n) => n.length > MAX_NOME_TIME)) throw erroValidacao(`Nome de time muito longo (limite: ${MAX_NOME_TIME} caracteres).`);
   if (new Set(divisoes.map((n) => n.toLowerCase())).size !== divisoes.length) {
     throw erroValidacao('Ha times com nomes repetidos.');
   }

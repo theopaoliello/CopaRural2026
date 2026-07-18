@@ -1,6 +1,7 @@
 // Cadastro de jogadores em lote: um jogador por linha, no formato "nome,numero"
 // (numero opcional). Ex.: "Theo,10" ou apenas "Junior".
 import { erroValidacao } from './erros.js';
+import { MAX_NOME_JOGADOR } from './campeonatos.js';
 
 // Converte o texto do lote em [{ nome, numero }], validando linha a linha.
 export function parsearLoteJogadores(texto) {
@@ -24,6 +25,9 @@ export function parsearLoteJogadores(texto) {
       // Virgula sem numero valido depois ("Silva, Joao"): trata a linha toda como nome.
     }
     if (!nome) throw erroValidacao(`Linha ${i + 1}: informe o nome do jogador.`);
+    if (nome.length > MAX_NOME_JOGADOR) {
+      throw erroValidacao(`Linha ${i + 1}: nome muito longo (limite: ${MAX_NOME_JOGADOR} caracteres).`);
+    }
     return { nome, numero };
   });
 }

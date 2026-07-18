@@ -14,7 +14,7 @@ import {
 import {
   criarCampeonato, classificacaoDoCampeonato, gerarMataDoCampeonato, criarJogoAvulso,
   slugificar, slugDisponivel, textoLimitado, validarCorTema, validarPremiacaoRebaixamento,
-  vagasDoCampeonato,
+  vagasDoCampeonato, MAX_NOME_JOGADOR, MAX_NOME_TIME,
 } from '../src/campeonatos.js';
 import {
   planoDeVagas, sugerirCombinacao, textoSugestao, resumoDoPlano, tamanhosPrevistos,
@@ -625,7 +625,7 @@ export function montarRotas(db, { limites = {} } = {}) {
     if (obterEsporte(c.esporte)?.ranking !== 'individual') {
       throw erroValidacao('Neste esporte o jogador e cadastrado dentro de um time.');
     }
-    const nome = textoLimitado(req.body?.nome, 80, 'Nome do jogador');
+    const nome = textoLimitado(req.body?.nome, MAX_NOME_JOGADOR, 'Nome do jogador');
     if (!nome) throw erroValidacao('Informe o nome do jogador.');
     const tipo = req.body?.tipo ?? 'fixo';
     if (!['fixo', 'suplente'].includes(tipo)) throw erroValidacao('Tipo de jogador invalido.');
@@ -654,7 +654,7 @@ export function montarRotas(db, { limites = {} } = {}) {
     if (temJogos) {
       throw erroConflito('A tabela ja foi gerada; nao e possivel adicionar times a este campeonato.');
     }
-    const nome = textoLimitado(req.body?.nome, 80, 'Nome do time');
+    const nome = textoLimitado(req.body?.nome, MAX_NOME_TIME, 'Nome do time');
     if (!nome) throw erroValidacao('Informe o nome do time.');
     const existentes = db.prepare('SELECT COUNT(*) AS n FROM times WHERE campeonato_id = ?').get(c.id).n;
     conferirLimiteTimes(db, c.conta_id, existentes + 1);
@@ -666,7 +666,7 @@ export function montarRotas(db, { limites = {} } = {}) {
 
   rotas.patch('/times/:id', logado, (req, res) => {
     const t = timeDaConta(db, req.conta.id, req.params.id);
-    const nome = req.body?.nome !== undefined ? textoLimitado(req.body.nome, 80, 'Nome do time') : t.nome;
+    const nome = req.body?.nome !== undefined ? textoLimitado(req.body.nome, MAX_NOME_TIME, 'Nome do time') : t.nome;
     if (!nome) throw erroValidacao('O nome do time nao pode ficar vazio.');
     db.prepare('UPDATE times SET nome = ? WHERE id = ?').run(nome, t.id);
     res.json(db.prepare('SELECT * FROM times WHERE id = ?').get(t.id));
@@ -698,7 +698,7 @@ export function montarRotas(db, { limites = {} } = {}) {
 
   rotas.post('/times/:id/jogadores', logado, (req, res) => {
     const t = timeDaConta(db, req.conta.id, req.params.id);
-    const nome = textoLimitado(req.body?.nome, 80, 'Nome do jogador');
+    const nome = textoLimitado(req.body?.nome, MAX_NOME_JOGADOR, 'Nome do jogador');
     if (!nome) throw erroValidacao('Informe o nome do jogador.');
     conferirJogadoresDoTime(t, 1);
     const numero = req.body?.numero != null && req.body.numero !== '' ? Number(req.body.numero) : null;
@@ -720,7 +720,7 @@ export function montarRotas(db, { limites = {} } = {}) {
 
   rotas.patch('/jogadores/:id', logado, (req, res) => {
     const j = jogadorDaConta(db, req.conta.id, req.params.id);
-    const nome = req.body?.nome !== undefined ? textoLimitado(req.body.nome, 80, 'Nome do jogador') : j.nome;
+    const nome = req.body?.nome !== undefined ? textoLimitado(req.body.nome, MAX_NOME_JOGADOR, 'Nome do jogador') : j.nome;
     if (!nome) throw erroValidacao('O nome do jogador nao pode ficar vazio.');
     const numero =
       req.body?.numero !== undefined
