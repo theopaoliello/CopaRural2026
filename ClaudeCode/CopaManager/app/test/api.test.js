@@ -680,6 +680,93 @@ test('seguranca: organizador comum nao acessa rotas master nem forja tenant', as
   assert.equal(eu2.corpo.tenant, null);
 });
 
+test('limites de conta: 409 no 4o campeonato e o painel master ajusta tipo/overrides', async () => {
+  const c = cliente();
+  await registrarEntrar(c, { nome: 'Lim', email: 'lim@teste.com', senha: 'segredo1' });
+  const novo = (nome) => c('POST', '/api/campeonatos', { nome, formato: 'pontos', sortear: false, times: ['A', 'B'] });
+
+  let lim = await c('GET', '/api/conta/limites');
+  assert.deepEqual(lim.corpo, { tipo: 'padrao', max_campeonatos: 3, max_times: 48, max_jogadores_time: 30, usados: 0 });
+
+  for (let i = 1; i <= 3; i++) assert.equal((await novo(`L${i}`)).status, 201);
+  const cheio = await novo('L4');
+  assert.equal(cheio.status, 409);
+  assert.match(cheio.corpo.mensagem, /limite de 3 campeonatos.*Exclua um campeonato/s);
+
+  // painel master: ve tipo e limite efetivo, e ajusta o plano
+  const m = cliente();
+  await registrarEntrar(m, { nome: 'Boss', email: 'boss@teste.com', senha: 'segredo1' });
+  bancoTeste.prepare("UPDATE contas SET papel = 'master' WHERE email = 'boss@teste.com'").run();
+  const lista = await m('GET', '/api/master/contas');
+  const alvo = lista.corpo.find((x) => x.email === 'lim@teste.com');
+  assert.equal(alvo.tipo, 'padrao');
+  assert.equal(alvo.limite_campeonatos, 3);
+  assert.equal(alvo.n_campeonatos, 3);
+
+  // validacoes do PATCH (RN-GC-10)
+  assert.equal((await m('PATCH', `/api/master/contas/${alvo.id}`, { tipo: 'diamante' })).status, 400);
+  assert.equal((await m('PATCH', `/api/master/contas/${alvo.id}`, { max_times: 0 })).status, 400);
+
+  // premium (10) libera o 4o campeonato
+  const up = await m('PATCH', `/api/master/contas/${alvo.id}`, { tipo: 'premium' });
+  assert.equal(up.corpo.tipo, 'premium');
+  assert.equal((await novo('L4')).status, 201);
+
+  // override tem precedencia (4 = cheio de novo); limpar volta ao tipo
+  await m('PATCH', `/api/master/contas/${alvo.id}`, { max_campeonatos: 4 });
+  assert.equal((await novo('L5')).status, 409);
+  await m('PATCH', `/api/master/contas/${alvo.id}`, { max_campeonatos: null });
+  assert.equal((await novo('L5')).status, 201);
+
+  lim = await c('GET', '/api/conta/limites');
+  assert.equal(lim.corpo.usados, 5);
+  assert.equal(lim.corpo.max_campeonatos, 10);
+  assert.equal(lim.corpo.tipo, 'premium');
+});
+
+test('limites de estrutura: times no wizard/rota e jogadores unitario e em lote (tudo ou nada)', async () => {
+  const c = cliente();
+  await registrarEntrar(c, { nome: 'Est', email: 'est@teste.com', senha: 'segredo1' });
+  bancoTeste.prepare("UPDATE contas SET max_times = 3, max_jogadores_time = 2 WHERE email = 'est@teste.com'").run();
+
+  // wizard barra 4 times com o override de 3
+  const wiz = await c('POST', '/api/campeonatos', {
+    nome: 'Cheio', formato: 'pontos', sortear: false, times: ['A', 'B', 'C', 'D'],
+  });
+  assert.equal(wiz.status, 409);
+  assert.match(wiz.corpo.mensagem, /Limite de 3 times/);
+
+  // jogadores por time: 2 cabem, o 3o e recusado
+  const criado = await c('POST', '/api/campeonatos', {
+    nome: 'Estrutura', formato: 'pontos', sortear: false, times: ['A', 'B'],
+  });
+  const det = await c('GET', `/api/campeonatos/${criado.corpo.id}`);
+  const timeA = det.corpo.times.find((t) => t.nome === 'A');
+  const timeB = det.corpo.times.find((t) => t.nome === 'B');
+  assert.equal((await c('POST', `/api/times/${timeA.id}/jogadores`, { nome: 'J1' })).status, 201);
+  assert.equal((await c('POST', `/api/times/${timeA.id}/jogadores`, { nome: 'J2' })).status, 201);
+  const terceiro = await c('POST', `/api/times/${timeA.id}/jogadores`, { nome: 'J3' });
+  assert.equal(terceiro.status, 409);
+  assert.match(terceiro.corpo.mensagem, /Limite de 2 jogadores por time/);
+
+  // lote estourando: recusado SEM inserir nenhuma linha
+  const lote = await c('POST', `/api/times/${timeB.id}/jogadores/lote`, { texto: 'X1\nX2\nX3' });
+  assert.equal(lote.status, 409);
+  assert.equal(bancoTeste.prepare('SELECT COUNT(*) AS n FROM jogadores WHERE time_id = ?').get(timeB.id).n, 0);
+  assert.equal((await c('POST', `/api/times/${timeB.id}/jogadores/lote`, { texto: 'X1\nX2' })).status, 201);
+
+  // pelada: teto por campeonato = 2 por time x 2 divisoes = 4 (RN-GC-07)
+  const pelada = await c('POST', '/api/campeonatos', {
+    nome: 'Pelada Lim', esporte: 'pelada_epica', times: ['Camisa', 'Sem Camisa'],
+    jogos_temporada: 10, jogadores_fixos: ['P1', 'P2', 'P3'],
+  });
+  assert.equal(pelada.status, 201);
+  assert.equal((await c('POST', `/api/campeonatos/${pelada.corpo.id}/jogadores`, { nome: 'P4' })).status, 201);
+  const quinto = await c('POST', `/api/campeonatos/${pelada.corpo.id}/jogadores`, { nome: 'P5' });
+  assert.equal(quinto.status, 409);
+  assert.match(quinto.corpo.mensagem, /Limite de 4 jogadores neste campeonato/);
+});
+
 test('validacao do wizard: mata-mata exige potencia de 2', async () => {
   const c = cliente();
   await registrarEntrar(c, { nome: 'W', email: 'w@teste.com', senha: 'segredo1' });

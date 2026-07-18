@@ -19,6 +19,9 @@ import {
   criteriosDeMedia, mediaDoCriterio, rankearEntreGrupos,
   montarSeeds, confrontosDaPrimeiraFase, ajustarReencontros,
 } from './melhores.js';
+import {
+  conferirLimiteCampeonatos, conferirLimiteTimes, conferirLimiteJogadoresPelada,
+} from './limites.js';
 
 const FORMATOS = ['pontos', 'mata', 'grupos_mata'];
 const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -66,6 +69,10 @@ export function slugDisponivel(db, base) {
 // ---------- criacao (wizard) ----------
 
 export function criarCampeonato(db, contaId, dados) {
+  // Limite de campeonatos simultaneos da conta (RN-GC-02): vale para todos os
+  // formatos, inclusive a Pelada Epica (o dispatch acontece logo abaixo).
+  conferirLimiteCampeonatos(db, contaId);
+
   const nome = textoLimitado(dados.nome, 120, 'Nome do campeonato');
   if (!nome) throw erroValidacao('Informe o nome do campeonato.');
 
@@ -87,6 +94,7 @@ export function criarCampeonato(db, contaId, dados) {
   const nomesUnicos = new Set(nomesTimes.map((n) => n.toLowerCase()));
   if (nomesUnicos.size !== nomesTimes.length) throw erroValidacao('Ha times com nomes repetidos.');
   if (nomesTimes.length < 2) throw erroValidacao('Cadastre pelo menos 2 times.');
+  conferirLimiteTimes(db, contaId, nomesTimes.length);
 
   const numGrupos = formato === 'grupos_mata' ? Math.max(1, Number(dados.num_grupos ?? 1)) : 1;
   const classificadosPorGrupo = Math.max(1, Number(dados.classificados_por_grupo ?? 2));
@@ -254,6 +262,7 @@ function criarPeladaEpica(db, contaId, dados, esporte, nome) {
   if (new Set(divisoes.map((n) => n.toLowerCase())).size !== divisoes.length) {
     throw erroValidacao('Ha times com nomes repetidos.');
   }
+  conferirLimiteTimes(db, contaId, divisoes.length);
 
   const jogosTemporada = Number(dados.jogos_temporada);
   if (!Number.isInteger(jogosTemporada) || jogosTemporada < 1) {
@@ -270,6 +279,8 @@ function criarPeladaEpica(db, contaId, dados, esporte, nome) {
   if (new Set(jogadores.map((j) => j.nome.toLowerCase())).size !== jogadores.length) {
     throw erroValidacao('Ha jogadores com nomes repetidos.');
   }
+  // RN-GC-07: jogadores da pelada pertencem ao campeonato — teto por campeonato.
+  conferirLimiteJogadoresPelada(db, contaId, jogadores.length, divisoes.length);
 
   // Desempate (RN-PE-11): criterio principal Gols ou Presenca; flag prioriza goleiro.
   let criterios = dados.criterios_desempate;

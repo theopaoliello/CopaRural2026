@@ -12,8 +12,10 @@ let contaId;
 
 before(() => {
   db = prepararBanco(':memory:');
+  // tipo premium_plus: este arquivo cria varios campeonatos na mesma conta
+  // (o limite de campeonatos tem testes proprios em limites.test.js).
   contaId = Number(
-    db.prepare("INSERT INTO contas (nome, email, senha_hash) VALUES ('T', 't@t.com', 'x')").run().lastInsertRowid,
+    db.prepare("INSERT INTO contas (nome, email, senha_hash, tipo) VALUES ('T', 't@t.com', 'x', 'premium_plus')").run().lastInsertRowid,
   );
 });
 

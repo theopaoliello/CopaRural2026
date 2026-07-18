@@ -60,6 +60,13 @@ function migrarColunas(db) {
   }
   addSeFaltar('contas', 'google_id TEXT');
   addSeFaltar('contas', 'consentimento_em TEXT');
+  // Gestao de Contas (fase 1): tipo de conta e overrides de limites por conta.
+  // Contas existentes viram 'padrao' pelo DEFAULT; NULL nos overrides = herda
+  // o padrao do tipo/global (nenhum backfill necessario).
+  addSeFaltar('contas', "tipo TEXT NOT NULL DEFAULT 'padrao'");
+  addSeFaltar('contas', 'max_campeonatos INTEGER');
+  addSeFaltar('contas', 'max_times INTEGER');
+  addSeFaltar('contas', 'max_jogadores_time INTEGER');
 }
 
 // Bancos criados antes dos tipos 'gol_contra' (2026-07) ou 'pontos'/'valor'

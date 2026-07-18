@@ -17,6 +17,14 @@ CREATE TABLE IF NOT EXISTS contas (
   google_id TEXT,
   -- LGPD: quando o titular aceitou a Politica de Privacidade
   consentimento_em TEXT,
+  -- Plano da conta (EF Gestao de Contas): define o limite padrao de
+  -- campeonatos simultaneos (padrao 3, premium 10, premium_plus 30).
+  -- Sem billing: o master atribui. Validacao do valor fica na rota master.
+  tipo TEXT NOT NULL DEFAULT 'padrao',
+  -- Overrides por conta definidos pelo master; NULL = padrao do tipo/global.
+  max_campeonatos INTEGER,
+  max_times INTEGER,
+  max_jogadores_time INTEGER,
   criado_em TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

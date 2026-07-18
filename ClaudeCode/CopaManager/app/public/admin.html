@@ -83,13 +83,16 @@ const nomeFase = (n) => ({ 1: 'Final', 2: 'Semifinal', 4: 'Quartas de final', 8:
 
 async function telaLista() {
   DET = null;
-  const lista = await api('/api/campeonatos');
+  const [lista, limites] = await Promise.all([api('/api/campeonatos'), api('/api/conta/limites')]);
+  const cheio = limites.usados >= limites.max_campeonatos;
   $('#app').innerHTML = `
     <div class="linha-flex" style="margin-bottom:14px">
       <h2 style="margin:0">Meus campeonatos</h2>
+      <span class="badge" title="Campeonatos usados / limite do seu plano">${limites.usados}/${limites.max_campeonatos}</span>
       <span class="espacador"></span>
-      <button class="botao" onclick="telaNovo()">+ Novo campeonato</button>
+      <button class="botao" onclick="${cheio ? 'avisoLimiteCampeonatos()' : 'telaNovo()'}">+ Novo campeonato</button>
     </div>
+    ${cheio ? `<div class="aviso erro" style="display:block;margin-bottom:12px">Sua conta atingiu o limite de ${limites.max_campeonatos} campeonatos simultâneos. Exclua um campeonato que já terminou ou fale com o suporte para ampliar seu plano.</div>` : ''}
     ${lista.length ? lista.map((c) => `
       <div class="card card-camp" onclick="telaCampeonato(${c.id})">
         <div class="linha-flex">
@@ -108,6 +111,10 @@ async function telaLista() {
       <a href="#" onclick="modalExcluirConta();return false">Excluir minha conta</a>
     </p>
   `;
+}
+
+function avisoLimiteCampeonatos() {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // LGPD: exclusao da propria conta e de todos os dados (art. 18).
@@ -1505,7 +1512,8 @@ async function telaMaster() {
             <strong>${esc(cta.nome)}</strong>
             ${cta.papel === 'master' ? '<span class="badge" style="background:#b45309;color:#fff">master</span>' : ''}
             ${cta.id === EU.id ? '<span class="badge">você</span>' : ''}
-            <div class="muted">${esc(cta.email)} • ${cta.n_campeonatos} campeonato(s) • desde ${esc((cta.criado_em ?? '').slice(0, 10))}</div>
+            <span class="badge">${esc(rotuloTipoConta(cta.tipo))}</span>
+            <div class="muted">${esc(cta.email)} • ${cta.n_campeonatos}/${cta.limite_campeonatos} campeonato(s) • desde ${esc((cta.criado_em ?? '').slice(0, 10))}</div>
           </div>
           <span class="espacador"></span>
           <button class="botao" onclick="entrarTenant(${cta.id})">Gerenciar ➜</button>
@@ -1536,23 +1544,50 @@ async function trocarTenant() {
 
 // ---------- manutencao de contas ----------
 
+// Rotulos e padroes dos tipos de conta (EF Gestao de Contas, RN-GC-01).
+const TIPOS_CONTA_UI = { padrao: ['Padrão', 3], premium: ['Premium', 10], premium_plus: ['Premium+', 30] };
+const rotuloTipoConta = (tipo) => TIPOS_CONTA_UI[tipo]?.[0] ?? 'Padrão';
+
 function modalEditarConta(contaId) {
   const cta = window._contasMaster.find((x) => x.id === contaId);
   abrirModal(`
     <h3>Editar conta</h3>
     <label>Nome</label><input type="text" id="cta-nome" value="${esc(cta.nome)}">
     <label>E-mail</label><input type="email" id="cta-email" value="${esc(cta.email)}">
-    <label>Papel</label>
-    <select id="cta-papel" ${cta.id === EU.id ? 'disabled title="Você não pode rebaixar a si mesmo"' : ''}>
-      <option value="organizador" ${cta.papel === 'organizador' ? 'selected' : ''}>Organizador</option>
-      <option value="master" ${cta.papel === 'master' ? 'selected' : ''}>Master</option>
-    </select>
+    <div class="grid-2">
+      <div><label>Papel</label>
+      <select id="cta-papel" ${cta.id === EU.id ? 'disabled title="Você não pode rebaixar a si mesmo"' : ''}>
+        <option value="organizador" ${cta.papel === 'organizador' ? 'selected' : ''}>Organizador</option>
+        <option value="master" ${cta.papel === 'master' ? 'selected' : ''}>Master</option>
+      </select></div>
+      <div><label>Tipo de conta</label>
+      <select id="cta-tipo">
+        ${Object.entries(TIPOS_CONTA_UI).map(([chave, [rotulo, n]]) =>
+          `<option value="${chave}" ${cta.tipo === chave ? 'selected' : ''}>${rotulo} (${n} campeonatos)</option>`).join('')}
+      </select></div>
+    </div>
+    <p class="muted" style="margin:8px 0 0">Limites personalizados (vazio = padrão do tipo/plataforma):</p>
+    <div class="grid-2">
+      <div><label>Campeonatos</label>
+        <input type="number" id="cta-max-campeonatos" min="1" value="${cta.max_campeonatos ?? ''}" placeholder="padrão do tipo"></div>
+      <div><label>Times por campeonato</label>
+        <input type="number" id="cta-max-times" min="1" value="${cta.max_times ?? ''}" placeholder="padrão: 48"></div>
+      <div><label>Jogadores por time</label>
+        <input type="number" id="cta-max-jogadores" min="1" value="${cta.max_jogadores_time ?? ''}" placeholder="padrão: 30"></div>
+    </div>
     <p><button class="botao" style="width:100%" onclick="salvarConta(${contaId})">Salvar</button></p>
   `);
 }
 async function salvarConta(contaId) {
   try {
-    const corpo = { nome: $('#cta-nome').value, email: $('#cta-email').value };
+    const corpo = {
+      nome: $('#cta-nome').value,
+      email: $('#cta-email').value,
+      tipo: $('#cta-tipo').value,
+      max_campeonatos: $('#cta-max-campeonatos').value || null,
+      max_times: $('#cta-max-times').value || null,
+      max_jogadores_time: $('#cta-max-jogadores').value || null,
+    };
     if (!$('#cta-papel').disabled) corpo.papel = $('#cta-papel').value;
     await api(`/api/master/contas/${contaId}`, 'PATCH', corpo);
     fecharModal(); telaMaster();

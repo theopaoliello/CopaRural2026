@@ -22,7 +22,11 @@ import {
 import { criarLimitador } from '../src/ratelimit.js';
 import { registrarResultado, apagarResultado } from '../src/jogos.js';
 import { matrizEntrosamento, sortearTimes } from '../src/sorteio.js';
-import { inserirLoteJogadores } from '../src/jogadores.js';
+import { inserirLoteJogadores, parsearLoteJogadores } from '../src/jogadores.js';
+import {
+  TIPOS_CONTA, limitesDaConta,
+  conferirLimiteTimes, conferirLimiteJogadoresTime, conferirLimiteJogadoresPelada,
+} from '../src/limites.js';
 import { parsearResultadoTexto } from '../src/resultado-texto.js';
 import { salvarImagem, apagarImagem } from '../src/uploads.js';
 import { dadosPublicos } from '../src/publico.js';
@@ -218,15 +222,19 @@ export function montarRotas(db, { limites = {} } = {}) {
 
   // Lista todas as contas com contagens, para o master escolher o tenant.
   rotas.get('/master/contas', logado, mestre, (req, res) => {
-    res.json(
-      db
-        .prepare(
-          `SELECT c.id, c.nome, c.email, c.papel, c.criado_em,
-             (SELECT COUNT(*) FROM campeonatos x WHERE x.conta_id = c.id) AS n_campeonatos
-           FROM contas c ORDER BY c.nome`,
-        )
-        .all(),
-    );
+    const contas = db
+      .prepare(
+        `SELECT c.id, c.nome, c.email, c.papel, c.criado_em,
+           c.tipo, c.max_campeonatos, c.max_times, c.max_jogadores_time,
+           (SELECT COUNT(*) FROM campeonatos x WHERE x.conta_id = c.id) AS n_campeonatos
+         FROM contas c ORDER BY c.nome`,
+      )
+      .all();
+    // limite efetivo de campeonatos (override > tipo), para o painel exibir N/L
+    res.json(contas.map((c) => ({
+      ...c,
+      limite_campeonatos: c.max_campeonatos ?? TIPOS_CONTA[c.tipo] ?? TIPOS_CONTA.padrao,
+    })));
   });
 
   // Passa a gerenciar o conteudo da conta escolhida (gravado na sessao).
@@ -251,12 +259,26 @@ export function montarRotas(db, { limites = {} } = {}) {
   // ---------- master: manutencao de contas ----------
 
   const contaAlvo = (id) => {
-    const alvo = db.prepare('SELECT id, nome, email, papel FROM contas WHERE id = ?').get(Number(id));
+    const alvo = db
+      .prepare(
+        `SELECT id, nome, email, papel, tipo, max_campeonatos, max_times, max_jogadores_time
+         FROM contas WHERE id = ?`,
+      )
+      .get(Number(id));
     if (!alvo) throw erroNaoEncontrado('Conta nao encontrada.');
     return alvo;
   };
 
-  // Editar nome, e-mail e papel (promover/rebaixar master).
+  // Override de limite vindo do painel: vazio/null limpa (volta ao padrao do
+  // tipo/global); senao inteiro >= 1 (RN-GC-10).
+  const validarOverride = (valor, campo) => {
+    if (valor == null || valor === '') return null;
+    const n = Number(valor);
+    if (!Number.isInteger(n) || n < 1) throw erroValidacao(`${campo} deve ser um numero inteiro maior que zero (ou vazio para usar o padrao).`);
+    return n;
+  };
+
+  // Editar nome, e-mail, papel (promover/rebaixar master), tipo e limites.
   rotas.patch('/master/contas/:id', logado, mestre, (req, res) => {
     const alvo = contaAlvo(req.params.id);
     const b = req.body ?? {};
@@ -277,7 +299,23 @@ export function montarRotas(db, { limites = {} } = {}) {
       }
       papel = b.papel;
     }
-    db.prepare('UPDATE contas SET nome = ?, email = ?, papel = ? WHERE id = ?').run(nome, email, papel, alvo.id);
+    // Gestao de Contas (RN-GC-01/04/05/10): tipo e overrides por conta.
+    let tipo = alvo.tipo;
+    if (b.tipo !== undefined) {
+      if (TIPOS_CONTA[b.tipo] == null) throw erroValidacao('Tipo de conta invalido.');
+      tipo = b.tipo;
+    }
+    const maxCampeonatos = b.max_campeonatos !== undefined
+      ? validarOverride(b.max_campeonatos, 'Limite de campeonatos') : alvo.max_campeonatos;
+    const maxTimes = b.max_times !== undefined
+      ? validarOverride(b.max_times, 'Limite de times') : alvo.max_times;
+    const maxJogadoresTime = b.max_jogadores_time !== undefined
+      ? validarOverride(b.max_jogadores_time, 'Limite de jogadores por time') : alvo.max_jogadores_time;
+
+    db.prepare(
+      `UPDATE contas SET nome = ?, email = ?, papel = ?, tipo = ?,
+         max_campeonatos = ?, max_times = ?, max_jogadores_time = ? WHERE id = ?`,
+    ).run(nome, email, papel, tipo, maxCampeonatos, maxTimes, maxJogadoresTime, alvo.id);
     res.json(contaAlvo(alvo.id));
   });
 
@@ -374,6 +412,17 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   // ---------- campeonatos (admin) ----------
+
+  // Consumo e tetos da conta efetiva (RN-GC-12): alimenta o contador "2/3"
+  // da tela Meus campeonatos. A fonte da verdade segue sendo a validacao
+  // do servidor na criacao.
+  rotas.get('/conta/limites', logado, (req, res) => {
+    const limites = limitesDaConta(db, req.conta.id);
+    const usados = db
+      .prepare('SELECT COUNT(*) AS n FROM campeonatos WHERE conta_id = ?')
+      .get(req.conta.id).n;
+    res.json({ ...limites, usados });
+  });
 
   rotas.get('/campeonatos', logado, (req, res) => {
     const lista = db
@@ -580,6 +629,10 @@ export function montarRotas(db, { limites = {} } = {}) {
     if (!nome) throw erroValidacao('Informe o nome do jogador.');
     const tipo = req.body?.tipo ?? 'fixo';
     if (!['fixo', 'suplente'].includes(tipo)) throw erroValidacao('Tipo de jogador invalido.');
+    // RN-GC-07: teto por campeonato na pelada (jogadores nao tem time fixo).
+    const existentes = db.prepare('SELECT COUNT(*) AS n FROM jogadores WHERE campeonato_id = ?').get(c.id).n;
+    const nTimes = db.prepare('SELECT COUNT(*) AS n FROM times WHERE campeonato_id = ?').get(c.id).n;
+    conferirLimiteJogadoresPelada(db, c.conta_id, existentes + 1, nTimes);
     const info = db
       .prepare('INSERT INTO jogadores (campeonato_id, nome, tipo, goleiro) VALUES (?, ?, ?, ?)')
       .run(c.id, nome, tipo, req.body?.goleiro ? 1 : 0);
@@ -603,6 +656,8 @@ export function montarRotas(db, { limites = {} } = {}) {
     }
     const nome = textoLimitado(req.body?.nome, 80, 'Nome do time');
     if (!nome) throw erroValidacao('Informe o nome do time.');
+    const existentes = db.prepare('SELECT COUNT(*) AS n FROM times WHERE campeonato_id = ?').get(c.id).n;
+    conferirLimiteTimes(db, c.conta_id, existentes + 1);
     const info = db
       .prepare('INSERT INTO times (campeonato_id, grupo_id, nome) VALUES (?, ?, ?)')
       .run(c.id, req.body?.grupo_id ?? null, nome);
@@ -633,10 +688,19 @@ export function montarRotas(db, { limites = {} } = {}) {
     res.json({ foto: caminho });
   });
 
+  // Limite de jogadores por time (RN-GC-06/08): sempre pela conta DONA do
+  // campeonato do time (nao por quem esta operando).
+  const conferirJogadoresDoTime = (time, adicionando) => {
+    const donaId = db.prepare('SELECT conta_id FROM campeonatos WHERE id = ?').get(time.campeonato_id).conta_id;
+    const existentes = db.prepare('SELECT COUNT(*) AS n FROM jogadores WHERE time_id = ?').get(time.id).n;
+    conferirLimiteJogadoresTime(db, donaId, existentes + adicionando);
+  };
+
   rotas.post('/times/:id/jogadores', logado, (req, res) => {
     const t = timeDaConta(db, req.conta.id, req.params.id);
     const nome = textoLimitado(req.body?.nome, 80, 'Nome do jogador');
     if (!nome) throw erroValidacao('Informe o nome do jogador.');
+    conferirJogadoresDoTime(t, 1);
     const numero = req.body?.numero != null && req.body.numero !== '' ? Number(req.body.numero) : null;
     const info = db
       .prepare('INSERT INTO jogadores (time_id, nome, numero) VALUES (?, ?, ?)')
@@ -649,6 +713,8 @@ export function montarRotas(db, { limites = {} } = {}) {
     const t = timeDaConta(db, req.conta.id, req.params.id);
     const texto = String(req.body?.texto ?? '');
     if (texto.length > 20_000) throw erroValidacao('Texto do lote muito longo (limite: 20 mil caracteres).');
+    // Tudo ou nada (RN-GC-06): valida o total resultante antes de inserir.
+    conferirJogadoresDoTime(t, parsearLoteJogadores(texto).length);
     res.status(201).json(inserirLoteJogadores(db, t.id, texto));
   });
 
