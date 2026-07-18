@@ -79,6 +79,13 @@ function fecharModal() { $('#modal-fundo').classList.remove('aberto'); }
 $('#modal-fundo').onclick = (e) => { if (e.target === $('#modal-fundo')) fecharModal(); };
 
 const nomeTime = (id) => DET?.times.find((t) => t.id === id)?.nome ?? 'A definir';
+// Data compacta (23/07 14:50) — evita que o placar agendado estoure a linha no celular.
+function formatarData(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) +
+    (iso.includes('T') ? ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '');
+}
 function escudoHtml(t) {
   if (t?.escudo) return `<img class="escudo" src="${esc(t.escudo)}" alt="">`;
   return `<span class="escudo-placeholder">${t ? esc(t.nome[0].toUpperCase()) : '?'}</span>`;
@@ -447,13 +454,13 @@ function linhaJogoAdmin(j) {
   const parciais = j.status === 'encerrado' ? parciaisTexto(j.id) : '';
   const placar = j.status === 'encerrado'
     ? `${j.gols_casa} x ${j.gols_fora}${parciais ? `<div class="muted" style="font-size:.68rem">(${parciais})</div>` : ''}`
-    : (j.data ? esc(j.data.replace('T', ' ')) : 'A definir');
+    : (j.data ? esc(formatarData(j.data)) : 'A definir');
   const prontos = j.time_casa_id && j.time_fora_id;
   return `<div class="jogo" style="cursor:default">
     <span class="mandante">${esc(casa?.nome ?? 'A definir')} ${escudoHtml(casa)}</span>
     <span class="placar ${j.status}">${placar}${j.penaltis_casa != null ? `<div class="muted" style="font-size:.68rem">(${j.penaltis_casa}x${j.penaltis_fora} pen)</div>` : ''}</span>
     <span class="visitante">${escudoHtml(fora)} ${esc(fora?.nome ?? 'A definir')}</span>
-    <span style="display:flex;gap:4px;flex-wrap:wrap">
+    <span class="acoes-jogo" style="display:flex;gap:4px;flex-wrap:wrap">
       ${prontos ? `<button class="botao mini" onclick="modalResultado(${j.id})">${j.status === 'encerrado' ? 'Corrigir' : 'Lançar resultado'}</button>` : ''}
       <button class="botao secundario mini" onclick="modalAgenda(${j.id})">Agenda</button>
       ${j.status === 'encerrado' ? `<button class="botao secundario mini" onclick="modalSumula(${j.id})">Súmula${j.sumula ? ' ✓' : ''}</button>

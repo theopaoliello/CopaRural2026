@@ -149,18 +149,25 @@ table.tabela { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
 
 /* lista de jogos */
 .jogo {
-  display: flex; align-items: center; gap: 8px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center; column-gap: 8px; row-gap: 8px;
   padding: 10px 6px; border-bottom: 1px solid var(--borda);
-  cursor: pointer; flex-wrap: wrap;
+  cursor: pointer;
 }
 .jogo:hover { background: var(--verde-bg); }
-.jogo .mandante, .jogo .visitante { flex: 1; display: flex; align-items: center; gap: 6px; min-width: 110px; }
+/* min-width:0 deixa a coluna encolher e o nome quebrar em vez de empurrar o placar. */
+.jogo .mandante, .jogo .visitante { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .jogo .mandante { justify-content: flex-end; text-align: right; }
+.jogo .visitante { justify-content: flex-start; text-align: left; }
 .jogo .placar {
-  min-width: 74px; text-align: center; font-weight: 800; font-size: 1.05rem;
+  min-width: 74px; max-width: 46vw; text-align: center; font-weight: 800; font-size: 1.05rem;
   background: var(--verde-bg); border-radius: 8px; padding: 4px 8px;
+  overflow-wrap: anywhere;
 }
 .jogo .placar.agendado { background: #eef2f7; color: var(--cinza); font-size: 0.8rem; font-weight: 600; }
+/* No admin, a linha de botões ocupa a largura toda, abaixo do trio nome-placar-nome. */
+.jogo .acoes-jogo { grid-column: 1 / -1; }
 .rotulo-rodada { font-weight: 800; color: var(--verde); margin: 14px 0 4px; font-size: 0.95rem; }
 
 /* abas */
