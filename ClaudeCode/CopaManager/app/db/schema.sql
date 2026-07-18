@@ -43,6 +43,20 @@ CREATE TABLE IF NOT EXISTS verificacoes_email (
 
 CREATE INDEX IF NOT EXISTS idx_verificacoes_conta ON verificacoes_email(conta_id);
 
+-- Tokens de "esqueci minha senha" (EF Gestao de Contas). Espelho estrutural da
+-- verificacao de e-mail: guardamos so o hash (sha-256), validade curta (1h) e
+-- uso unico. Um vazamento do banco nao permite redefinir senhas alheias.
+CREATE TABLE IF NOT EXISTS recuperacoes_senha (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conta_id INTEGER NOT NULL REFERENCES contas(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expira_em TEXT NOT NULL,
+  usado_em TEXT,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_recuperacoes_conta ON recuperacoes_senha(conta_id);
+
 CREATE TABLE IF NOT EXISTS sessoes (
   token TEXT PRIMARY KEY,
   conta_id INTEGER NOT NULL REFERENCES contas(id) ON DELETE CASCADE,

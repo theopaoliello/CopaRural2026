@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Redefinir senha — Copa Manager</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta name="theme-color" content="#B8912F">
+<link rel="stylesheet" href="/estilo.css">
+</head>
+<body>
+<header class="topo">
+  <span class="marca"><a href="/"><img src="/img/marca-branca.png" alt=""> Copa Manager</a></span>
+</header>
+
+<div class="conteudo" style="max-width:460px;margin:40px auto">
+  <div class="card">
+    <div style="text-align:center">
+      <img src="/img/logo.png" alt="Copa Manager" style="width:140px;max-width:50vw">
+    </div>
+    <div id="estado">
+      <h2 style="text-align:center">Criar nova senha</h2>
+      <div id="aviso" class="aviso"></div>
+      <form id="form-redefinir">
+        <label>Nova senha (mínimo 6 caracteres)</label>
+        <input type="password" name="senha" required minlength="6" autocomplete="new-password">
+        <label>Repita a nova senha</label>
+        <input type="password" name="senha2" required minlength="6" autocomplete="new-password">
+        <p><button class="botao" type="submit" style="width:100%">Salvar nova senha</button></p>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+// A redefinicao e um POST disparado por esta pagina (e nao um GET no link):
+// robos de antivirus que "clicam" nos links do e-mail nao consomem o token.
+const estado = document.getElementById('estado');
+const token = new URLSearchParams(location.search).get('token');
+
+if (!token) {
+  estado.innerHTML = '<h2>Link incompleto</h2><p class="muted">Abra o link exatamente como veio no e-mail.</p>';
+} else {
+  document.getElementById('form-redefinir').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const aviso = document.getElementById('aviso');
+    const f = new FormData(e.target);
+    const senha = f.get('senha');
+    aviso.className = 'aviso';
+    if (senha !== f.get('senha2')) {
+      aviso.textContent = 'As senhas não coincidem.';
+      aviso.className = 'aviso erro';
+      return;
+    }
+    try {
+      const resp = await fetch('/api/auth/redefinir-senha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, senha }),
+      });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(corpo.mensagem || 'Não foi possível redefinir a senha.');
+      estado.innerHTML = '<h2>✅ Senha redefinida!</h2>' +
+        '<p>Pronto, <strong></strong>! Levando você para o painel…</p>';
+      estado.querySelector('strong').textContent = corpo.nome ?? '';
+      setTimeout(() => { location.href = '/admin'; }, 1600);
+    } catch (err) {
+      aviso.textContent = err.message + ' Você pode pedir um novo link na tela de login.';
+      aviso.className = 'aviso erro';
+    }
+  });
+}
+</script>
+</body>
+</html>

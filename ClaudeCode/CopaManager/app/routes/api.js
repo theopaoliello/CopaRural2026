@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import {
   registrarConta, autenticar, criarSessao, encerrarSessao, hashSenha, conferirSenha,
   criarTokenVerificacao, confirmarEmail, contaViaGoogle,
+  criarTokenRecuperacao, redefinirSenha,
   lerCookie, cookieDeSessao, cookieDeSaida, exigirLogin, NOME_COOKIE,
 } from '../src/auth.js';
 import { enviarEmail } from '../src/email.js';
@@ -66,6 +67,10 @@ export function montarRotas(db, { limites = {} } = {}) {
   const limiteReenvio = criarLimitador({ max: 5, janelaMs: 15 * 60_000, ...limites.reenvio });
   // Confirmacao tem limitador proprio: e a superficie de adivinhacao de token.
   const limiteConfirmacao = criarLimitador({ max: 10, janelaMs: 10 * 60_000, ...limites.confirmacao });
+  // Esqueci minha senha: pedido (envio de e-mail) e redefinicao (adivinhacao de
+  // token) tem orcamentos separados por IP (RN-ES-01).
+  const limiteRecuperacao = criarLimitador({ max: 5, janelaMs: 15 * 60_000, ...limites.recuperacao });
+  const limiteRedefinicao = criarLimitador({ max: 10, janelaMs: 10 * 60_000, ...limites.redefinicao });
 
   // Base dos links enviados por e-mail e do redirect do Google. Em producao,
   // defina URL_PUBLICA=https://copamanager.com.br; sem ela, usa o host da requisicao.
@@ -124,6 +129,63 @@ export function montarRotas(db, { limites = {} } = {}) {
       .get(email);
     if (conta) await enviarEmailVerificacao(req, conta);
     res.json({ ok: true });
+  });
+
+  // ---------- esqueci minha senha ----------
+
+  async function enviarEmailRecuperacao(req, conta) {
+    const token = criarTokenRecuperacao(db, conta.id);
+    const link = `${urlBase(req)}/redefinir.html?token=${token}`;
+    await enviarEmail({
+      para: conta.email,
+      assunto: 'Redefinir sua senha — Copa Manager',
+      texto:
+        `Olá, ${conta.nome}!\n\nRecebemos um pedido para redefinir a senha da sua conta no Copa Manager. ` +
+        `Crie uma nova senha por aqui:\n${link}\n\n` +
+        'O link vale por 1 hora e só pode ser usado uma vez. Se você não pediu isso, ignore este e-mail — sua senha continua a mesma.',
+      html:
+        `<p>Olá, <strong>${conta.nome}</strong>!</p>` +
+        '<p>Recebemos um pedido para redefinir a senha da sua conta no Copa Manager.</p>' +
+        `<p><a href="${link}" style="background:#0b5c3f;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none">Criar nova senha</a></p>` +
+        `<p>Ou copie este endereço no navegador:<br>${link}</p>` +
+        '<p style="color:#777">O link vale por 1 hora e só pode ser usado uma vez. Se você não pediu isso, ignore este e-mail — sua senha continua a mesma.</p>',
+    });
+  }
+
+  // Conta que so usa o Google (sem senha local): e-mail informativo, sem token.
+  async function enviarEmailSenhaGoogle(conta) {
+    await enviarEmail({
+      para: conta.email,
+      assunto: 'Redefinir sua senha — Copa Manager',
+      texto:
+        `Olá, ${conta.nome}!\n\nVocê pediu para redefinir a senha, mas sua conta no Copa Manager usa o ` +
+        'Login com Google — ela não tem uma senha para trocar. Para entrar, use o botão "Entrar com Google" na tela de login.\n\n' +
+        'Se você não pediu isso, pode ignorar este e-mail.',
+      html:
+        `<p>Olá, <strong>${conta.nome}</strong>!</p>` +
+        '<p>Você pediu para redefinir a senha, mas sua conta no Copa Manager usa o <strong>Login com Google</strong> — ' +
+        'ela não tem uma senha para trocar. Para entrar, use o botão "Entrar com Google" na tela de login.</p>' +
+        '<p style="color:#777">Se você não pediu isso, pode ignorar este e-mail.</p>',
+    });
+  }
+
+  // Resposta unica com ou sem conta (RN-ES-01/07): nao revela quais e-mails
+  // existem. Conta com senha recebe o link; conta so-Google recebe informativo.
+  rotas.post('/auth/esqueci-senha', limiteRecuperacao.middleware, async (req, res) => {
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    const conta = db.prepare('SELECT id, nome, email, senha_hash FROM contas WHERE email = ?').get(email);
+    if (conta) {
+      if (conta.senha_hash.includes(':')) await enviarEmailRecuperacao(req, conta);
+      else await enviarEmailSenhaGoogle(conta);
+    }
+    res.json({ ok: true });
+  });
+
+  // Consome o token, grava a senha nova e ja abre uma sessao (RN-ES-05).
+  rotas.post('/auth/redefinir-senha', limiteRedefinicao.middleware, (req, res) => {
+    const conta = redefinirSenha(db, req.body?.token, req.body?.senha);
+    res.append('Set-Cookie', cookieDeSessao(criarSessao(db, conta.id)));
+    res.json({ ok: true, nome: conta.nome });
   });
 
   // ---------- login com Google (Authorization Code, server-side) ----------

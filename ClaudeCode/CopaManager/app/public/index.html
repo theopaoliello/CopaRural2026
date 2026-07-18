@@ -44,6 +44,16 @@
       <label>Senha</label>
       <input type="password" name="senha" required autocomplete="current-password">
       <p><button class="botao" type="submit" style="width:100%">Entrar</button></p>
+      <p style="text-align:center;margin-top:-4px"><a href="#" id="link-esqueci" class="muted">Esqueci minha senha</a></p>
+    </form>
+
+    <form id="form-esqueci" style="display:none">
+      <h3 style="text-align:center;margin-top:0">Recuperar acesso</h3>
+      <p class="muted">Informe o e-mail da sua conta. Se houver cadastro, enviaremos um link para você criar uma nova senha.</p>
+      <label>E-mail</label>
+      <input type="email" name="email" required autocomplete="email">
+      <p><button class="botao" type="submit" style="width:100%">Enviar link de redefinição</button></p>
+      <p style="text-align:center"><a href="#" id="link-voltar-login" class="muted">Voltar para o login</a></p>
     </form>
 
     <form id="form-registro" style="display:none">
@@ -93,9 +103,24 @@ document.querySelectorAll('.aba').forEach((aba) => {
     aba.classList.add('ativa');
     document.getElementById('form-login').style.display = aba.dataset.form === 'login' ? '' : 'none';
     document.getElementById('form-registro').style.display = aba.dataset.form === 'registro' ? '' : 'none';
+    document.getElementById('form-esqueci').style.display = 'none';
     aviso.className = 'aviso';
   };
 });
+
+// "Esqueci minha senha": troca o form de login pelo de recuperacao (e volta).
+document.getElementById('link-esqueci').onclick = (e) => {
+  e.preventDefault();
+  document.getElementById('form-login').style.display = 'none';
+  document.getElementById('form-registro').style.display = 'none';
+  document.querySelectorAll('.aba').forEach((a) => a.classList.remove('ativa'));
+  document.getElementById('form-esqueci').style.display = '';
+  aviso.className = 'aviso';
+};
+document.getElementById('link-voltar-login').onclick = (e) => {
+  e.preventDefault();
+  document.querySelector('.aba[data-form="login"]').click();
+};
 
 let emailPendente = ''; // ultimo e-mail aguardando confirmacao (para reenviar)
 
@@ -145,6 +170,16 @@ document.getElementById('btn-reenviar').onclick = async () => {
   const { resp } = await chamar('/api/auth/reenviar-verificacao', { email: emailPendente });
   aviso.textContent = resp.ok
     ? 'Se este e-mail tiver cadastro pendente, um novo link foi enviado.'
+    : 'Muitas tentativas. Aguarde alguns minutos e tente de novo.';
+  aviso.className = resp.ok ? 'aviso ok' : 'aviso erro';
+};
+
+document.getElementById('form-esqueci').onsubmit = async (e) => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const { resp } = await chamar('/api/auth/esqueci-senha', { email: f.get('email') });
+  aviso.textContent = resp.ok
+    ? 'Se este e-mail tiver conta, enviamos um link para redefinir a senha. Verifique sua caixa de entrada (e o spam).'
     : 'Muitas tentativas. Aguarde alguns minutos e tente de novo.';
   aviso.className = resp.ok ? 'aviso ok' : 'aviso erro';
 };

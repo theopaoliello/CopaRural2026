@@ -36,6 +36,7 @@ function montarApp() {
     limites: {
       login: { max: 1000 }, registro: { max: 1000 },
       confirmacao: { max: 1000 }, reenvio: { max: 1000 },
+      recuperacao: { max: 1000 }, redefinicao: { max: 1000 },
     },
   }));
   app.use((err, req, res, _next) => {
@@ -881,6 +882,82 @@ test('token de verificacao expirado e recusado', async () => {
   const r = await c('POST', '/api/auth/confirmar-email', { token });
   assert.equal(r.status, 400);
   assert.match(r.corpo.mensagem, /expirou/);
+});
+
+test('esqueci minha senha: redefine, abre sessao, derruba as antigas e troca a senha', async () => {
+  const c = cliente();
+  const conta = await registrarEntrar(c, { nome: 'Reset', email: 'reset@teste.com', senha: 'senhavelha1' });
+  // a sessao de c esta ativa (fluxo real: pessoa logada que esqueceu a senha depois)
+  assert.equal((await c('GET', '/api/campeonatos')).status, 200);
+
+  // pedido: resposta unica e link de redefinicao no e-mail (RN-ES-01/03)
+  assert.equal((await c('POST', '/api/auth/esqueci-senha', { email: 'reset@teste.com' })).status, 200);
+  const emailReset = [...emails].reverse().find((e) => e.para === 'reset@teste.com');
+  assert.match(emailReset.texto, /redefinir\.html\?token=/);
+  const token = emailReset.texto.match(/token=([0-9a-f]+)/)[1];
+
+  // redefinir num cliente novo: cai logado (RN-ES-05)
+  const c2 = cliente();
+  const red = await c2('POST', '/api/auth/redefinir-senha', { token, senha: 'senhanova1' });
+  assert.equal(red.status, 200, JSON.stringify(red.corpo));
+  assert.equal(red.corpo.nome, conta.nome);
+  assert.equal((await c2('GET', '/api/campeonatos')).status, 200);
+
+  // a sessao antiga de c foi derrubada (RN-ES-05)
+  assert.equal((await c('GET', '/api/campeonatos')).status, 401);
+
+  // token de uso unico; a senha antiga nao entra mais, a nova entra
+  assert.equal((await c2('POST', '/api/auth/redefinir-senha', { token, senha: 'outra12345' })).status, 400);
+  assert.equal(
+    (await cliente()('POST', '/api/auth/login', { email: 'reset@teste.com', senha: 'senhavelha1' })).status, 401);
+  assert.equal(
+    (await cliente()('POST', '/api/auth/login', { email: 'reset@teste.com', senha: 'senhanova1' })).status, 200);
+});
+
+test('esqueci senha: anti-enumeracao, novo pedido invalida o anterior e senha fraca nao queima o token', async () => {
+  const c = cliente();
+  await registrarEntrar(c, { nome: 'R2', email: 'reset2@teste.com', senha: 'senhavelha1' });
+
+  // e-mail sem conta: mesma resposta e nenhum envio (RN-ES-07)
+  const antes = emails.length;
+  assert.equal((await c('POST', '/api/auth/esqueci-senha', { email: 'ninguem@teste.com' })).status, 200);
+  assert.equal(emails.length, antes);
+
+  // novo pedido invalida o token anterior (RN-ES-02)
+  await c('POST', '/api/auth/esqueci-senha', { email: 'reset2@teste.com' });
+  const token1 = [...emails].reverse().find((e) => e.para === 'reset2@teste.com').texto.match(/token=([0-9a-f]+)/)[1];
+  await c('POST', '/api/auth/esqueci-senha', { email: 'reset2@teste.com' });
+  const token2 = [...emails].reverse().find((e) => e.para === 'reset2@teste.com').texto.match(/token=([0-9a-f]+)/)[1];
+  assert.ok(token2 && token2 !== token1, 'novo token gerado');
+  assert.equal((await c('POST', '/api/auth/redefinir-senha', { token: token1, senha: 'senhanova1' })).status, 400);
+
+  // senha fraca (< 6) e recusada sem consumir o token (RN-ES-04)
+  assert.equal((await c('POST', '/api/auth/redefinir-senha', { token: token2, senha: '123' })).status, 400);
+  assert.equal((await c('POST', '/api/auth/redefinir-senha', { token: token2, senha: 'senhanova1' })).status, 200);
+});
+
+test('esqueci senha: token expirado e recusado; conta so-Google recebe informativo sem token', async () => {
+  const c = cliente();
+  await registrarEntrar(c, { nome: 'R3', email: 'reset3@teste.com', senha: 'senhavelha1' });
+  await c('POST', '/api/auth/esqueci-senha', { email: 'reset3@teste.com' });
+  const token = [...emails].reverse().find((e) => e.para === 'reset3@teste.com').texto.match(/token=([0-9a-f]+)/)[1];
+  bancoTeste
+    .prepare(
+      `UPDATE recuperacoes_senha SET expira_em = '2000-01-01T00:00:00.000Z'
+       WHERE conta_id = (SELECT id FROM contas WHERE email = 'reset3@teste.com')`,
+    )
+    .run();
+  const exp = await c('POST', '/api/auth/redefinir-senha', { token, senha: 'senhanova1' });
+  assert.equal(exp.status, 400);
+  assert.match(exp.corpo.mensagem, /expirou/);
+
+  // conta so-Google: e-mail informativo, nenhum token gerado (RN-ES-06)
+  const g = contaViaGoogle(bancoTeste, { sub: 'g-reset', email: 'greset@teste.com', nome: 'G Reset', emailVerificado: true });
+  assert.equal((await c('POST', '/api/auth/esqueci-senha', { email: 'greset@teste.com' })).status, 200);
+  const emailG = [...emails].reverse().find((e) => e.para === 'greset@teste.com');
+  assert.match(emailG.texto, /Login com Google/);
+  assert.doesNotMatch(emailG.texto, /redefinir\.html/);
+  assert.equal(bancoTeste.prepare('SELECT COUNT(*) n FROM recuperacoes_senha WHERE conta_id = ?').get(g.id).n, 0);
 });
 
 test('login com Google: cria conta, vincula por e-mail e exige e-mail verificado no Google', async () => {

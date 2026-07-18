@@ -20,6 +20,14 @@ export function conferirSenha(senha, senhaHash) {
   return calculado.length === esperado.length && timingSafeEqual(calculado, esperado);
 }
 
+// Regras de senha compartilhadas pelo registro e pela redefinicao (RN-ES-04).
+export function validarSenha(senha) {
+  senha = String(senha ?? '');
+  if (senha.length < 6) throw erroValidacao('A senha deve ter pelo menos 6 caracteres.');
+  if (senha.length > 200) throw erroValidacao('A senha deve ter no maximo 200 caracteres.');
+  return senha;
+}
+
 // ---------- contas ----------
 
 export function registrarConta(db, { nome, email, senha, consentimento }) {
@@ -29,8 +37,7 @@ export function registrarConta(db, { nome, email, senha, consentimento }) {
   if (!nome) throw erroValidacao('Informe seu nome.');
   if (nome.length > 80) throw erroValidacao('Nome muito longo (limite: 80 caracteres).');
   if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw erroValidacao('E-mail invalido.');
-  if (senha.length < 6) throw erroValidacao('A senha deve ter pelo menos 6 caracteres.');
-  if (senha.length > 200) throw erroValidacao('A senha deve ter no maximo 200 caracteres.');
+  validarSenha(senha);
   // LGPD: o aceite e explicito e fica registrado com data (consentimento_em).
   if (consentimento !== true) throw erroValidacao('E preciso aceitar a Politica de Privacidade para criar a conta.');
   const existente = db.prepare('SELECT id FROM contas WHERE email = ?').get(email);
@@ -88,6 +95,42 @@ export function confirmarEmail(db, token) {
   db.prepare('UPDATE verificacoes_email SET usado_em = ? WHERE id = ?').run(new Date().toISOString(), v.id);
   db.prepare('UPDATE contas SET email_verificado = 1 WHERE id = ?').run(v.conta_id);
   return db.prepare('SELECT id, nome, email FROM contas WHERE id = ?').get(v.conta_id);
+}
+
+// ---------- recuperacao de senha (esqueci minha senha) ----------
+
+const HORAS_TOKEN_RECUPERACAO = 1;
+
+// Gera um token novo de redefinicao (e invalida os pendentes da conta). So o
+// HASH vai para o banco: um vazamento nao permite redefinir senhas alheias.
+export function criarTokenRecuperacao(db, contaId) {
+  db.prepare('DELETE FROM recuperacoes_senha WHERE conta_id = ? AND usado_em IS NULL').run(contaId);
+  const token = randomBytes(32).toString('hex');
+  const expira = new Date(Date.now() + HORAS_TOKEN_RECUPERACAO * 3600_000).toISOString();
+  db.prepare('INSERT INTO recuperacoes_senha (conta_id, token_hash, expira_em) VALUES (?, ?, ?)').run(
+    contaId,
+    hashDeToken(token),
+    expira,
+  );
+  return token;
+}
+
+// Consome o token, grava a senha nova e derruba TODAS as sessoes da conta
+// (RN-ES-05). Valida a senha ANTES de marcar o token como usado, para uma senha
+// fraca nao queimar o link. Retorna a conta para a rota abrir uma sessao nova.
+export function redefinirSenha(db, token, novaSenha) {
+  const r = db.prepare('SELECT * FROM recuperacoes_senha WHERE token_hash = ?').get(hashDeToken(token));
+  if (!r || r.usado_em) {
+    throw erroValidacao('Link de redefinicao invalido ou ja usado. Peca um novo.');
+  }
+  if (new Date(r.expira_em).getTime() < Date.now()) {
+    throw erroValidacao('Este link expirou. Peca um novo na tela de login.');
+  }
+  const senha = validarSenha(novaSenha);
+  db.prepare('UPDATE recuperacoes_senha SET usado_em = ? WHERE id = ?').run(new Date().toISOString(), r.id);
+  db.prepare('UPDATE contas SET senha_hash = ? WHERE id = ?').run(hashSenha(senha), r.conta_id);
+  db.prepare('DELETE FROM sessoes WHERE conta_id = ?').run(r.conta_id);
+  return db.prepare('SELECT id, nome, email FROM contas WHERE id = ?').get(r.conta_id);
 }
 
 // ---------- login com Google ----------
