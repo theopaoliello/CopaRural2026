@@ -645,11 +645,13 @@ function abaJogadoresPelada() {
   const grupo = (titulo, lista) => `
     <h3>${titulo} <span class="badge">${lista.length}</span></h3>
     ${lista.length ? lista.map((x) => `
-      <div class="linha-flex" style="margin:4px 0;${x.ativo ? '' : 'opacity:.5'}">
-        <span style="flex:1">${esc(x.nome)}${x.goleiro ? ' <span class="badge">G</span>' : ''}${x.ativo ? '' : ' <span class="muted">(inativo)</span>'}</span>
-        <button class="botao secundario mini" onclick="editarJogadorPelada(${x.id}, { goleiro: ${x.goleiro ? 'false' : 'true'} })">${x.goleiro ? 'Tirar G' : 'Marcar G'}</button>
-        <button class="botao secundario mini" onclick="editarJogadorPelada(${x.id}, { tipo: '${x.tipo === 'fixo' ? 'suplente' : 'fixo'}' })">${x.tipo === 'fixo' ? 'Tornar suplente' : 'Promover a fixo'}</button>
-        <button class="botao ${x.ativo ? 'perigo' : ''} mini" onclick="editarJogadorPelada(${x.id}, { ativo: ${x.ativo ? 'false' : 'true'} })">${x.ativo ? 'Inativar' : 'Reativar'}</button>
+      <div class="jogador-pelada" style="${x.ativo ? '' : 'opacity:.5'}">
+        <span class="nome">${esc(x.nome)}${x.goleiro ? ' <span class="badge">G</span>' : ''}${x.ativo ? '' : ' <span class="muted">(inativo)</span>'}</span>
+        <div class="acoes">
+          <button class="botao secundario mini" onclick="editarJogadorPelada(${x.id}, { goleiro: ${x.goleiro ? 'false' : 'true'} })">${x.goleiro ? 'Tirar G' : 'Marcar G'}</button>
+          <button class="botao secundario mini" onclick="editarJogadorPelada(${x.id}, { tipo: '${x.tipo === 'fixo' ? 'suplente' : 'fixo'}' })">${x.tipo === 'fixo' ? 'Tornar suplente' : 'Promover a fixo'}</button>
+          <button class="botao ${x.ativo ? 'perigo' : ''} mini" onclick="editarJogadorPelada(${x.id}, { ativo: ${x.ativo ? 'false' : 'true'} })">${x.ativo ? 'Inativar' : 'Reativar'}</button>
+        </div>
       </div>`).join('') : '<p class="muted">Ninguém aqui ainda.</p>'}`;
   $('#painel').innerHTML = `
     <div class="card">

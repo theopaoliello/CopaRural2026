@@ -115,6 +115,17 @@ table.tabela { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
 .legenda-zonas { font-size: 0.82rem; color: var(--cinza); margin: 6px 2px 0; }
 .badge.repescado { background: #fef3c7; color: #92400e; }
 
+/* gestao de jogadores da pelada: nome + acoes. No mobile, quando o nome nao
+   deixa espaco, o GRUPO de botoes desce inteiro para a linha de baixo (em vez
+   de quebrar botao a botao, que deixava o layout torto). */
+.jogador-pelada {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 2px; border-bottom: 1px solid var(--borda);
+}
+.jogador-pelada:last-child { border-bottom: none; }
+.jogador-pelada .nome { flex: 1 1 140px; font-weight: 600; overflow-wrap: anywhere; }
+.jogador-pelada .acoes { display: flex; gap: 6px; flex-wrap: wrap; }
+
 /* sorteio da pelada: presenca do dia e matriz de entrosamento */
 .grade-presenca { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 2px 10px; margin: 6px 0 12px; }
 .matriz-entrosamento td, .matriz-entrosamento th { padding: 5px 7px; font-size: 0.82rem; }
