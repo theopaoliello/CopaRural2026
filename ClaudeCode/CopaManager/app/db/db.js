@@ -67,6 +67,13 @@ function migrarColunas(db) {
   addSeFaltar('contas', 'max_campeonatos INTEGER');
   addSeFaltar('contas', 'max_times INTEGER');
   addSeFaltar('contas', 'max_jogadores_time INTEGER');
+  // Gestao de Contas (fase 3): secao Banners liberada por conta. Contas novas
+  // nascem 0 (DEFAULT); contas que ja existiam recebem 1 (grandfather, RN-BA-02).
+  const tinhaBanners = colunaExiste(db, 'contas', 'banners_liberados');
+  addSeFaltar('contas', 'banners_liberados INTEGER NOT NULL DEFAULT 0');
+  if (tabelaExiste(db, 'contas') && !tinhaBanners) {
+    db.exec('UPDATE contas SET banners_liberados = 1');
+  }
 }
 
 // Bancos criados antes dos tipos 'gol_contra' (2026-07) ou 'pontos'/'valor'

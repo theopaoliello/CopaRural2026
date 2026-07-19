@@ -54,8 +54,11 @@ function bolinhas(ultimos) {
 }
 
 function bannersHtml() {
-  if (!D.banners.length) return '';
-  const itens = D.banners.map((b) => {
+  // Banner Especial (globais do master) vem antes dos banners do campeonato,
+  // no mesmo bloco "Apoio". O servidor so os envia em contas Padrão (RN-BE-02).
+  const todos = [...(D.banners_globais ?? []), ...D.banners];
+  if (!todos.length) return '';
+  const itens = todos.map((b) => {
     const img = `<img src="${esc(b.imagem)}" alt="Anúncio">`;
     return b.link ? `<a href="${esc(b.link)}" target="_blank" rel="noopener sponsored">${img}</a>` : img;
   }).join('');

@@ -236,7 +236,8 @@ test('isolamento multi-tenant: conta B nao ve nem altera dados da conta A', asyn
 
 test('banners: limite de 5 por campeonato', async () => {
   const c = cliente();
-  await registrarEntrar(c, { nome: 'Ban', email: 'ban@teste.com', senha: 'segredo1' });
+  const conta = await registrarEntrar(c, { nome: 'Ban', email: 'ban@teste.com', senha: 'segredo1' });
+  bancoTeste.prepare('UPDATE contas SET banners_liberados = 1 WHERE id = ?').run(conta.id); // recurso liberado
   const criado = await c('POST', '/api/campeonatos', {
     nome: 'Banners FC', formato: 'pontos', times: ['A', 'B'],
   });
@@ -248,6 +249,79 @@ test('banners: limite de 5 por campeonato', async () => {
   }
   const sexto = await c('POST', `/api/campeonatos/${criado.corpo.id}/banners`, { imagem: png });
   assert.equal(sexto.status, 409);
+});
+
+const PNG_1PX = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+test('banners gated (RN-BA): conta nova bloqueada, master libera, revogar preserva os publicos', async () => {
+  const c = cliente();
+  const conta = await registrarEntrar(c, { nome: 'Sem Banner', email: 'semban@teste.com', senha: 'segredo1' });
+  const criado = await c('POST', '/api/campeonatos', { nome: 'Gated FC', formato: 'pontos', times: ['A', 'B'] });
+  const campId = criado.corpo.id;
+  const slug = (await c('GET', `/api/campeonatos/${campId}`)).corpo.campeonato.slug;
+
+  // conta nova nasce com a secao desligada: 403 e flag 0 no payload (aba oculta)
+  assert.equal((await c('POST', `/api/campeonatos/${campId}/banners`, { imagem: PNG_1PX })).status, 403);
+  assert.equal((await c('GET', `/api/campeonatos/${campId}`)).corpo.banners_liberados, 0);
+
+  // master promovido libera a flag da conta
+  const master = cliente();
+  await registrarEntrar(master, { nome: 'M Ban', email: 'mban@teste.com', senha: 'segredo1' });
+  bancoTeste.prepare("UPDATE contas SET papel = 'master' WHERE email = 'mban@teste.com'").run();
+  assert.equal((await master('PATCH', `/api/master/contas/${conta.id}`, { banners_liberados: true })).status, 200);
+
+  // agora o organizador cria o banner e ele aparece na publica
+  const add = await c('POST', `/api/campeonatos/${campId}/banners`, { imagem: PNG_1PX, link: 'https://x.com' });
+  assert.equal(add.status, 201);
+  assert.equal((await c('GET', `/api/campeonatos/${campId}`)).corpo.banners_liberados, 1);
+  assert.equal((await c('GET', `/api/publico/${slug}`)).corpo.banners.length, 1);
+
+  // revogar: o banner ja publicado CONTINUA na publica; a gestao fica bloqueada (RN-BA-04)
+  await master('PATCH', `/api/master/contas/${conta.id}`, { banners_liberados: false });
+  assert.equal((await c('GET', `/api/publico/${slug}`)).corpo.banners.length, 1);
+  assert.equal((await c('POST', `/api/campeonatos/${campId}/banners`, { imagem: PNG_1PX })).status, 403);
+  assert.equal((await c('DELETE', `/api/banners/${add.corpo.id}`)).status, 403);
+
+  // o master (modo tenant) remove mesmo com a flag off (RN-BA-04)
+  await master('POST', '/api/master/entrar', { conta_id: conta.id });
+  assert.equal((await master('DELETE', `/api/banners/${add.corpo.id}`)).status, 200);
+  await master('POST', '/api/master/voltar');
+});
+
+test('banner especial (RN-BE): master gerencia ate 3 globais; so aparecem em contas Padrao', async () => {
+  const org = cliente();
+  const contaOrg = await registrarEntrar(org, { nome: 'Org BE', email: 'orgbe@teste.com', senha: 'segredo1' });
+  const camp = await org('POST', '/api/campeonatos', { nome: 'BE FC', formato: 'pontos', times: ['A', 'B'] });
+  const slug = (await org('GET', `/api/campeonatos/${camp.corpo.id}`)).corpo.campeonato.slug;
+
+  // sem banners globais ainda; nao-master nao acessa a gestao
+  assert.deepEqual((await org('GET', `/api/publico/${slug}`)).corpo.banners_globais, []);
+  assert.equal((await org('GET', '/api/master/banners-globais')).status, 403);
+  assert.equal((await org('POST', '/api/master/banners-globais', { imagem: PNG_1PX })).status, 403);
+
+  // master cria 3; o 4o e recusado (RN-BE-01)
+  const master = cliente();
+  await registrarEntrar(master, { nome: 'M BE', email: 'mbe@teste.com', senha: 'segredo1' });
+  bancoTeste.prepare("UPDATE contas SET papel = 'master' WHERE email = 'mbe@teste.com'").run();
+  const b1 = await master('POST', '/api/master/banners-globais', { imagem: PNG_1PX, link: 'https://a.com' });
+  assert.equal(b1.status, 201);
+  assert.equal((await master('POST', '/api/master/banners-globais', { imagem: PNG_1PX })).status, 201);
+  assert.equal((await master('POST', '/api/master/banners-globais', { imagem: PNG_1PX })).status, 201);
+  assert.equal((await master('POST', '/api/master/banners-globais', { imagem: PNG_1PX })).status, 409);
+
+  // conta Padrao ve os 3 na publica, acima dos do campeonato
+  assert.equal((await org('GET', `/api/publico/${slug}`)).corpo.banners_globais.length, 3);
+
+  // desativar um: some da publica (RN-BE-03)
+  await master('PATCH', `/api/master/banners-globais/${b1.corpo.id}`, { ativo: false });
+  assert.equal((await org('GET', `/api/publico/${slug}`)).corpo.banners_globais.length, 2);
+
+  // conta Premium NAO exibe o Banner Especial (RN-BE-02) — gate no tipo atual
+  bancoTeste.prepare('UPDATE contas SET tipo = ? WHERE id = ?').run('premium', contaOrg.id);
+  assert.deepEqual((await org('GET', `/api/publico/${slug}`)).corpo.banners_globais, []);
+
+  // remover um banner global
+  assert.equal((await master('DELETE', `/api/master/banners-globais/${b1.corpo.id}`)).status, 200);
 });
 
 test('mata-mata: progressao automatica do vencedor ate o campeao', async () => {

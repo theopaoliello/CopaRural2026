@@ -420,6 +420,8 @@ async function telaCampeonato(id, aba = abaAtual) {
   DET = await api(`/api/campeonatos/${id}`);
   // Preset do esporte do campeonato aberto: dirige rotulos, colunas e modal de resultado.
   ESP = (await catalogoEsportes()).find((e) => e.chave === DET.campeonato.esporte) ?? null;
+  // Aba Banners so existe para contas com o recurso liberado (RN-BA-03).
+  if (aba === 'banners' && !DET.banners_liberados) aba = 'jogos';
   abaAtual = aba;
   const c = DET.campeonato;
   $('#app').innerHTML = `
@@ -432,7 +434,8 @@ async function telaCampeonato(id, aba = abaAtual) {
     <div class="abas">
       ${[['jogos', 'Jogos'], ['times', ESP?.rotulos.participantes ?? 'Times'],
         ...(ESP?.ranking === 'individual' ? [['sorteio', 'Sorteio']] : []),
-        ['classificacao', ESP?.rotulos.classificacao ?? 'Classificação'], ['regras', 'Regras'], ['banners', 'Banners'], ['config', 'Configurações']]
+        ['classificacao', ESP?.rotulos.classificacao ?? 'Classificação'], ['regras', 'Regras'],
+        ...(DET.banners_liberados ? [['banners', 'Banners']] : []), ['config', 'Configurações']]
         .map(([k, r]) => `<button class="aba ${aba === k ? 'ativa' : ''}" onclick="telaCampeonato(${id}, '${k}')">${r}</button>`).join('')}
     </div>
     <div id="painel"></div>
@@ -1518,6 +1521,7 @@ async function telaMaster() {
     <h2>👑 Gestão de contas</h2>
     <p class="muted">Clique em <strong>Gerenciar</strong> para acessar os campeonatos de uma conta (inclusive a sua),
     ou use as ações de manutenção.</p>
+    <p><button class="botao secundario" onclick="telaBannerEspecial()">🌟 Banner Especial (global)</button></p>
     ${contas.map((cta) => `
       <div class="card">
         <div class="linha-flex">
@@ -1526,6 +1530,7 @@ async function telaMaster() {
             ${cta.papel === 'master' ? '<span class="badge" style="background:#b45309;color:#fff">master</span>' : ''}
             ${cta.id === EU.id ? '<span class="badge">você</span>' : ''}
             <span class="badge">${esc(rotuloTipoConta(cta.tipo))}</span>
+            ${cta.banners_liberados ? '<span class="badge" title="Seção Banners liberada">🖼️ Banners</span>' : ''}
             <div class="muted">${esc(cta.email)} • ${cta.n_campeonatos}/${cta.limite_campeonatos} campeonato(s) • desde ${esc((cta.criado_em ?? '').slice(0, 10))}</div>
           </div>
           <span class="espacador"></span>
@@ -1553,6 +1558,53 @@ async function trocarTenant() {
   EU = await api('/api/auth/eu');
   barraMaster();
   telaMaster();
+}
+
+// ---------- banner especial (banners globais, RN-BE) ----------
+
+async function telaBannerEspecial() {
+  const banners = await api('/api/master/banners-globais');
+  $('#app').innerHTML = `
+    <div class="linha-flex" style="margin-bottom:10px">
+      <a href="#" onclick="telaMaster();return false">← Gestão de contas</a>
+    </div>
+    <h2>🌟 Banner Especial <span class="badge">${banners.length}/3</span></h2>
+    <p class="muted">Banners globais da plataforma. Aparecem no bloco "Apoio" das páginas públicas
+    <strong>somente de campeonatos de contas Padrão</strong> (Premium e Premium+ não exibem), acima dos banners do próprio campeonato.</p>
+    <div class="card">
+      ${banners.map((b) => `
+        <div class="linha-flex" style="border-bottom:1px solid var(--borda);padding:8px 0">
+          <img src="${esc(b.imagem)}" alt="" style="max-width:120px;border-radius:6px">
+          <div style="flex:1;min-width:0">
+            <div class="muted" style="overflow-wrap:anywhere">${b.link ? esc(b.link) : '<em>sem link</em>'}</div>
+            ${b.ativo ? '' : '<span class="badge" style="background:#fee2e2;color:#991b1b">inativo</span>'}
+          </div>
+          <button class="botao secundario mini" onclick="alternarBannerGlobal(${b.id}, ${b.ativo ? 0 : 1})">${b.ativo ? 'Desativar' : 'Ativar'}</button>
+          <button class="botao perigo mini" onclick="removerBannerGlobal(${b.id})">Remover</button>
+        </div>`).join('') || '<p class="muted">Nenhum banner global ainda.</p>'}
+      ${banners.length < 3 ? `
+        <h4>Novo banner global</h4>
+        <label>Imagem do banner</label><input type="file" id="arq-banner-global" accept="image/*">
+        <label>Link (para onde o clique leva)</label><input type="url" id="banner-global-link" placeholder="https://...">
+        <p><button class="botao" onclick="addBannerGlobal()">Adicionar banner global</button></p>` : '<p class="muted">Limite de 3 banners globais atingido.</p>'}
+    </div>
+  `;
+}
+async function addBannerGlobal() {
+  try {
+    const imagem = await lerArquivo($('#arq-banner-global'));
+    await api('/api/master/banners-globais', 'POST', { imagem, link: $('#banner-global-link').value || null });
+    telaBannerEspecial();
+  } catch (e) { avisar(e.message); }
+}
+async function alternarBannerGlobal(id, ativo) {
+  try { await api(`/api/master/banners-globais/${id}`, 'PATCH', { ativo }); telaBannerEspecial(); }
+  catch (e) { avisar(e.message); }
+}
+async function removerBannerGlobal(id) {
+  if (!confirm('Remover este banner global?')) return;
+  try { await api(`/api/master/banners-globais/${id}`, 'DELETE'); telaBannerEspecial(); }
+  catch (e) { avisar(e.message); }
 }
 
 // ---------- manutencao de contas ----------
@@ -1588,6 +1640,10 @@ function modalEditarConta(contaId) {
       <div><label>Jogadores por time</label>
         <input type="number" id="cta-max-jogadores" min="1" value="${cta.max_jogadores_time ?? ''}" placeholder="padrão: 30"></div>
     </div>
+    <label style="display:flex;gap:8px;align-items:center;font-weight:400;margin-top:12px">
+      <input type="checkbox" id="cta-banners" ${cta.banners_liberados ? 'checked' : ''} style="width:auto">
+      <span>Liberar a seção <strong>Banners</strong> para esta conta (anúncios nos campeonatos dela)</span>
+    </label>
     <p><button class="botao" style="width:100%" onclick="salvarConta(${contaId})">Salvar</button></p>
   `);
 }
@@ -1600,6 +1656,7 @@ async function salvarConta(contaId) {
       max_campeonatos: $('#cta-max-campeonatos').value || null,
       max_times: $('#cta-max-times').value || null,
       max_jogadores_time: $('#cta-max-jogadores').value || null,
+      banners_liberados: $('#cta-banners').checked,
     };
     if (!$('#cta-papel').disabled) corpo.papel = $('#cta-papel').value;
     await api(`/api/master/contas/${contaId}`, 'PATCH', corpo);

@@ -41,7 +41,7 @@ async function subirApp(limites) {
   await new Promise((r) => servidor.on('listening', r));
   const base = `http://localhost:${servidor.address().port}`;
   let cookie = '';
-  return async (metodo, caminho, corpo) => {
+  const c = async (metodo, caminho, corpo) => {
     const resp = await fetch(base + caminho, {
       method: metodo,
       headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) },
@@ -51,6 +51,8 @@ async function subirApp(limites) {
     if (setCookie) cookie = setCookie.split(';')[0];
     return { status: resp.status, corpo: await resp.json().catch(() => ({})) };
   };
+  c.db = db; // exposto para os testes ajustarem estado (ex.: liberar Banners)
+  return c;
 }
 
 const PNG_FAKE = 'data:image/png;base64,aGVsbG8='; // conteudo qualquer: o teste e da rota
@@ -93,6 +95,7 @@ const FOLGADO = { login: { max: 1000 }, registro: { max: 1000 }, confirmacao: { 
 async function clienteComCampeonato() {
   const c = await subirApp(FOLGADO);
   await registrarEntrar(c, { nome: 'Org', email: 'org@teste.com', senha: 'segredo1' });
+  c.db.exec('UPDATE contas SET banners_liberados = 1'); // libera a secao Banners
   const criado = await c('POST', '/api/campeonatos', {
     nome: 'Copa Teste', formato: 'pontos', sortear: false,
     times: [{ nome: 'Leoes' }, { nome: 'Tigres' }],

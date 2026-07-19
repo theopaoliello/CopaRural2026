@@ -287,7 +287,7 @@ export function montarRotas(db, { limites = {} } = {}) {
     const contas = db
       .prepare(
         `SELECT c.id, c.nome, c.email, c.papel, c.criado_em,
-           c.tipo, c.max_campeonatos, c.max_times, c.max_jogadores_time,
+           c.tipo, c.max_campeonatos, c.max_times, c.max_jogadores_time, c.banners_liberados,
            (SELECT COUNT(*) FROM campeonatos x WHERE x.conta_id = c.id) AS n_campeonatos
          FROM contas c ORDER BY c.nome`,
       )
@@ -323,7 +323,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   const contaAlvo = (id) => {
     const alvo = db
       .prepare(
-        `SELECT id, nome, email, papel, tipo, max_campeonatos, max_times, max_jogadores_time
+        `SELECT id, nome, email, papel, tipo, max_campeonatos, max_times, max_jogadores_time, banners_liberados
          FROM contas WHERE id = ?`,
       )
       .get(Number(id));
@@ -373,11 +373,14 @@ export function montarRotas(db, { limites = {} } = {}) {
       ? validarOverride(b.max_times, 'Limite de times') : alvo.max_times;
     const maxJogadoresTime = b.max_jogadores_time !== undefined
       ? validarOverride(b.max_jogadores_time, 'Limite de jogadores por time') : alvo.max_jogadores_time;
+    // RN-BA-01: master liga/desliga a secao Banners por conta.
+    const bannersLiberados = b.banners_liberados !== undefined
+      ? (b.banners_liberados ? 1 : 0) : alvo.banners_liberados;
 
     db.prepare(
       `UPDATE contas SET nome = ?, email = ?, papel = ?, tipo = ?,
-         max_campeonatos = ?, max_times = ?, max_jogadores_time = ? WHERE id = ?`,
-    ).run(nome, email, papel, tipo, maxCampeonatos, maxTimes, maxJogadoresTime, alvo.id);
+         max_campeonatos = ?, max_times = ?, max_jogadores_time = ?, banners_liberados = ? WHERE id = ?`,
+    ).run(nome, email, papel, tipo, maxCampeonatos, maxTimes, maxJogadoresTime, bannersLiberados, alvo.id);
     res.json(contaAlvo(alvo.id));
   });
 
@@ -530,6 +533,11 @@ export function montarRotas(db, { limites = {} } = {}) {
         .prepare('SELECT s.* FROM sets s JOIN jogos j ON j.id = s.jogo_id WHERE j.campeonato_id = ? ORDER BY s.jogo_id, s.numero')
         .all(c.id),
       banners: db.prepare('SELECT * FROM banners WHERE campeonato_id = ? ORDER BY ordem, id').all(c.id),
+      // Dirige a aba Banners no painel (RN-BA-03). O master ve sempre, para
+      // poder remover banners de uma conta com o recurso revogado (RN-BA-04).
+      banners_liberados: req.contaReal.papel === 'master'
+        ? 1
+        : (db.prepare('SELECT banners_liberados FROM contas WHERE id = ?').get(req.conta.id)?.banners_liberados ?? 0),
       classificacao,
       vagas: vagasDoCampeonato(db, c, classificacao),
     });
@@ -873,8 +881,21 @@ export function montarRotas(db, { limites = {} } = {}) {
 
   // ---------- banners (admin, maximo 5 por campeonato) ----------
 
+  // RN-BA-03: a gestao de banners exige a flag da conta DONA ligada. Como a
+  // posse ja validou o recurso contra req.conta.id, a dona e req.conta.id. O
+  // master (mesmo em modo tenant) passa sempre: e o caminho de remover banners
+  // de uma conta com o recurso revogado (RN-BA-04).
+  const exigirBannersLiberados = (req) => {
+    if (req.contaReal.papel === 'master') return;
+    const conta = db.prepare('SELECT banners_liberados FROM contas WHERE id = ?').get(req.conta.id);
+    if (!conta?.banners_liberados) {
+      throw erroProibido('O recurso de banners nao esta habilitado para esta conta. Fale com o suporte.');
+    }
+  };
+
   rotas.post('/campeonatos/:id/banners', logado, (req, res) => {
     const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    exigirBannersLiberados(req);
     const n = db.prepare('SELECT COUNT(*) AS n FROM banners WHERE campeonato_id = ?').get(c.id).n;
     if (n >= MAX_BANNERS) throw erroConflito(`Limite de ${MAX_BANNERS} banners por campeonato.`);
     const link = validarLink(req.body?.link);
@@ -887,6 +908,7 @@ export function montarRotas(db, { limites = {} } = {}) {
 
   rotas.patch('/banners/:id', logado, (req, res) => {
     const b = bannerDaConta(db, req.conta.id, req.params.id);
+    exigirBannersLiberados(req);
     db.prepare('UPDATE banners SET link = ?, ordem = ?, ativo = ? WHERE id = ?').run(
       req.body?.link !== undefined ? validarLink(req.body.link) : b.link,
       req.body?.ordem !== undefined ? Number(req.body.ordem) : b.ordem,
@@ -898,8 +920,48 @@ export function montarRotas(db, { limites = {} } = {}) {
 
   rotas.delete('/banners/:id', logado, (req, res) => {
     const b = bannerDaConta(db, req.conta.id, req.params.id);
+    exigirBannersLiberados(req);
     apagarImagem(b.imagem);
     db.prepare('DELETE FROM banners WHERE id = ?').run(b.id);
+    res.json({ ok: true });
+  });
+
+  // ---------- banner especial (banners globais do master, RN-BE) ----------
+
+  const MAX_BANNERS_GLOBAIS = 3;
+
+  rotas.get('/master/banners-globais', logado, mestre, (_req, res) => {
+    res.json(db.prepare('SELECT * FROM banners_globais ORDER BY ordem, id').all());
+  });
+
+  rotas.post('/master/banners-globais', logado, mestre, (req, res) => {
+    const n = db.prepare('SELECT COUNT(*) AS n FROM banners_globais').get().n;
+    if (n >= MAX_BANNERS_GLOBAIS) throw erroConflito(`Limite de ${MAX_BANNERS_GLOBAIS} banners globais.`);
+    const link = validarLink(req.body?.link);
+    const caminho = salvarImagem(req.body?.imagem, 'banner-global');
+    const info = db
+      .prepare('INSERT INTO banners_globais (imagem, link, ordem) VALUES (?, ?, ?)')
+      .run(caminho, link, n);
+    res.status(201).json(db.prepare('SELECT * FROM banners_globais WHERE id = ?').get(Number(info.lastInsertRowid)));
+  });
+
+  rotas.patch('/master/banners-globais/:id', logado, mestre, (req, res) => {
+    const b = db.prepare('SELECT * FROM banners_globais WHERE id = ?').get(Number(req.params.id));
+    if (!b) throw erroNaoEncontrado('Banner global nao encontrado.');
+    db.prepare('UPDATE banners_globais SET link = ?, ordem = ?, ativo = ? WHERE id = ?').run(
+      req.body?.link !== undefined ? validarLink(req.body.link) : b.link,
+      req.body?.ordem !== undefined ? Number(req.body.ordem) : b.ordem,
+      req.body?.ativo !== undefined ? (req.body.ativo ? 1 : 0) : b.ativo,
+      b.id,
+    );
+    res.json(db.prepare('SELECT * FROM banners_globais WHERE id = ?').get(b.id));
+  });
+
+  rotas.delete('/master/banners-globais/:id', logado, mestre, (req, res) => {
+    const b = db.prepare('SELECT * FROM banners_globais WHERE id = ?').get(Number(req.params.id));
+    if (!b) throw erroNaoEncontrado('Banner global nao encontrado.');
+    apagarImagem(b.imagem);
+    db.prepare('DELETE FROM banners_globais WHERE id = ?').run(b.id);
     res.json({ ok: true });
   });
 

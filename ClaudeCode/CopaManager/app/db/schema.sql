@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS contas (
   max_campeonatos INTEGER,
   max_times INTEGER,
   max_jogadores_time INTEGER,
+  -- Secao Banners liberada por conta (RN-BA-01/02): contas novas nascem 0;
+  -- o master libera. Contas pre-existentes recebem 1 no backfill (grandfather).
+  banners_liberados INTEGER NOT NULL DEFAULT 0,
   criado_em TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -218,3 +221,15 @@ CREATE TABLE IF NOT EXISTS banners (
 );
 
 CREATE INDEX IF NOT EXISTS idx_banners_campeonato ON banners(campeonato_id);
+
+-- Banner Especial (RN-BE): banners globais do master, sem vinculo com conta ou
+-- campeonato. Aparecem nas paginas publicas de campeonatos de contas Padrao,
+-- acima dos banners do proprio campeonato. Maximo 3 (checado na rota).
+CREATE TABLE IF NOT EXISTS banners_globais (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  imagem TEXT NOT NULL,
+  link TEXT,
+  ordem INTEGER NOT NULL DEFAULT 0,
+  ativo INTEGER NOT NULL DEFAULT 1,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);

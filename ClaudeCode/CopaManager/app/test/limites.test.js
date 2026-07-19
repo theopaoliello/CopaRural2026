@@ -154,6 +154,8 @@ test('migracao: banco antigo ganha as colunas e contas existentes viram padrao',
   assert.equal(conta.max_campeonatos, null);
   assert.equal(conta.max_times, null);
   assert.equal(conta.max_jogadores_time, null);
+  // grandfather RN-BA-02: conta pre-existente recebe a secao Banners liberada
+  assert.equal(conta.banners_liberados, 1);
   assert.deepEqual(limitesDaConta(migrado, conta.id), {
     tipo: 'padrao', max_campeonatos: 3, max_times: 48, max_jogadores_time: 30,
   });

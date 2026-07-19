@@ -43,6 +43,13 @@ export function dadosPublicos(db, slug) {
   const banners = db
     .prepare('SELECT id, imagem, link FROM banners WHERE campeonato_id = ? AND ativo = 1 ORDER BY ordem, id')
     .all(campeonato.id);
+  // Banner Especial (RN-BE-02/06): banners globais so aparecem em campeonatos de
+  // contas do tipo Padrao. O gate le o tipo ATUAL da conta dona (sem dado gravado
+  // por campeonato): promover a conta a Premium some com eles na proxima carga.
+  const contaDona = db.prepare('SELECT tipo FROM contas WHERE id = ?').get(campeonato.conta_id);
+  const bannersGlobais = contaDona?.tipo === 'padrao'
+    ? db.prepare('SELECT id, imagem, link FROM banners_globais WHERE ativo = 1 ORDER BY ordem, id').all()
+    : [];
   const sets = db
     .prepare(
       `SELECT s.jogo_id, s.numero, s.pontos_casa, s.pontos_fora FROM sets s
@@ -135,5 +142,6 @@ export function dadosPublicos(db, slug) {
     disciplina,
     chaveamento,
     banners,
+    banners_globais: bannersGlobais,
   };
 }
