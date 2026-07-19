@@ -242,7 +242,7 @@ function telaNovoForm(chaveEsporte) {
       </fieldset>
 
       <fieldset><legend>3. ${esc(esporte.rotulos.participantes)}</legend>
-        <label>${esc(esporte.rotulos.participante)} por linha * <span class="muted">(até 18 caracteres cada)</span></label>
+        <label>${esc(esporte.rotulos.participante)} por linha * <span class="muted">(até 30 caracteres cada)</span></label>
         <textarea name="times" rows="8" required placeholder="Real Baixada&#10;Unidos da Vila&#10;Juventude FC&#10;..."></textarea>
         <label><input type="checkbox" name="sortear" checked style="width:auto"> Sortear a distribuição (grupos/chaveamento)</label>
         <p class="muted">Desmarcado, a ordem digitada manda: os primeiros times formam o Grupo A (e assim por diante);
@@ -342,7 +342,7 @@ function telaNovoFormPelada(esporte) {
 
       <fieldset><legend>2. Temporada</legend>
         <div class="grid-2">
-          <div><label>Nomes dos times / divisões (um por linha) * <span class="muted">(até 18 caracteres cada)</span></label>
+          <div><label>Nomes dos times / divisões (um por linha) * <span class="muted">(até 30 caracteres cada)</span></label>
             <textarea name="times" rows="3" required placeholder="Camisa&#10;Sem Camisa"></textarea></div>
           <div><label>Quantidade de jogos da temporada *</label>
             <input type="number" name="jogos_temporada" min="1" required placeholder="40"></div>

@@ -41,7 +41,7 @@ export function textoLimitado(valor, max, campo) {
 // Limites de nome (caracteres) para jogadores e times — enforcados no servidor
 // e refletidos como maxlength nos campos do admin (public/admin.html).
 export const MAX_NOME_JOGADOR = 15;
-export const MAX_NOME_TIME = 18;
+export const MAX_NOME_TIME = 30;
 
 // A cor do tema vai para contexto CSS na pagina publica: so aceita hex.
 export function validarCorTema(valor) {
