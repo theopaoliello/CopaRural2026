@@ -10,7 +10,9 @@ import {
 import { enviarEmail } from '../src/email.js';
 import { googleConfigurado, urlDeAutorizacao, perfilDoCodigo } from '../src/google.js';
 import {
-  campeonatoDaConta, timeDaConta, jogadorDaConta, jogoDaConta, bannerDaConta,
+  bannerDaConta,
+  campeonatoComAcesso, timeComAcesso, jogadorComAcesso, jogoComAcesso,
+  vinculoDoCampeonato, FLAG_DA_SECAO,
 } from '../src/posse.js';
 import {
   criarCampeonato, classificacaoDoCampeonato, gerarMataDoCampeonato, criarJogoAvulso,
@@ -71,6 +73,8 @@ export function montarRotas(db, { limites = {} } = {}) {
   // token) tem orcamentos separados por IP (RN-ES-01).
   const limiteRecuperacao = criarLimitador({ max: 5, janelaMs: 15 * 60_000, ...limites.recuperacao });
   const limiteRedefinicao = criarLimitador({ max: 10, janelaMs: 10 * 60_000, ...limites.redefinicao });
+  // Convites de colaborador disparam e-mail: limite por IP (RN-CO-12).
+  const limiteConvite = criarLimitador({ max: 30, janelaMs: 60 * 60_000, ...limites.convite });
 
   // Base dos links enviados por e-mail e do redirect do Google. Em producao,
   // defina URL_PUBLICA=https://copamanager.com.br; sem ela, usa o host da requisicao.
@@ -490,16 +494,28 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   rotas.get('/campeonatos', logado, (req, res) => {
-    const lista = db
+    const contagens = `
+      (SELECT COUNT(*) FROM times t WHERE t.campeonato_id = c.id) AS n_times,
+      (SELECT COUNT(*) FROM jogos j WHERE j.campeonato_id = c.id) AS n_jogos,
+      (SELECT COUNT(*) FROM jogos j WHERE j.campeonato_id = c.id AND j.status = 'encerrado') AS n_encerrados`;
+    const proprios = db
       .prepare(
-        `SELECT c.*,
-           (SELECT COUNT(*) FROM times t WHERE t.campeonato_id = c.id) AS n_times,
-           (SELECT COUNT(*) FROM jogos j WHERE j.campeonato_id = c.id) AS n_jogos,
-           (SELECT COUNT(*) FROM jogos j WHERE j.campeonato_id = c.id AND j.status = 'encerrado') AS n_encerrados
+        `SELECT c.*, ${contagens}, 0 AS compartilhado, NULL AS dono_nome
          FROM campeonatos c WHERE c.conta_id = ? ORDER BY c.criado_em DESC`,
       )
       .all(req.conta.id);
-    res.json(lista);
+    // Compartilhados comigo (RN-CO-07): campeonatos de outras contas onde a conta
+    // e colaborador ativo. Nao contam no limite; marcados para a lista separar.
+    const compartilhados = db
+      .prepare(
+        `SELECT c.*, ${contagens}, 1 AS compartilhado, dono.nome AS dono_nome
+         FROM colaboradores col
+         JOIN campeonatos c ON c.id = col.campeonato_id
+         JOIN contas dono ON dono.id = c.conta_id
+         WHERE col.conta_id = ? ORDER BY c.criado_em DESC`,
+      )
+      .all(req.conta.id);
+    res.json([...proprios, ...compartilhados]);
   });
 
   rotas.post('/campeonatos', logado, (req, res) => {
@@ -507,8 +523,24 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   // Detalhe completo para o painel: times, jogadores, jogos, eventos, banners.
+  // Acessivel pelo dono ou por colaborador ativo (leitura); o bloco meu_acesso
+  // dirige quais abas o painel mostra (RN-CO-04).
   rotas.get('/campeonatos/:id', logado, (req, res) => {
-    const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, null);
+    const v = vinculoDoCampeonato(db, req.conta.id, c);
+    const ehDono = v.tipo === 'dono';
+    const flag = (s) => ehDono || !!v.col?.[FLAG_DA_SECAO[s]];
+    // Config e Banners sao sempre dono-only (RN-CO-05).
+    const meuAcesso = {
+      dono: ehDono,
+      jogos: flag('jogos'), times: flag('times'), regras: flag('regras'), sorteio: flag('sorteio'),
+      banners: ehDono, config: ehDono,
+    };
+    // Banners so interessa ao dono; master (tenant) ve sempre para poder remover.
+    const bannersLiberados = !ehDono ? 0
+      : (req.contaReal.papel === 'master'
+        ? 1
+        : (db.prepare('SELECT banners_liberados FROM contas WHERE id = ?').get(req.conta.id)?.banners_liberados ?? 0));
     const classificacao = classificacaoDoCampeonato(db, c);
     res.json({
       campeonato: c,
@@ -532,19 +564,17 @@ export function montarRotas(db, { limites = {} } = {}) {
       sets: db
         .prepare('SELECT s.* FROM sets s JOIN jogos j ON j.id = s.jogo_id WHERE j.campeonato_id = ? ORDER BY s.jogo_id, s.numero')
         .all(c.id),
-      banners: db.prepare('SELECT * FROM banners WHERE campeonato_id = ? ORDER BY ordem, id').all(c.id),
-      // Dirige a aba Banners no painel (RN-BA-03). O master ve sempre, para
-      // poder remover banners de uma conta com o recurso revogado (RN-BA-04).
-      banners_liberados: req.contaReal.papel === 'master'
-        ? 1
-        : (db.prepare('SELECT banners_liberados FROM contas WHERE id = ?').get(req.conta.id)?.banners_liberados ?? 0),
+      // Colaborador nao gere banners: recebe lista vazia (RN-CO-05).
+      banners: ehDono ? db.prepare('SELECT * FROM banners WHERE campeonato_id = ? ORDER BY ordem, id').all(c.id) : [],
+      banners_liberados: bannersLiberados,
+      meu_acesso: meuAcesso,
       classificacao,
       vagas: vagasDoCampeonato(db, c, classificacao),
     });
   });
 
   rotas.patch('/campeonatos/:id', logado, (req, res) => {
-    const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
     const b = req.body ?? {};
     const nome = b.nome !== undefined ? textoLimitado(b.nome, 120, 'Nome do campeonato') : c.nome;
     if (!nome) throw erroValidacao('O nome nao pode ficar vazio.');
@@ -593,30 +623,40 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   rotas.delete('/campeonatos/:id', logado, (req, res) => {
-    const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
     db.prepare('DELETE FROM campeonatos WHERE id = ?').run(c.id);
     res.json({ ok: true });
   });
 
   rotas.post('/campeonatos/:id/logo', logado, (req, res) => {
-    const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
     const caminho = salvarImagem(req.body?.imagem, 'logo');
     apagarImagem(c.logo);
     db.prepare('UPDATE campeonatos SET logo = ? WHERE id = ?').run(caminho, c.id);
     res.json({ logo: caminho });
   });
 
+  // Rota dedicada de Regras (RN-CO-03): separada da Config para o colaborador
+  // com a flag Regras salvar sem precisar do PATCH geral (dono-only).
+  rotas.patch('/campeonatos/:id/regras', logado, (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'regras');
+    const regras = req.body?.regras !== undefined ? textoLimitado(req.body.regras, 10000, 'Regras') : c.regras;
+    db.prepare('UPDATE campeonatos SET regras = ? WHERE id = ?').run(regras, c.id);
+    res.json({ regras });
+  });
+
   // ---------- Pelada Epica: jogos avulsos e jogadores do campeonato ----------
 
   rotas.post('/campeonatos/:id/jogos', logado, (req, res) => {
-    const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    // Jogo avulso (flag Jogos) OU confirmacao do sorteio (flag Sorteio).
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, ['jogos', 'sorteio']);
     res.status(201).json(criarJogoAvulso(db, c, req.body ?? {}));
   });
 
   // ---------- Pelada Epica: sorteio de times (EF secao 7) ----------
 
   function campeonatoPelada(req) {
-    const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'sorteio');
     if (obterEsporte(c.esporte)?.ranking !== 'individual') {
       throw erroValidacao('O sorteio de times e um recurso da Pelada Epica.');
     }
@@ -681,7 +721,7 @@ export function montarRotas(db, { limites = {} } = {}) {
 
   // Apagar um jogo so faz sentido onde os jogos sao criados um a um.
   rotas.delete('/jogos/:id', logado, (req, res) => {
-    const j = jogoDaConta(db, req.conta.id, req.params.id);
+    const j = jogoComAcesso(db, req.conta.id, req.params.id, 'jogos');
     const c = db.prepare('SELECT esporte FROM campeonatos WHERE id = ?').get(j.campeonato_id);
     if (obterEsporte(c?.esporte)?.ranking !== 'individual') {
       throw erroValidacao('A tabela deste campeonato e gerada automaticamente e nao permite apagar jogos.');
@@ -691,7 +731,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   rotas.post('/campeonatos/:id/jogadores', logado, (req, res) => {
-    const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'times');
     if (obterEsporte(c.esporte)?.ranking !== 'individual') {
       throw erroValidacao('Neste esporte o jogador e cadastrado dentro de um time.');
     }
@@ -710,7 +750,8 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   rotas.post('/campeonatos/:id/gerar-mata', logado, (req, res) => {
-    const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    // Gerar o mata-mata e estrutural/irreversivel: so o dono (RN-CO-05).
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
     const n = gerarMataDoCampeonato(db, c);
     res.status(201).json({ jogos_criados: n });
   });
@@ -718,7 +759,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   // ---------- times e jogadores (admin) ----------
 
   rotas.post('/campeonatos/:id/times', logado, (req, res) => {
-    const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'times');
     // Times so podem ser adicionados antes da tabela ter jogos (senao a tabela ja gerada fica furada).
     const temJogos = db.prepare('SELECT COUNT(*) AS n FROM jogos WHERE campeonato_id = ?').get(c.id).n;
     if (temJogos) {
@@ -735,7 +776,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   rotas.patch('/times/:id', logado, (req, res) => {
-    const t = timeDaConta(db, req.conta.id, req.params.id);
+    const t = timeComAcesso(db, req.conta.id, req.params.id, 'times');
     const nome = req.body?.nome !== undefined ? textoLimitado(req.body.nome, MAX_NOME_TIME, 'Nome do time') : t.nome;
     if (!nome) throw erroValidacao('O nome do time nao pode ficar vazio.');
     db.prepare('UPDATE times SET nome = ? WHERE id = ?').run(nome, t.id);
@@ -743,7 +784,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   rotas.post('/times/:id/escudo', logado, (req, res) => {
-    const t = timeDaConta(db, req.conta.id, req.params.id);
+    const t = timeComAcesso(db, req.conta.id, req.params.id, 'times');
     const caminho = salvarImagem(req.body?.imagem, 'escudo');
     apagarImagem(t.escudo);
     db.prepare('UPDATE times SET escudo = ? WHERE id = ?').run(caminho, t.id);
@@ -751,7 +792,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   rotas.post('/times/:id/foto', logado, (req, res) => {
-    const t = timeDaConta(db, req.conta.id, req.params.id);
+    const t = timeComAcesso(db, req.conta.id, req.params.id, 'times');
     const caminho = salvarImagem(req.body?.imagem, 'foto');
     apagarImagem(t.foto);
     db.prepare('UPDATE times SET foto = ? WHERE id = ?').run(caminho, t.id);
@@ -767,7 +808,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   };
 
   rotas.post('/times/:id/jogadores', logado, (req, res) => {
-    const t = timeDaConta(db, req.conta.id, req.params.id);
+    const t = timeComAcesso(db, req.conta.id, req.params.id, 'times');
     const nome = textoLimitado(req.body?.nome, MAX_NOME_JOGADOR, 'Nome do jogador');
     if (!nome) throw erroValidacao('Informe o nome do jogador.');
     conferirJogadoresDoTime(t, 1);
@@ -780,7 +821,7 @@ export function montarRotas(db, { limites = {} } = {}) {
 
   // Cadastro em lote: texto com um jogador por linha ("nome,numero", numero opcional).
   rotas.post('/times/:id/jogadores/lote', logado, (req, res) => {
-    const t = timeDaConta(db, req.conta.id, req.params.id);
+    const t = timeComAcesso(db, req.conta.id, req.params.id, 'times');
     const texto = String(req.body?.texto ?? '');
     if (texto.length > 20_000) throw erroValidacao('Texto do lote muito longo (limite: 20 mil caracteres).');
     // Tudo ou nada (RN-GC-06): valida o total resultante antes de inserir.
@@ -789,7 +830,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   rotas.patch('/jogadores/:id', logado, (req, res) => {
-    const j = jogadorDaConta(db, req.conta.id, req.params.id);
+    const j = jogadorComAcesso(db, req.conta.id, req.params.id, 'times');
     const nome = req.body?.nome !== undefined ? textoLimitado(req.body.nome, MAX_NOME_JOGADOR, 'Nome do jogador') : j.nome;
     if (!nome) throw erroValidacao('O nome do jogador nao pode ficar vazio.');
     const numero =
@@ -807,7 +848,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   rotas.delete('/jogadores/:id', logado, (req, res) => {
-    const j = jogadorDaConta(db, req.conta.id, req.params.id);
+    const j = jogadorComAcesso(db, req.conta.id, req.params.id, 'times');
     // Eventos historicos ficam com jogador nulo (gols "sem autor"), nao somem.
     db.prepare('DELETE FROM jogadores WHERE id = ?').run(j.id);
     res.json({ ok: true });
@@ -816,7 +857,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   // ---------- jogos e resultados (admin) ----------
 
   rotas.patch('/jogos/:id/agenda', logado, (req, res) => {
-    const j = jogoDaConta(db, req.conta.id, req.params.id);
+    const j = jogoComAcesso(db, req.conta.id, req.params.id, 'jogos');
     db.prepare('UPDATE jogos SET data = ?, local = ?, obs = ? WHERE id = ?').run(
       req.body?.data !== undefined ? textoLimitado(req.body.data, 40, 'Data') : j.data,
       req.body?.local !== undefined ? textoLimitado(req.body.local, 200, 'Local') : j.local,
@@ -827,14 +868,14 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   rotas.post('/jogos/:id/resultado', logado, (req, res) => {
-    const j = jogoDaConta(db, req.conta.id, req.params.id);
+    const j = jogoComAcesso(db, req.conta.id, req.params.id, 'jogos');
     res.json(registrarResultado(db, j, req.body ?? {}));
   });
 
   // Resultado por texto estruturado (GOLS/CARTOES TIME CASA/VISITANTE).
   // O placar e calculado automaticamente a partir dos gols do texto.
   rotas.post('/jogos/:id/resultado-texto', logado, (req, res) => {
-    const j = jogoDaConta(db, req.conta.id, req.params.id);
+    const j = jogoComAcesso(db, req.conta.id, req.params.id, 'jogos');
     if (!j.time_casa_id || !j.time_fora_id) {
       throw erroValidacao('Este jogo ainda nao tem os dois times definidos.');
     }
@@ -859,13 +900,13 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   rotas.delete('/jogos/:id/resultado', logado, (req, res) => {
-    const j = jogoDaConta(db, req.conta.id, req.params.id);
+    const j = jogoComAcesso(db, req.conta.id, req.params.id, 'jogos');
     apagarResultado(db, j);
     res.json({ ok: true });
   });
 
   rotas.post('/jogos/:id/sumula', logado, (req, res) => {
-    const j = jogoDaConta(db, req.conta.id, req.params.id);
+    const j = jogoComAcesso(db, req.conta.id, req.params.id, 'jogos');
     const caminho = salvarImagem(req.body?.imagem, 'sumula');
     apagarImagem(j.sumula);
     db.prepare('UPDATE jogos SET sumula = ? WHERE id = ?').run(caminho, j.id);
@@ -873,7 +914,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   });
 
   rotas.delete('/jogos/:id/sumula', logado, (req, res) => {
-    const j = jogoDaConta(db, req.conta.id, req.params.id);
+    const j = jogoComAcesso(db, req.conta.id, req.params.id, 'jogos');
     apagarImagem(j.sumula);
     db.prepare('UPDATE jogos SET sumula = NULL WHERE id = ?').run(j.id);
     res.json({ ok: true });
@@ -894,7 +935,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   };
 
   rotas.post('/campeonatos/:id/banners', logado, (req, res) => {
-    const c = campeonatoDaConta(db, req.conta.id, req.params.id);
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
     exigirBannersLiberados(req);
     const n = db.prepare('SELECT COUNT(*) AS n FROM banners WHERE campeonato_id = ?').get(c.id).n;
     if (n >= MAX_BANNERS) throw erroConflito(`Limite de ${MAX_BANNERS} banners por campeonato.`);
@@ -962,6 +1003,107 @@ export function montarRotas(db, { limites = {} } = {}) {
     if (!b) throw erroNaoEncontrado('Banner global nao encontrado.');
     apagarImagem(b.imagem);
     db.prepare('DELETE FROM banners_globais WHERE id = ?').run(b.id);
+    res.json({ ok: true });
+  });
+
+  // ---------- colaboradores (compartilhar campeonato, RN-CO) ----------
+
+  const MAX_COLABORADORES = 2;
+  const rotuloColaborador = (col) => ({
+    id: col.id,
+    email: col.email,
+    status: col.conta_id ? 'ativo' : 'pendente',
+    pode_jogos: !!col.pode_jogos,
+    pode_times: !!col.pode_times,
+    pode_regras: !!col.pode_regras,
+    pode_sorteio: !!col.pode_sorteio,
+  });
+
+  // Flags do corpo; a de Sorteio so existe na Pelada Epica (RN-CO-03).
+  const lerFlagsColaborador = (b, ehPelada) => {
+    if (!ehPelada && b.pode_sorteio) throw erroValidacao('A flag Sorteio so existe na Pelada Epica.');
+    return {
+      pode_jogos: b.pode_jogos ? 1 : 0,
+      pode_times: b.pode_times ? 1 : 0,
+      pode_regras: b.pode_regras ? 1 : 0,
+      pode_sorteio: ehPelada && b.pode_sorteio ? 1 : 0,
+    };
+  };
+
+  async function enviarEmailConvite(req, { para, campeonato, donoNome, temConta }) {
+    const link = `${urlBase(req)}/admin`;
+    const acao = temConta
+      ? 'Entre no painel para acessar.'
+      : 'Crie sua conta no Copa Manager com este mesmo e-mail (e confirme-o) para acessar.';
+    await enviarEmail({
+      para,
+      assunto: `${donoNome} compartilhou um campeonato com você — Copa Manager`,
+      texto:
+        `Olá!\n\n${donoNome} adicionou você como colaborador(a) do campeonato "${campeonato.nome}" no Copa Manager.\n` +
+        `${acao}\n${link}\n\nSe você não esperava este convite, pode ignorar este e-mail.`,
+      html:
+        `<p>Olá!</p><p><strong>${donoNome}</strong> adicionou você como colaborador(a) do campeonato ` +
+        `<strong>${campeonato.nome}</strong> no Copa Manager.</p><p>${acao}</p>` +
+        `<p><a href="${link}" style="background:#0b5c3f;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none">Abrir o Copa Manager</a></p>` +
+        '<p style="color:#777">Se você não esperava este convite, pode ignorar este e-mail.</p>',
+    });
+  }
+
+  rotas.get('/campeonatos/:id/colaboradores', logado, (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
+    const linhas = db.prepare('SELECT * FROM colaboradores WHERE campeonato_id = ? ORDER BY id').all(c.id);
+    res.json(linhas.map(rotuloColaborador));
+  });
+
+  rotas.post('/campeonatos/:id/colaboradores', logado, limiteConvite.middleware, async (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw erroValidacao('E-mail invalido.');
+    // RN-CO-10: nao convidar o proprio dono nem repetir e-mail no campeonato.
+    const dono = db.prepare('SELECT nome, email FROM contas WHERE id = ?').get(c.conta_id);
+    if (email === dono.email.toLowerCase()) throw erroValidacao('Voce ja e o dono deste campeonato.');
+    if (db.prepare('SELECT id FROM colaboradores WHERE campeonato_id = ? AND email = ?').get(c.id, email)) {
+      throw erroConflito('Este e-mail ja foi convidado para este campeonato.');
+    }
+    // RN-CO-01: teto de 2 (pendentes contam).
+    const n = db.prepare('SELECT COUNT(*) AS n FROM colaboradores WHERE campeonato_id = ?').get(c.id).n;
+    if (n >= MAX_COLABORADORES) throw erroConflito(`Limite de ${MAX_COLABORADORES} colaboradores por campeonato.`);
+
+    const ehPelada = obterEsporte(c.esporte)?.ranking === 'individual';
+    const flags = lerFlagsColaborador(req.body ?? {}, ehPelada);
+    // RN-CO-02: e-mail com conta vincula na hora; sem conta fica pendente.
+    const contaExistente = db.prepare('SELECT id FROM contas WHERE email = ?').get(email);
+    const info = db
+      .prepare(
+        `INSERT INTO colaboradores (campeonato_id, conta_id, email, pode_jogos, pode_times, pode_regras, pode_sorteio)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(c.id, contaExistente?.id ?? null, email, flags.pode_jogos, flags.pode_times, flags.pode_regras, flags.pode_sorteio);
+    // RN-CO-11: falha de envio nao desfaz o convite.
+    try {
+      await enviarEmailConvite(req, { para: email, campeonato: c, donoNome: dono.nome, temConta: !!contaExistente });
+    } catch (e) {
+      console.error('[convite] falha ao enviar e-mail:', e.message);
+    }
+    res.status(201).json(rotuloColaborador(db.prepare('SELECT * FROM colaboradores WHERE id = ?').get(Number(info.lastInsertRowid))));
+  });
+
+  rotas.patch('/campeonatos/:id/colaboradores/:cid', logado, (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
+    const col = db.prepare('SELECT * FROM colaboradores WHERE id = ? AND campeonato_id = ?').get(Number(req.params.cid), c.id);
+    if (!col) throw erroNaoEncontrado('Colaborador nao encontrado.');
+    const ehPelada = obterEsporte(c.esporte)?.ranking === 'individual';
+    const flags = lerFlagsColaborador(req.body ?? {}, ehPelada);
+    db.prepare('UPDATE colaboradores SET pode_jogos = ?, pode_times = ?, pode_regras = ?, pode_sorteio = ? WHERE id = ?')
+      .run(flags.pode_jogos, flags.pode_times, flags.pode_regras, flags.pode_sorteio, col.id);
+    res.json(rotuloColaborador(db.prepare('SELECT * FROM colaboradores WHERE id = ?').get(col.id)));
+  });
+
+  rotas.delete('/campeonatos/:id/colaboradores/:cid', logado, (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
+    const col = db.prepare('SELECT * FROM colaboradores WHERE id = ? AND campeonato_id = ?').get(Number(req.params.cid), c.id);
+    if (!col) throw erroNaoEncontrado('Colaborador nao encontrado.');
+    db.prepare('DELETE FROM colaboradores WHERE id = ?').run(col.id);
     res.json({ ok: true });
   });
 

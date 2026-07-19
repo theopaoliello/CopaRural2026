@@ -233,3 +233,24 @@ CREATE TABLE IF NOT EXISTS banners_globais (
   ativo INTEGER NOT NULL DEFAULT 1,
   criado_em TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Colaboradores (RN-CO): o dono compartilha um campeonato com ate 2 pessoas,
+-- cada uma com flags por secao. conta_id NULL = convite pendente (o e-mail
+-- ainda nao tem conta confirmada); pendente nao da acesso algum. Ativa quando a
+-- pessoa criar/confirmar a conta com aquele e-mail (auth.js). UNIQUE por e-mail
+-- no campeonato barra convite repetido (RN-CO-10).
+CREATE TABLE IF NOT EXISTS colaboradores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  campeonato_id INTEGER NOT NULL REFERENCES campeonatos(id) ON DELETE CASCADE,
+  conta_id INTEGER REFERENCES contas(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  pode_jogos INTEGER NOT NULL DEFAULT 0,
+  pode_times INTEGER NOT NULL DEFAULT 0,
+  pode_regras INTEGER NOT NULL DEFAULT 0,
+  pode_sorteio INTEGER NOT NULL DEFAULT 0,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (campeonato_id, email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_colaboradores_campeonato ON colaboradores(campeonato_id);
+CREATE INDEX IF NOT EXISTS idx_colaboradores_conta ON colaboradores(conta_id);

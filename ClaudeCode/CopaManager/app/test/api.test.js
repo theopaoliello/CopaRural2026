@@ -37,6 +37,7 @@ function montarApp() {
       login: { max: 1000 }, registro: { max: 1000 },
       confirmacao: { max: 1000 }, reenvio: { max: 1000 },
       recuperacao: { max: 1000 }, redefinicao: { max: 1000 },
+      convite: { max: 1000 },
     },
   }));
   app.use((err, req, res, _next) => {
@@ -322,6 +323,87 @@ test('banner especial (RN-BE): master gerencia ate 3 globais; so aparecem em con
 
   // remover um banner global
   assert.equal((await master('DELETE', `/api/master/banners-globais/${b1.corpo.id}`)).status, 200);
+});
+
+test('colaboradores (RN-CO): acesso por flag, lista compartilhada, dono-only e remocao', async () => {
+  const dono = cliente();
+  await registrarEntrar(dono, { nome: 'Dono', email: 'dono-co@teste.com', senha: 'segredo1' });
+  const colab = cliente();
+  await registrarEntrar(colab, { nome: 'Colab', email: 'colab-co@teste.com', senha: 'segredo1' });
+  const camp = await dono('POST', '/api/campeonatos', { nome: 'CO FC', formato: 'pontos', times: ['A', 'B'] });
+  const campId = camp.corpo.id;
+
+  // sem vinculo: 404 (anti-enumeracao, RN-CO-06)
+  assert.equal((await colab('GET', `/api/campeonatos/${campId}`)).status, 404);
+
+  // convite com conta existente ativa na hora, so com a flag Times (RN-CO-02/03)
+  const conv = await dono('POST', `/api/campeonatos/${campId}/colaboradores`, { email: 'colab-co@teste.com', pode_times: true });
+  assert.equal(conv.status, 201);
+  assert.equal(conv.corpo.status, 'ativo');
+  const cid = conv.corpo.id;
+
+  // aparece como compartilhado na lista do colaborador, sem contar no limite (RN-CO-07)
+  const lista = await colab('GET', '/api/campeonatos');
+  const compart = lista.corpo.find((c) => c.id === campId);
+  assert.ok(compart && compart.compartilhado === 1 && compart.dono_nome === 'Dono');
+  assert.equal((await colab('GET', '/api/conta/limites')).corpo.usados, 0);
+
+  // GET detail: meu_acesso reflete as flags; banners vazio (RN-CO-04/05)
+  const det = await colab('GET', `/api/campeonatos/${campId}`);
+  assert.equal(det.status, 200);
+  assert.deepEqual(det.corpo.meu_acesso,
+    { dono: false, jogos: false, times: true, regras: false, sorteio: false, banners: false, config: false });
+  assert.deepEqual(det.corpo.banners, []);
+  const timeId = det.corpo.times[0].id;
+  const jogoId = det.corpo.jogos[0].id;
+
+  // pode Times: renomeia um time (200); NAO pode Jogos: agenda -> 403
+  assert.equal((await colab('PATCH', `/api/times/${timeId}`, { nome: 'AA' })).status, 200);
+  assert.equal((await colab('PATCH', `/api/jogos/${jogoId}/agenda`, { local: 'X' })).status, 403);
+
+  // dono-only (RN-CO-05): config, gestao de colaboradores e gerar-mata -> 403
+  assert.equal((await colab('PATCH', `/api/campeonatos/${campId}`, { nome: 'Hack' })).status, 403);
+  assert.equal((await colab('GET', `/api/campeonatos/${campId}/colaboradores`)).status, 403);
+  assert.equal((await colab('POST', `/api/campeonatos/${campId}/gerar-mata`)).status, 403);
+
+  // dono amplia a flag Jogos: agora agenda funciona
+  await dono('PATCH', `/api/campeonatos/${campId}/colaboradores/${cid}`, { pode_times: true, pode_jogos: true });
+  assert.equal((await colab('PATCH', `/api/jogos/${jogoId}/agenda`, { local: 'Quadra' })).status, 200);
+
+  // remocao: perde o acesso na requisicao seguinte e some da lista (RN-CO-08)
+  assert.equal((await dono('DELETE', `/api/campeonatos/${campId}/colaboradores/${cid}`)).status, 200);
+  assert.equal((await colab('GET', `/api/campeonatos/${campId}`)).status, 404);
+  assert.equal((await colab('GET', '/api/campeonatos')).corpo.find((c) => c.id === campId), undefined);
+});
+
+test('colaboradores: convite pendente ativa ao confirmar e-mail; validacoes e teto de 2', async () => {
+  const dono = cliente();
+  await registrarEntrar(dono, { nome: 'Dono2', email: 'dono2-co@teste.com', senha: 'segredo1' });
+  const camp = await dono('POST', '/api/campeonatos', { nome: 'CO2 FC', formato: 'pontos', times: ['A', 'B'] });
+  const campId = camp.corpo.id;
+
+  // self-invite 400 (RN-CO-10); flag Sorteio fora da pelada 400 (RN-CO-03)
+  assert.equal((await dono('POST', `/api/campeonatos/${campId}/colaboradores`, { email: 'dono2-co@teste.com' })).status, 400);
+  assert.equal((await dono('POST', `/api/campeonatos/${campId}/colaboradores`, { email: 'a@b.com', pode_sorteio: true })).status, 400);
+
+  // convite para e-mail SEM conta: pendente (RN-CO-02)
+  const conv = await dono('POST', `/api/campeonatos/${campId}/colaboradores`, { email: 'futuro@teste.com', pode_jogos: true });
+  assert.equal(conv.corpo.status, 'pendente');
+
+  // duplicado -> 409 (RN-CO-10); teto de 2 conta pendentes (RN-CO-01)
+  assert.equal((await dono('POST', `/api/campeonatos/${campId}/colaboradores`, { email: 'futuro@teste.com' })).status, 409);
+  assert.equal((await dono('POST', `/api/campeonatos/${campId}/colaboradores`, { email: 'outro@teste.com' })).status, 201);
+  assert.equal((await dono('POST', `/api/campeonatos/${campId}/colaboradores`, { email: 'terceiro@teste.com' })).status, 409);
+
+  // convite pendente nao da acesso enquanto a conta nao confirma
+  const novo = cliente();
+  const reg = await novo('POST', '/api/auth/registrar', { nome: 'Futuro', email: 'futuro@teste.com', senha: 'segredo1', consentimento: true });
+  assert.equal(reg.status, 201);
+  // (ainda sem sessao/confirmacao) — ao confirmar o e-mail, o vinculo ativa (RN-CO-02)
+  await novo('POST', '/api/auth/confirmar-email', { token: tokenDoUltimoEmail('futuro@teste.com') });
+  const lista = await novo('GET', '/api/campeonatos');
+  assert.ok(lista.corpo.find((c) => c.id === campId && c.compartilhado === 1));
+  assert.equal((await novo('GET', `/api/campeonatos/${campId}`)).corpo.meu_acesso.jogos, true);
 });
 
 test('mata-mata: progressao automatica do vencedor ate o campeao', async () => {

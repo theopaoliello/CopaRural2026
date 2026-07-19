@@ -94,9 +94,26 @@ const nomeFase = (n) => ({ 1: 'Final', 2: 'Semifinal', 4: 'Quartas de final', 8:
 
 // ================= LISTA DE CAMPEONATOS =================
 
+function cardCampeonato(c) {
+  return `<div class="card card-camp" onclick="telaCampeonato(${c.id})">
+    <div class="linha-flex">
+      <div>
+        <strong>${esc(c.nome)}</strong> ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}
+        ${c.status === 'arquivado' ? '<span class="badge" style="background:#eee;color:#666">Arquivado</span>' : ''}
+        ${c.compartilhado ? `<span class="badge" title="Compartilhado com você">🤝 ${esc(c.dono_nome ?? 'dono')}</span>` : ''}
+        <div class="muted">${c.n_times} times • ${c.n_encerrados}/${c.n_jogos} jogos com resultado</div>
+      </div>
+      <span class="espacador"></span>
+      <a class="botao secundario mini" href="/c/${esc(c.slug)}" target="_blank" onclick="event.stopPropagation()">Página pública ↗</a>
+    </div>
+  </div>`;
+}
+
 async function telaLista() {
   DET = null;
   const [lista, limites] = await Promise.all([api('/api/campeonatos'), api('/api/conta/limites')]);
+  const proprios = lista.filter((c) => !c.compartilhado);
+  const compartilhados = lista.filter((c) => c.compartilhado);
   const cheio = limites.usados >= limites.max_campeonatos;
   $('#app').innerHTML = `
     <div class="linha-flex" style="margin-bottom:14px">
@@ -106,19 +123,12 @@ async function telaLista() {
       <button class="botao" onclick="${cheio ? 'avisoLimiteCampeonatos()' : 'telaNovo()'}">+ Novo campeonato</button>
     </div>
     ${cheio ? `<div class="aviso erro" style="display:block;margin-bottom:12px">Sua conta atingiu o limite de ${limites.max_campeonatos} campeonatos simultâneos. Exclua um campeonato que já terminou ou fale com o suporte para ampliar seu plano.</div>` : ''}
-    ${lista.length ? lista.map((c) => `
-      <div class="card card-camp" onclick="telaCampeonato(${c.id})">
-        <div class="linha-flex">
-          <div>
-            <strong>${esc(c.nome)}</strong> ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}
-            ${c.status === 'arquivado' ? '<span class="badge" style="background:#eee;color:#666">Arquivado</span>' : ''}
-            <div class="muted">${c.n_times} times • ${c.n_encerrados}/${c.n_jogos} jogos com resultado</div>
-          </div>
-          <span class="espacador"></span>
-          <a class="botao secundario mini" href="/c/${esc(c.slug)}" target="_blank" onclick="event.stopPropagation()">Página pública ↗</a>
-        </div>
-      </div>`).join('')
+    ${proprios.length ? proprios.map(cardCampeonato).join('')
     : '<div class="card"><p>Você ainda não tem campeonatos. Crie o primeiro! 🏆</p></div>'}
+    ${compartilhados.length ? `
+      <h3 style="margin:22px 0 8px">Compartilhados comigo</h3>
+      <p class="muted" style="margin:0 0 8px">Campeonatos que outras pessoas compartilharam com você. Não contam no seu limite.</p>
+      ${compartilhados.map(cardCampeonato).join('')}` : ''}
     <p class="muted" style="text-align:center;margin-top:24px">
       <a href="/privacidade.html" target="_blank">Política de Privacidade</a> •
       <a href="#" onclick="modalExcluirConta();return false">Excluir minha conta</a>
@@ -420,23 +430,33 @@ async function telaCampeonato(id, aba = abaAtual) {
   DET = await api(`/api/campeonatos/${id}`);
   // Preset do esporte do campeonato aberto: dirige rotulos, colunas e modal de resultado.
   ESP = (await catalogoEsportes()).find((e) => e.chave === DET.campeonato.esporte) ?? null;
-  // Aba Banners so existe para contas com o recurso liberado (RN-BA-03).
-  if (aba === 'banners' && !DET.banners_liberados) aba = 'jogos';
-  abaAtual = aba;
   const c = DET.campeonato;
+  // meu_acesso (RN-CO-04/05): dono ve tudo; colaborador so as secoes das flags,
+  // mais a Classificacao (leitura). Config e Banners sao sempre dono-only.
+  const A = DET.meu_acesso ?? { dono: true, jogos: true, times: true, regras: true, sorteio: true, banners: true, config: true };
+  const abas = [
+    ...(A.jogos ? [['jogos', 'Jogos']] : []),
+    ...(A.times ? [['times', ESP?.rotulos.participantes ?? 'Times']] : []),
+    ...(ESP?.ranking === 'individual' && A.sorteio ? [['sorteio', 'Sorteio']] : []),
+    ['classificacao', ESP?.rotulos.classificacao ?? 'Classificação'],
+    ...(A.regras ? [['regras', 'Regras']] : []),
+    ...(A.banners && DET.banners_liberados ? [['banners', 'Banners']] : []),
+    ...(A.config ? [['config', 'Configurações']] : []),
+  ];
+  // Se a aba pedida nao esta disponivel (colaborador, recurso revogado), cai na
+  // primeira disponivel (a Classificacao sempre existe).
+  if (!abas.some(([k]) => k === aba)) aba = abas[0][0];
+  abaAtual = aba;
   $('#app').innerHTML = `
     <div class="linha-flex" style="margin-bottom:10px">
       <a href="#" onclick="telaLista();return false">← Meus campeonatos</a>
       <span class="espacador"></span>
       <a class="botao secundario mini" href="/c/${esc(c.slug)}" target="_blank">Página pública ↗</a>
     </div>
-    <h2 style="margin:4px 0">${esc(c.nome)} ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}</h2>
+    <h2 style="margin:4px 0">${esc(c.nome)} ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}
+      ${A.dono ? '' : '<span class="badge" title="Você é colaborador deste campeonato">🤝 Colaborador</span>'}</h2>
     <div class="abas">
-      ${[['jogos', 'Jogos'], ['times', ESP?.rotulos.participantes ?? 'Times'],
-        ...(ESP?.ranking === 'individual' ? [['sorteio', 'Sorteio']] : []),
-        ['classificacao', ESP?.rotulos.classificacao ?? 'Classificação'], ['regras', 'Regras'],
-        ...(DET.banners_liberados ? [['banners', 'Banners']] : []), ['config', 'Configurações']]
-        .map(([k, r]) => `<button class="aba ${aba === k ? 'ativa' : ''}" onclick="telaCampeonato(${id}, '${k}')">${r}</button>`).join('')}
+      ${abas.map(([k, r]) => `<button class="aba ${aba === k ? 'ativa' : ''}" onclick="telaCampeonato(${id}, '${k}')">${r}</button>`).join('')}
     </div>
     <div id="painel"></div>
   `;
@@ -1393,7 +1413,8 @@ function abaRegras() {
 }
 async function salvarRegras() {
   try {
-    await api(`/api/campeonatos/${DET.campeonato.id}`, 'PATCH', { regras: $('#cfg-regras').value || null });
+    // Rota dedicada (RN-CO-03): o colaborador de Regras salva sem a rota de Config.
+    await api(`/api/campeonatos/${DET.campeonato.id}/regras`, 'PATCH', { regras: $('#cfg-regras').value || null });
     avisar('Regras salvas!'); telaCampeonato(DET.campeonato.id, 'regras');
   } catch (e) { avisar(e.message); }
 }
@@ -1403,6 +1424,8 @@ async function salvarRegras() {
 async function abaConfig() {
   const c = DET.campeonato;
   const esporte = (await catalogoEsportes()).find((e) => e.chave === c.esporte);
+  const ehPelada = esporte?.ranking === 'individual';
+  const colabs = await api(`/api/campeonatos/${c.id}/colaboradores`);
   const url = `${location.origin}/c/${c.slug}`;
   $('#painel').innerHTML = `
     <div class="card">
@@ -1455,6 +1478,23 @@ async function abaConfig() {
       ${DET.vagas?.resumo ? `<p class="muted">${esc(DET.vagas.resumo)}</p>` : ''}
     </div>` : ''}
     <div class="card">
+      <h3>Colaboradores <span class="badge">${colabs.length}/2</span></h3>
+      <p class="muted">Compartilhe este campeonato com até 2 pessoas e escolha o que cada uma pode editar.
+      A Classificação fica sempre visível. Configurações, Banners e gerar o mata-mata continuam só com você.</p>
+      ${colabs.map((col) => linhaColaborador(col, ehPelada)).join('') || '<p class="muted">Ninguém ainda.</p>'}
+      ${colabs.length < 2 ? `
+        <h4>Convidar pessoa</h4>
+        <label>E-mail</label><input type="email" id="colab-email" placeholder="pessoa@exemplo.com">
+        <div class="linha-flex" style="gap:12px;margin-top:6px;flex-wrap:wrap">
+          ${flagColab('colab-novo-jogos', 'Jogos')}
+          ${flagColab('colab-novo-times', 'Times')}
+          ${flagColab('colab-novo-regras', 'Regras')}
+          ${ehPelada ? flagColab('colab-novo-sorteio', 'Sorteio') : ''}
+        </div>
+        <p><button class="botao" onclick="convidarColaborador()">Enviar convite</button></p>`
+        : '<p class="muted">Limite de 2 colaboradores atingido.</p>'}
+    </div>
+    <div class="card">
       <h3>Zona de perigo</h3>
       <p class="muted">Excluir o campeonato apaga times, jogos, resultados e banners. Não tem volta.</p>
       <button class="botao perigo" onclick="excluirCampeonato()">Excluir campeonato</button>
@@ -1483,6 +1523,64 @@ async function salvarConfig() {
     avisar('Alterações salvas!'); telaCampeonato(DET.campeonato.id, 'config');
   } catch (e) { avisar(e.message); }
 }
+// ---------- colaboradores (RN-CO) ----------
+
+function flagColab(id, rotulo, marcado) {
+  return `<label style="font-weight:400;display:inline-flex;gap:5px;align-items:center;margin:0">
+    <input type="checkbox" id="${id}" ${marcado ? 'checked' : ''} style="width:auto">${rotulo}</label>`;
+}
+function linhaColaborador(col, ehPelada) {
+  const corPend = col.status === 'pendente' ? 'background:#fef3c7;color:#92400e' : '';
+  return `<div style="border-bottom:1px solid var(--borda);padding:10px 0">
+    <div class="linha-flex">
+      <strong style="overflow-wrap:anywhere">${esc(col.email)}</strong>
+      <span class="badge" style="${corPend}" title="${col.status === 'pendente' ? 'A pessoa ainda não criou/confirmou a conta com este e-mail' : ''}">${col.status}</span>
+      <span class="espacador"></span>
+      <button class="botao perigo mini" onclick="removerColaborador(${col.id})">Remover</button>
+    </div>
+    <div class="linha-flex" style="gap:12px;margin-top:6px;flex-wrap:wrap">
+      ${flagColab(`colab-${col.id}-jogos`, 'Jogos', col.pode_jogos)}
+      ${flagColab(`colab-${col.id}-times`, 'Times', col.pode_times)}
+      ${flagColab(`colab-${col.id}-regras`, 'Regras', col.pode_regras)}
+      ${ehPelada ? flagColab(`colab-${col.id}-sorteio`, 'Sorteio', col.pode_sorteio) : ''}
+      <button class="botao secundario mini" onclick="salvarFlagsColaborador(${col.id})">Salvar acessos</button>
+    </div>
+  </div>`;
+}
+async function convidarColaborador() {
+  const c = DET.campeonato;
+  try {
+    await api(`/api/campeonatos/${c.id}/colaboradores`, 'POST', {
+      email: ($('#colab-email').value || '').trim(),
+      pode_jogos: $('#colab-novo-jogos')?.checked,
+      pode_times: $('#colab-novo-times')?.checked,
+      pode_regras: $('#colab-novo-regras')?.checked,
+      pode_sorteio: $('#colab-novo-sorteio')?.checked,
+    });
+    avisar('Convite enviado!'); telaCampeonato(c.id, 'config');
+  } catch (e) { avisar(e.message); }
+}
+async function salvarFlagsColaborador(cid) {
+  const c = DET.campeonato;
+  try {
+    await api(`/api/campeonatos/${c.id}/colaboradores/${cid}`, 'PATCH', {
+      pode_jogos: $(`#colab-${cid}-jogos`)?.checked,
+      pode_times: $(`#colab-${cid}-times`)?.checked,
+      pode_regras: $(`#colab-${cid}-regras`)?.checked,
+      pode_sorteio: $(`#colab-${cid}-sorteio`)?.checked,
+    });
+    avisar('Acessos atualizados!');
+  } catch (e) { avisar(e.message); }
+}
+async function removerColaborador(cid) {
+  if (!confirm('Remover este colaborador? Ele perde o acesso imediatamente.')) return;
+  const c = DET.campeonato;
+  try {
+    await api(`/api/campeonatos/${c.id}/colaboradores/${cid}`, 'DELETE');
+    avisar('Colaborador removido.'); telaCampeonato(c.id, 'config');
+  } catch (e) { avisar(e.message); }
+}
+
 async function enviarLogo() {
   try {
     const imagem = await lerArquivo($('#arq-logo'));

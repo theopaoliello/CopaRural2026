@@ -94,7 +94,18 @@ export function confirmarEmail(db, token) {
   }
   db.prepare('UPDATE verificacoes_email SET usado_em = ? WHERE id = ?').run(new Date().toISOString(), v.id);
   db.prepare('UPDATE contas SET email_verificado = 1 WHERE id = ?').run(v.conta_id);
-  return db.prepare('SELECT id, nome, email FROM contas WHERE id = ?').get(v.conta_id);
+  const conta = db.prepare('SELECT id, nome, email FROM contas WHERE id = ?').get(v.conta_id);
+  ativarConvitesPendentes(db, conta);
+  return conta;
+}
+
+// RN-CO-02: um convite de colaborador feito para um e-mail sem conta fica
+// pendente (conta_id NULL) ate a pessoa criar E confirmar a conta com aquele
+// e-mail (ou entrar via Google). Exigir a confirmacao impede que alguem registre
+// o e-mail de terceiro so para herdar o convite.
+export function ativarConvitesPendentes(db, conta) {
+  db.prepare('UPDATE colaboradores SET conta_id = ? WHERE conta_id IS NULL AND email = ?')
+    .run(conta.id, String(conta.email).toLowerCase());
 }
 
 // ---------- recuperacao de senha (esqueci minha senha) ----------
@@ -162,6 +173,8 @@ export function contaViaGoogle(db, { sub, email, nome, emailVerificado }) {
       conta = db.prepare('SELECT * FROM contas WHERE id = ?').get(info.lastInsertRowid);
     }
   }
+  // Entrar pelo Google confirma o e-mail: ativa convites pendentes (RN-CO-02).
+  ativarConvitesPendentes(db, conta);
   return { id: conta.id, nome: conta.nome, email: conta.email };
 }
 
