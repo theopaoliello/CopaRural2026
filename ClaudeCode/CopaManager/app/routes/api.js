@@ -290,7 +290,7 @@ export function montarRotas(db, { limites = {} } = {}) {
   rotas.get('/master/contas', logado, mestre, (req, res) => {
     const contas = db
       .prepare(
-        `SELECT c.id, c.nome, c.email, c.papel, c.criado_em,
+        `SELECT c.id, c.nome, c.email, c.papel, c.criado_em, c.ultimo_login,
            c.tipo, c.max_campeonatos, c.max_times, c.max_jogadores_time, c.banners_liberados,
            (SELECT COUNT(*) FROM campeonatos x WHERE x.conta_id = c.id) AS n_campeonatos
          FROM contas c ORDER BY c.nome`,

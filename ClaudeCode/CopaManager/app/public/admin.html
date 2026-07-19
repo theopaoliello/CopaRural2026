@@ -90,6 +90,12 @@ function escudoHtml(t) {
   if (t?.escudo) return `<img class="escudo" src="${esc(t.escudo)}" alt="">`;
   return `<span class="escudo-placeholder">${t ? esc(t.nome[0].toUpperCase()) : '?'}</span>`;
 }
+// Data + hora completas (dd/mm/aaaa hh:mm), ex.: para o ultimo acesso no painel master.
+function dataHoraCompleta(iso) {
+  const d = new Date(iso);
+  if (!iso || Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
 const nomeFase = (n) => ({ 1: 'Final', 2: 'Semifinal', 4: 'Quartas de final', 8: 'Oitavas de final' }[n] || `Fase de ${n * 2} times`);
 
 // ================= LISTA DE CAMPEONATOS =================
@@ -1632,6 +1638,7 @@ async function telaMaster() {
             <span class="badge">${esc(rotuloTipoConta(cta.tipo))}</span>
             ${cta.banners_liberados ? '<span class="badge" title="Seção Banners liberada">🖼️ Banners</span>' : ''}
             <div class="muted">${esc(cta.email)} • ${cta.n_campeonatos}/${cta.limite_campeonatos} campeonato(s) • desde ${esc((cta.criado_em ?? '').slice(0, 10))}</div>
+            <div class="muted">Último acesso: ${cta.ultimo_login ? esc(dataHoraCompleta(cta.ultimo_login)) : 'nunca'}</div>
           </div>
           <span class="espacador"></span>
           <button class="botao" onclick="entrarTenant(${cta.id})">Gerenciar ➜</button>

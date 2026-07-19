@@ -74,6 +74,8 @@ function migrarColunas(db) {
   if (tabelaExiste(db, 'contas') && !tinhaBanners) {
     db.exec('UPDATE contas SET banners_liberados = 1');
   }
+  // Ultimo login do titular (fica NULL nas contas antigas ate o proximo login).
+  addSeFaltar('contas', 'ultimo_login TEXT');
 }
 
 // Bancos criados antes dos tipos 'gol_contra' (2026-07) ou 'pontos'/'valor'

@@ -188,6 +188,9 @@ export function criarSessao(db, contaId) {
     contaId,
     expira,
   );
+  // Ultimo login do titular. So passa por aqui em login real (senha, confirmacao
+  // de e-mail, redefinicao, Google) — o master entrar na conta nao cria sessao.
+  db.prepare('UPDATE contas SET ultimo_login = ? WHERE id = ?').run(new Date().toISOString(), contaId);
   return token;
 }
 

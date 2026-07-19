@@ -28,6 +28,9 @@ CREATE TABLE IF NOT EXISTS contas (
   -- Secao Banners liberada por conta (RN-BA-01/02): contas novas nascem 0;
   -- o master libera. Contas pre-existentes recebem 1 no backfill (grandfather).
   banners_liberados INTEGER NOT NULL DEFAULT 0,
+  -- Ultimo login efetivo do titular (gravado ao criar sessao). O master entrar
+  -- na conta (modo tenant) NAO cria sessao, entao nao conta aqui. NULL = nunca.
+  ultimo_login TEXT,
   criado_em TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

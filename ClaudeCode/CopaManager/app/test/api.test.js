@@ -406,6 +406,32 @@ test('colaboradores: convite pendente ativa ao confirmar e-mail; validacoes e te
   assert.equal((await novo('GET', `/api/campeonatos/${campId}`)).corpo.meu_acesso.jogos, true);
 });
 
+test('ultimo login: login grava; master entrar na conta (tenant) nao conta', async () => {
+  const master = cliente();
+  await registrarEntrar(master, { nome: 'M UL', email: 'mul@teste.com', senha: 'segredo1' });
+  bancoTeste.prepare("UPDATE contas SET papel = 'master' WHERE email = 'mul@teste.com'").run();
+  const alvoCliente = cliente();
+  const alvo = await registrarEntrar(alvoCliente, { nome: 'Alvo UL', email: 'alvoul@teste.com', senha: 'segredo1' });
+
+  // registrarEntrar confirma o e-mail (cria sessao) -> ultimo_login preenchido
+  const apos = () => bancoTeste.prepare('SELECT ultimo_login FROM contas WHERE id = ?').get(alvo.id).ultimo_login;
+  const loginInicial = apos();
+  assert.ok(loginInicial, 'ultimo_login gravado no login/confirmacao');
+
+  // master entra na conta do alvo (tenant): NAO deve mexer no ultimo_login do alvo
+  assert.equal((await master('POST', '/api/master/entrar', { conta_id: alvo.id })).status, 200);
+  assert.equal(apos(), loginInicial, 'entrar como tenant nao atualiza o ultimo_login do usuario');
+
+  // GET /master/contas expoe o campo
+  const linha = (await master('GET', '/api/master/contas')).corpo.find((c) => c.id === alvo.id);
+  assert.equal(linha.ultimo_login, loginInicial);
+
+  // um login real por senha atualiza
+  await new Promise((r) => setTimeout(r, 5));
+  await cliente()('POST', '/api/auth/login', { email: 'alvoul@teste.com', senha: 'segredo1' });
+  assert.ok(apos() >= loginInicial && apos() !== null, 'login por senha atualiza o ultimo_login');
+});
+
 test('mata-mata: progressao automatica do vencedor ate o campeao', async () => {
   const c = cliente();
   await registrarEntrar(c, { nome: 'Mata', email: 'mata@teste.com', senha: 'segredo1' });
