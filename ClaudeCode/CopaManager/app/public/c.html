@@ -15,12 +15,16 @@
   .cabecalho-camp { text-align: center; padding: 22px 16px 8px; }
   .cabecalho-camp h1 { margin: 8px 0 2px; color: var(--verde); }
   .cabecalho-camp img.logo { width: 84px; height: 84px; object-fit: contain; }
+  #btn-seguir.ativo { background: var(--verde); color: #fff; border-color: var(--verde); }
 </style>
 </head>
 <body>
 <header class="topo">
   <span class="marca"><a href="/"><img src="/img/marca-branca.png" alt=""> Copa Manager</a></span>
-  <div class="direita"><button class="botao secundario mini" id="btn-compartilhar">Compartilhar</button></div>
+  <div class="direita" style="display:flex;gap:8px">
+    <button class="botao secundario mini" id="btn-seguir" style="display:none"></button>
+    <button class="botao secundario mini" id="btn-compartilhar">Compartilhar</button>
+  </div>
 </header>
 
 <div class="conteudo" id="app"><p class="muted">Carregando campeonato…</p></div>
@@ -459,6 +463,47 @@ $('#btn-compartilhar').onclick = async () => {
   if (navigator.share) { try { await navigator.share(dados); } catch {} }
   else { await navigator.clipboard.writeText(location.href); alert('Link copiado!'); }
 };
+
+// ---------- seguir esta copa (RN-SG) ----------
+
+const CHAVE_SEGUIR_PENDENTE = 'cm_seguir_pendente';
+const btnSeguir = $('#btn-seguir');
+let estadoSeguir = { logado: false, seguindo: false };
+
+function pintarSeguir() {
+  btnSeguir.textContent = estadoSeguir.seguindo ? '★ Seguindo' : '☆ Seguir esta Copa';
+  btnSeguir.classList.toggle('ativo', estadoSeguir.seguindo);
+  btnSeguir.style.display = '';
+}
+
+btnSeguir.onclick = async () => {
+  // Visitante anonimo: guarda a intencao e leva ao login; ao voltar logado, o
+  // painel efetiva o "seguir" e traz de volta a esta copa (RN-SG-05).
+  if (!estadoSeguir.logado) {
+    try { localStorage.setItem(CHAVE_SEGUIR_PENDENTE, JSON.stringify({ slug, em: Date.now() })); } catch {}
+    location.href = '/';
+    return;
+  }
+  const seguindoAntes = estadoSeguir.seguindo;
+  btnSeguir.disabled = true;
+  try {
+    const r = await fetch(`/api/seguir/${encodeURIComponent(slug)}`, { method: seguindoAntes ? 'DELETE' : 'POST' });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).mensagem || 'Não foi possível concluir. Tente de novo.');
+    estadoSeguir.seguindo = !seguindoAntes;
+    pintarSeguir();
+  } catch (e) {
+    alert(e.message); // reverte visualmente (nao mexemos no estado em caso de erro)
+  } finally {
+    btnSeguir.disabled = false;
+  }
+};
+
+// Resolve o estado do botao (logado? ja segue?). Campeonato despublicado => 404,
+// e o botao permanece escondido (RN-SG-06/08).
+fetch(`/api/seguir/${encodeURIComponent(slug)}/estado`)
+  .then((r) => (r.ok ? r.json() : null))
+  .then((est) => { if (est) { estadoSeguir = est; pintarSeguir(); } })
+  .catch(() => {});
 
 // ---------- carga ----------
 

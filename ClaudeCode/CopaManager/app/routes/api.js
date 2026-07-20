@@ -5,7 +5,7 @@ import {
   registrarConta, autenticar, criarSessao, encerrarSessao, hashSenha, conferirSenha,
   criarTokenVerificacao, confirmarEmail, contaViaGoogle,
   criarTokenRecuperacao, redefinirSenha,
-  lerCookie, cookieDeSessao, cookieDeSaida, exigirLogin, NOME_COOKIE,
+  lerCookie, cookieDeSessao, cookieDeSaida, exigirLogin, contaDaSessao, NOME_COOKIE,
 } from '../src/auth.js';
 import { enviarEmail } from '../src/email.js';
 import { googleConfigurado, urlDeAutorizacao, perfilDoCodigo } from '../src/google.js';
@@ -33,6 +33,7 @@ import {
 import { parsearResultadoTexto } from '../src/resultado-texto.js';
 import { salvarImagem, apagarImagem } from '../src/uploads.js';
 import { dadosPublicos } from '../src/publico.js';
+import { seguir, deixarDeSeguir, estadoDeSeguir, listarSeguidos } from '../src/seguidores.js';
 import { erroValidacao, erroConflito, erroProibido, erroNaoEncontrado } from '../src/erros.js';
 import { CRITERIOS_VALIDOS } from '../src/classificacao.js';
 import { ESPORTES, obterEsporte } from '../src/esportes.js';
@@ -75,6 +76,19 @@ export function montarRotas(db, { limites = {} } = {}) {
   const limiteRedefinicao = criarLimitador({ max: 10, janelaMs: 10 * 60_000, ...limites.redefinicao });
   // Convites de colaborador disparam e-mail: limite por IP (RN-CO-12).
   const limiteConvite = criarLimitador({ max: 30, janelaMs: 60 * 60_000, ...limites.convite });
+  // Seguir/deixar de seguir: evita inflar contadores de forma automatizada.
+  const limiteSeguir = criarLimitador({ max: 60, janelaMs: 10 * 60_000, ...limites.seguir });
+
+  // Login OPCIONAL: popula req.conta se houver sessao valida, mas nunca barra
+  // o anonimo. Usado pelo estado do botao "Seguir" na pagina publica (RN-SG-06).
+  const talvezLogado = (req, _res, next) => {
+    const sessao = contaDaSessao(db, lerCookie(req, NOME_COOKIE));
+    if (sessao) {
+      req.conta = sessao.efetiva;
+      req.contaReal = sessao.real;
+    }
+    next();
+  };
 
   // Base dos links enviados por e-mail e do redirect do Google. Em producao,
   // defina URL_PUBLICA=https://copamanager.com.br; sem ela, usa o host da requisicao.
@@ -498,9 +512,12 @@ export function montarRotas(db, { limites = {} } = {}) {
       (SELECT COUNT(*) FROM times t WHERE t.campeonato_id = c.id) AS n_times,
       (SELECT COUNT(*) FROM jogos j WHERE j.campeonato_id = c.id) AS n_jogos,
       (SELECT COUNT(*) FROM jogos j WHERE j.campeonato_id = c.id AND j.status = 'encerrado') AS n_encerrados`;
+    // n_seguidores so vai para os campeonatos PROPRIOS: a contagem e visivel
+    // apenas ao dono (RN-SG, secao 7) — colaboradores e seguidores nao a veem.
     const proprios = db
       .prepare(
-        `SELECT c.*, ${contagens}, 0 AS compartilhado, NULL AS dono_nome
+        `SELECT c.*, ${contagens}, 0 AS compartilhado, NULL AS dono_nome,
+                (SELECT COUNT(*) FROM seguidores s WHERE s.campeonato_id = c.id) AS n_seguidores
          FROM campeonatos c WHERE c.conta_id = ? ORDER BY c.criado_em DESC`,
       )
       .all(req.conta.id);
@@ -1111,6 +1128,28 @@ export function montarRotas(db, { limites = {} } = {}) {
 
   rotas.get('/publico/:slug', (req, res) => {
     res.json(dadosPublicos(db, req.params.slug));
+  });
+
+  // ---------- seguir campeonatos (RN-SG) ----------
+
+  // Estado do botao na pagina publica: funciona logado ou anonimo (RN-SG-06).
+  rotas.get('/seguir/:slug/estado', talvezLogado, (req, res) => {
+    res.json(estadoDeSeguir(db, req.conta?.id ?? null, req.params.slug));
+  });
+
+  // Seguir e deixar de seguir sao idempotentes (RN-SG-03) e exigem login: o
+  // visitante anonimo e levado a autenticar antes (fluxo tratado no front, fase B).
+  rotas.post('/seguir/:slug', limiteSeguir.middleware, logado, (req, res) => {
+    res.json(seguir(db, req.conta.id, req.params.slug));
+  });
+
+  rotas.delete('/seguir/:slug', limiteSeguir.middleware, logado, (req, res) => {
+    res.json(deixarDeSeguir(db, req.conta.id, req.params.slug));
+  });
+
+  // Secao "Seguindo" da home (RN-SG-04): copas que a conta segue (nao contam no limite).
+  rotas.get('/seguindo', logado, (req, res) => {
+    res.json(listarSeguidos(db, req.conta.id));
   });
 
   return rotas;

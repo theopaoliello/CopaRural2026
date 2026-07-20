@@ -257,3 +257,19 @@ CREATE TABLE IF NOT EXISTS colaboradores (
 
 CREATE INDEX IF NOT EXISTS idx_colaboradores_campeonato ON colaboradores(campeonato_id);
 CREATE INDEX IF NOT EXISTS idx_colaboradores_conta ON colaboradores(conta_id);
+
+-- Seguidores (RN-SG): vinculo PESSOAL conta<->campeonato, somente leitura. Seguir
+-- NAO concede acesso administrativo (RN-SG-02) — apenas adiciona a copa a secao
+-- "Seguindo" da home do usuario. O UNIQUE garante idempotencia (RN-SG-01/03) e o
+-- ON DELETE CASCADE dos dois lados evita orfaos ao excluir a conta ou o campeonato
+-- (RN-SG-08). Contagem de seguidores e sempre derivada, nunca armazenada (RN-SG-09).
+CREATE TABLE IF NOT EXISTS seguidores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conta_id INTEGER NOT NULL REFERENCES contas(id) ON DELETE CASCADE,
+  campeonato_id INTEGER NOT NULL REFERENCES campeonatos(id) ON DELETE CASCADE,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (conta_id, campeonato_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_seguidores_conta ON seguidores(conta_id);
+CREATE INDEX IF NOT EXISTS idx_seguidores_campeonato ON seguidores(campeonato_id);

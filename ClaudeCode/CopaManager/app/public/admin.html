@@ -107,6 +107,7 @@ function cardCampeonato(c) {
         <strong>${esc(c.nome)}</strong> ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}
         ${c.status === 'arquivado' ? '<span class="badge" style="background:#eee;color:#666">Arquivado</span>' : ''}
         ${c.compartilhado ? `<span class="badge" title="Compartilhado com você">🤝 ${esc(c.dono_nome ?? 'dono')}</span>` : ''}
+        ${c.n_seguidores ? `<span class="badge" title="Pessoas seguindo esta copa">👥 ${c.n_seguidores}</span>` : ''}
         <div class="muted">${c.n_times} times • ${c.n_encerrados}/${c.n_jogos} jogos com resultado</div>
       </div>
       <span class="espacador"></span>
@@ -115,9 +116,33 @@ function cardCampeonato(c) {
   </div>`;
 }
 
+// Card da secao "Seguindo" (RN-SG): abre a pagina PUBLICA (seguir nao da acesso
+// administrativo, RN-SG-02) e permite deixar de seguir. Nao conta no limite.
+function cardSeguindo(c) {
+  return `<div class="card card-camp" onclick="location.href='/c/${esc(c.slug)}'">
+    <div class="linha-flex">
+      <div>
+        <strong>${esc(c.nome)}</strong> ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}
+        ${c.status === 'arquivado' ? '<span class="badge" style="background:#eee;color:#666">Arquivado</span>' : ''}
+        <div class="muted">Organizado por ${esc(c.dono_nome ?? '—')} • ${c.n_times} times • ${c.n_encerrados}/${c.n_jogos} jogos com resultado</div>
+      </div>
+      <span class="espacador"></span>
+      <a class="botao secundario mini" href="/c/${esc(c.slug)}" target="_blank" onclick="event.stopPropagation()">Página pública ↗</a>
+      <button class="botao secundario mini" onclick="event.stopPropagation();deixarDeSeguir('${esc(c.slug)}')">Deixar de seguir</button>
+    </div>
+  </div>`;
+}
+
+async function deixarDeSeguir(slug) {
+  try { await api(`/api/seguir/${encodeURIComponent(slug)}`, 'DELETE'); telaLista(); }
+  catch (e) { avisar(e.message); }
+}
+
 async function telaLista() {
   DET = null;
-  const [lista, limites] = await Promise.all([api('/api/campeonatos'), api('/api/conta/limites')]);
+  const [lista, limites, seguindo] = await Promise.all([
+    api('/api/campeonatos'), api('/api/conta/limites'), api('/api/seguindo'),
+  ]);
   const proprios = lista.filter((c) => !c.compartilhado);
   const compartilhados = lista.filter((c) => c.compartilhado);
   const cheio = limites.usados >= limites.max_campeonatos;
@@ -135,6 +160,9 @@ async function telaLista() {
       <h3 style="margin:22px 0 8px">Compartilhados comigo</h3>
       <p class="muted" style="margin:0 0 8px">Campeonatos que outras pessoas compartilharam com você. Não contam no seu limite.</p>
       ${compartilhados.map(cardCampeonato).join('')}` : ''}
+    ${seguindo.length ? `
+      <h3 style="margin:22px 0 8px">Seguindo</h3>
+      ${seguindo.map(cardSeguindo).join('')}` : ''}
     <p class="muted" style="text-align:center;margin-top:24px">
       <a href="/privacidade.html" target="_blank">Política de Privacidade</a> •
       <a href="#" onclick="modalExcluirConta();return false">Excluir minha conta</a>
@@ -1810,7 +1838,22 @@ async function excluirConta(contaId) {
 
 $('#btn-sair').onclick = async () => { await api('/api/auth/sair', 'POST'); location.href = '/'; };
 
+// Intencao de "seguir" guardada quando um visitante anonimo clicou em "Seguir
+// esta Copa" e foi mandado ao login (RN-SG-05). Todo login (senha e Google)
+// termina aqui em /admin, entao efetivamos o vinculo e devolvemos a pessoa a
+// copa. Ignora intencao velha (> 1h) para nao seguir algo ja esquecido.
+async function executarSeguirPendente() {
+  let intencao = null;
+  try { intencao = JSON.parse(localStorage.getItem('cm_seguir_pendente') || 'null'); } catch {}
+  try { localStorage.removeItem('cm_seguir_pendente'); } catch {}
+  if (!intencao?.slug || !intencao.em || Date.now() - intencao.em > 60 * 60 * 1000) return false;
+  try { await fetch(`/api/seguir/${encodeURIComponent(intencao.slug)}`, { method: 'POST' }); } catch {}
+  location.href = `/c/${encodeURIComponent(intencao.slug)}`;
+  return true;
+}
+
 async function iniciarPainel() {
+  if (await executarSeguirPendente()) return; // seguiu e voltou para a copa
   EU = await api('/api/auth/eu');
   $('#ola').textContent = EU.tenant
     ? `Olá! (como ${EU.tenant.nome.split(' ')[0]})`
