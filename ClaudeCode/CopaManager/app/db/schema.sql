@@ -108,6 +108,13 @@ CREATE TABLE IF NOT EXISTS campeonatos (
   regras TEXT,
   publicado INTEGER NOT NULL DEFAULT 1,
   status TEXT NOT NULL DEFAULT 'ativo' CHECK (status IN ('ativo', 'arquivado')),
+  -- Encerramento explicito (EF Perfil do Atleta, fase A): NULL = em andamento.
+  -- So ao encerrar existe podio/titulo (RN-AT-13); reabrir volta ambos a NULL.
+  encerrado_em TEXT,
+  -- Podio declarado pelo gestor ao encerrar (RN-AT-13): JSON
+  -- {"primeiro": id, "segundo": id|null, "terceiro": id|null} com ids de
+  -- times (esportes de clubes) ou jogadores (Pelada Epica).
+  podio TEXT,
   criado_em TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

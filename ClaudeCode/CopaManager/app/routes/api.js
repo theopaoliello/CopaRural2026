@@ -34,6 +34,9 @@ import { parsearResultadoTexto } from '../src/resultado-texto.js';
 import { salvarImagem, apagarImagem } from '../src/uploads.js';
 import { dadosPublicos } from '../src/publico.js';
 import { seguir, deixarDeSeguir, estadoDeSeguir, listarSeguidos } from '../src/seguidores.js';
+import {
+  estadoEncerramento, sugerirPodio, encerrarCampeonato, reabrirCampeonato,
+} from '../src/encerramento.js';
 import { erroValidacao, erroConflito, erroProibido, erroNaoEncontrado } from '../src/erros.js';
 import { CRITERIOS_VALIDOS } from '../src/classificacao.js';
 import { ESPORTES, obterEsporte } from '../src/esportes.js';
@@ -771,6 +774,28 @@ export function montarRotas(db, { limites = {} } = {}) {
     const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
     const n = gerarMataDoCampeonato(db, c);
     res.status(201).json({ jogos_criados: n });
+  });
+
+  // ---------- encerramento com podio (EF Perfil do Atleta, fase A) ----------
+
+  // Estado + sugestao do podio para o card de Config e o dialogo de exclusao
+  // (EF 3.5). Encerrar e uma decisao sobre o desfecho da copa: so o dono.
+  rotas.get('/campeonatos/:id/encerramento', logado, (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
+    const estado = estadoEncerramento(db, c);
+    res.json({ ...estado, sugestao: estado.encerrado ? null : sugerirPodio(db, c) });
+  });
+
+  // Encerra com o podio declarado (RN-AT-13). body: { primeiro, segundo, terceiro }
+  rotas.post('/campeonatos/:id/encerrar', logado, (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
+    res.json(encerrarCampeonato(db, c, req.body ?? {}));
+  });
+
+  // Reabre para correcoes (RN-AT-12): o podio sera declarado de novo.
+  rotas.post('/campeonatos/:id/reabrir', logado, (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
+    res.json(reabrirCampeonato(db, c));
   });
 
   // ---------- times e jogadores (admin) ----------

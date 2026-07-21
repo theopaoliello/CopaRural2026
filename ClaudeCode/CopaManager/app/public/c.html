@@ -16,6 +16,11 @@
   .cabecalho-camp h1 { margin: 8px 0 2px; color: var(--verde); }
   .cabecalho-camp img.logo { width: 84px; height: 84px; object-fit: contain; }
   #btn-seguir.ativo { background: var(--verde); color: #fff; border-color: var(--verde); }
+  /* Podio do campeonato encerrado (EF Perfil do Atleta, fase A) */
+  .podio-card { text-align: center; background: #fffbeb; border: 1px solid #fde68a; }
+  .podio-card .titulo-podio { font-size: .75rem; letter-spacing: .5px; text-transform: uppercase; color: #92400e; }
+  .podio-item { display: inline-flex; align-items: center; gap: 6px; margin: 6px 10px 0; }
+  .podio-item img { width: 22px; height: 22px; object-fit: contain; }
 </style>
 </head>
 <body>
@@ -55,6 +60,19 @@ function bolinhas(ultimos) {
   const faltam = Math.max(0, 5 - ultimos.length);
   const cheias = ultimos.map((r) => `<span class="bolinha ${r}" title="${r === 'V' ? 'Vitória' : r === 'E' ? 'Empate' : 'Derrota'}"></span>`).join('');
   return `<span class="bolinhas">${'<span class="bolinha vazia"></span>'.repeat(faltam)}${cheias}</span>`;
+}
+
+// Podio do campeonato encerrado (EF Perfil do Atleta, fase A): so aparece
+// quando o organizador encerrou a copa e declarou o podio.
+function podioHtml() {
+  const p = D.podio;
+  if (!p?.primeiro) return '';
+  const item = (medalha, x) => (x ? `<span class="podio-item">${medalha}
+    ${x.escudo ? `<img src="${esc(x.escudo)}" alt="">` : ''}<strong>${esc(x.nome)}</strong></span>` : '');
+  return `<div class="card podio-card">
+    <div class="titulo-podio">🏆 Resultado final</div>
+    ${item('🥇', p.primeiro)}${item('🥈', p.segundo)}${item('🥉', p.terceiro)}
+  </div>`;
 }
 
 function bannersHtml() {
@@ -102,6 +120,7 @@ function render() {
       <div class="muted">${esc(subtitulo)}</div>
       ${c.descricao ? `<p class="muted">${esc(c.descricao)}</p>` : ''}
     </div>
+    ${podioHtml()}
     <div class="abas" id="abas">
       ${abas.map(([id, rotulo], i) => `<button class="aba ${i === 0 ? 'ativa' : ''}" data-aba="${id}">${rotulo}</button>`).join('')}
     </div>

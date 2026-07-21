@@ -4,6 +4,7 @@ import { erroNaoEncontrado } from './erros.js';
 import { classificacaoDoCampeonato, vagasDoCampeonato } from './campeonatos.js';
 import { estatisticasJogadores } from './classificacao.js';
 import { nomeFaseMata, vencedorConfronto } from './tabela.js';
+import { podioComNomes } from './encerramento.js';
 import { obterEsporte, ESPORTE_PADRAO } from './esportes.js';
 
 export function dadosPublicos(db, slug) {
@@ -128,7 +129,11 @@ export function dadosPublicos(db, slug) {
       status: campeonato.status,
       regras: campeonato.regras,
       jogos_temporada: campeonato.jogos_temporada,
+      // Encerramento (EF Perfil do Atleta, fase A): a pagina publica mostra o
+      // podio quando o gestor encerrou a copa; NULL = em andamento.
+      encerrado_em: campeonato.encerrado_em,
     },
+    podio: podioComNomes(db, campeonato),
     classificacao,
     vagas: vagasDoCampeonato(db, campeonato, classificacao),
     grupos,

@@ -76,6 +76,10 @@ function migrarColunas(db) {
   }
   // Ultimo login do titular (fica NULL nas contas antigas ate o proximo login).
   addSeFaltar('contas', 'ultimo_login TEXT');
+  // Encerramento com podio (EF Perfil do Atleta, fase A): campeonatos antigos
+  // seguem "em andamento" (NULL) ate o dono encerrar explicitamente.
+  addSeFaltar('campeonatos', 'encerrado_em TEXT');
+  addSeFaltar('campeonatos', 'podio TEXT');
 }
 
 // Bancos criados antes dos tipos 'gol_contra' (2026-07) ou 'pontos'/'valor'

@@ -105,6 +105,7 @@ function cardCampeonato(c) {
     <div class="linha-flex">
       <div>
         <strong>${esc(c.nome)}</strong> ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}
+        ${c.encerrado_em ? '<span class="badge" style="background:#fef3c7;color:#92400e" title="Campeonato encerrado com pódio">🏆 Encerrado</span>' : ''}
         ${c.status === 'arquivado' ? '<span class="badge" style="background:#eee;color:#666">Arquivado</span>' : ''}
         ${c.compartilhado ? `<span class="badge" title="Compartilhado com você">🤝 ${esc(c.dono_nome ?? 'dono')}</span>` : ''}
         ${c.n_seguidores ? `<span class="badge" title="Pessoas seguindo esta copa">👥 ${c.n_seguidores}</span>` : ''}
@@ -488,6 +489,7 @@ async function telaCampeonato(id, aba = abaAtual) {
       <a class="botao secundario mini" href="/c/${esc(c.slug)}" target="_blank">Página pública ↗</a>
     </div>
     <h2 style="margin:4px 0">${esc(c.nome)} ${c.temporada ? `<span class="badge">${esc(c.temporada)}</span>` : ''}
+      ${c.encerrado_em ? '<span class="badge" style="background:#fef3c7;color:#92400e" title="Campeonato encerrado com pódio">🏆 Encerrado</span>' : ''}
       ${A.dono ? '' : '<span class="badge" title="Você é colaborador deste campeonato">🤝 Colaborador</span>'}</h2>
     <div class="abas">
       ${abas.map(([k, r]) => `<button class="aba ${aba === k ? 'ativa' : ''}" onclick="telaCampeonato(${id}, '${k}')">${r}</button>`).join('')}
@@ -1462,6 +1464,7 @@ async function abaConfig() {
   const esporte = (await catalogoEsportes()).find((e) => e.chave === c.esporte);
   const ehPelada = esporte?.ranking === 'individual';
   const colabs = await api(`/api/campeonatos/${c.id}/colaboradores`);
+  const enc = await api(`/api/campeonatos/${c.id}/encerramento`);
   const url = `${location.origin}/c/${c.slug}`;
   $('#painel').innerHTML = `
     <div class="card">
@@ -1529,6 +1532,10 @@ async function abaConfig() {
         </div>
         <p><button class="botao" onclick="convidarColaborador()">Enviar convite</button></p>`
         : '<p class="muted">Limite de 2 colaboradores atingido.</p>'}
+    </div>
+    <div class="card">
+      <h3>Encerramento e pódio</h3>
+      ${cardEncerramento(enc)}
     </div>
     <div class="card">
       <h3>Zona de perigo</h3>
@@ -1624,7 +1631,112 @@ async function enviarLogo() {
     avisar('Logo atualizada!'); telaCampeonato(DET.campeonato.id, 'config');
   } catch (e) { avisar(e.message); }
 }
+// ---------- encerramento com podio (EF Perfil do Atleta, fase A) ----------
+
+// Participantes elegiveis ao podio: times, ou jogadores FIXOS na Pelada Epica.
+function participantesPodio() {
+  return ESP?.ranking === 'individual'
+    ? DET.jogadores.filter((j) => j.tipo === 'fixo')
+    : DET.times;
+}
+function nomePodio(id) {
+  return participantesPodio().find((p) => p.id === id)?.nome ?? '—';
+}
+
+function cardEncerramento(enc) {
+  if (enc.encerrado) {
+    const linha = (medalha, id) => `
+      <div style="padding:3px 0">${medalha} <strong>${esc(nomePodio(id))}</strong></div>`;
+    return `
+      <p class="muted">Encerrado em ${formatarData(enc.encerrado_em.replace(' ', 'T'))}. O pódio aparece na página pública.</p>
+      ${enc.podio?.primeiro ? linha('🥇', enc.podio.primeiro) : ''}
+      ${enc.podio?.segundo ? linha('🥈', enc.podio.segundo) : ''}
+      ${enc.podio?.terceiro ? linha('🥉', enc.podio.terceiro) : ''}
+      <p><button class="botao secundario" onclick="reabrirCampeonato()">Reabrir campeonato</button></p>
+      <p class="muted">Reabrir descarta o pódio; ele será declarado de novo no próximo encerramento.</p>`;
+  }
+  if (enc.fim_definido) {
+    return `
+      <p class="muted">Todos os jogos têm resultado. Encerre o campeonato para declarar o pódio
+      (1º, 2º e 3º lugar) — ele passa a aparecer na página pública.</p>
+      <p><button class="botao" onclick="modalEncerramento(false)">Encerrar campeonato</button></p>`;
+  }
+  return `<p class="muted">${enc.jogos_pendentes > 0
+    ? `Ainda há ${enc.jogos_pendentes} jogo(s) sem resultado. Quando todos os jogos forem encerrados, você poderá encerrar o campeonato e declarar o pódio.`
+    : 'O campeonato ainda não tem jogos realizados; não há o que encerrar por enquanto.'}</p>`;
+}
+
+// Modal de encerramento: selects do podio pre-preenchidos com a sugestao do
+// servidor (RN-AT-13). excluirDepois: fluxo "Encerrar e excluir" (EF 3.5).
+async function modalEncerramento(excluirDepois) {
+  const c = DET.campeonato;
+  let sugestao = { primeiro: null, segundo: null, terceiro: null };
+  try { sugestao = (await api(`/api/campeonatos/${c.id}/encerramento`)).sugestao ?? sugestao; }
+  catch (e) { avisar(e.message); return; }
+  const opcoes = (marcado) => ['<option value="">—</option>', ...participantesPodio()
+    .map((p) => `<option value="${p.id}" ${p.id === marcado ? 'selected' : ''}>${esc(p.nome)}</option>`)].join('');
+  abrirModal(`
+    <h3>Encerrar ${esc(c.nome)}</h3>
+    <p class="muted">Confirme o pódio — preenchemos com o resultado da competição, ajuste se precisar.
+    ${excluirDepois ? 'Depois de encerrado, o campeonato será excluído.' : ''}</p>
+    <label>🥇 Campeão (1º lugar)</label><select id="podio-primeiro">${opcoes(sugestao.primeiro)}</select>
+    <label>🥈 2º lugar (opcional)</label><select id="podio-segundo">${opcoes(sugestao.segundo)}</select>
+    <label>🥉 3º lugar (opcional)</label><select id="podio-terceiro">${opcoes(sugestao.terceiro)}</select>
+    <p><button class="botao" onclick="confirmarEncerramento(${excluirDepois ? 'true' : 'false'})">
+      ${excluirDepois ? 'Encerrar e excluir' : 'Encerrar campeonato'}</button>
+    <button class="botao secundario" onclick="fecharModal()">Cancelar</button></p>`);
+}
+
+async function confirmarEncerramento(excluirDepois) {
+  const c = DET.campeonato;
+  const valor = (id) => $(id).value ? Number($(id).value) : null;
+  try {
+    await api(`/api/campeonatos/${c.id}/encerrar`, 'POST', {
+      primeiro: valor('#podio-primeiro'), segundo: valor('#podio-segundo'), terceiro: valor('#podio-terceiro'),
+    });
+    fecharModal();
+    if (excluirDepois) {
+      await api(`/api/campeonatos/${c.id}`, 'DELETE');
+      avisar('Campeonato encerrado e excluído. O pódio foi registrado.');
+      telaLista();
+    } else {
+      avisar('Campeonato encerrado! O pódio já aparece na página pública.');
+      telaCampeonato(c.id, 'config');
+    }
+  } catch (e) { avisar(e.message); }
+}
+
+async function reabrirCampeonato() {
+  if (!confirm('Reabrir este campeonato? O pódio atual será descartado.')) return;
+  try {
+    await api(`/api/campeonatos/${DET.campeonato.id}/reabrir`, 'POST');
+    avisar('Campeonato reaberto.'); telaCampeonato(DET.campeonato.id, 'config');
+  } catch (e) { avisar(e.message); }
+}
+
+// Exclusao sensivel ao estado (EF 3.5, RN-AT-10): copa com fim definido e nunca
+// encerrada ganha o dialogo de tres opcoes antes de excluir.
 async function excluirCampeonato() {
+  const c = DET.campeonato;
+  let enc = null;
+  try { enc = await api(`/api/campeonatos/${c.id}/encerramento`); }
+  catch { /* sem estado (ex.: erro transitorio): cai na exclusao direta */ }
+  if (enc && !enc.encerrado && enc.fim_definido) {
+    abrirModal(`
+      <h3>Excluir ${esc(c.nome)}</h3>
+      <p>Você está prestes a excluir uma competição que teve seu fim definido.
+      Deseja <strong>encerrar esta Copa</strong> antes de excluí-la?
+      Isso envia o título aos atletas da competição.</p>
+      <p style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="botao" onclick="fecharModal();modalEncerramento(true)">Encerrar e excluir</button>
+        <button class="botao perigo" onclick="fecharModal();excluirDireto()">Apenas excluir</button>
+        <button class="botao secundario" onclick="fecharModal()">Cancelar</button></p>`);
+    return;
+  }
+  excluirDireto();
+}
+
+async function excluirDireto() {
   if (!confirm(`Excluir "${DET.campeonato.nome}" definitivamente?`)) return;
   if (!confirm('Tem certeza MESMO? Esta ação não pode ser desfeita.')) return;
   try { await api(`/api/campeonatos/${DET.campeonato.id}`, 'DELETE'); telaLista(); }
