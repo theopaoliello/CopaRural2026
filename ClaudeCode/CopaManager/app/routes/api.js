@@ -41,6 +41,7 @@ import {
   listarConectaveis, elencoParaConexao, solicitarConexao, minhasConexoes,
   removerConexaoDoAtleta, filaDoCampeonato, decidirConexao, revogarConexao, contarPendentes,
 } from '../src/conexoes.js';
+import { perfilDoAtleta } from '../src/perfil.js';
 import { erroValidacao, erroConflito, erroProibido, erroNaoEncontrado } from '../src/erros.js';
 import { CRITERIOS_VALIDOS } from '../src/classificacao.js';
 import { ESPORTES, obterEsporte } from '../src/esportes.js';
@@ -833,6 +834,13 @@ export function montarRotas(db, { limites = {} } = {}) {
   // Cancela a solicitacao ou desconecta (RN-AT-06) — so a propria conta.
   rotas.delete('/atleta/conexoes/:id', logado, (req, res) => {
     res.json(removerConexaoDoAtleta(db, req.conta.id, req.params.id));
+  });
+
+  // Painel do Atleta (fase C): estatisticas ao vivo das copas conectadas,
+  // uma linha por copa com totais + quebra por ano. Privado (RN-AT-18): cada
+  // conta so ve o proprio perfil — o id vem da sessao, nunca da URL.
+  rotas.get('/atleta/perfil', logado, (req, res) => {
+    res.json(perfilDoAtleta(db, req.conta.id));
   });
 
   // Lado do DONO: fila de solicitacoes + conectados. Decidir quem e quem no

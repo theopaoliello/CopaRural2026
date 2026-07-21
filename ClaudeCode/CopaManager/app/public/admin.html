@@ -269,6 +269,151 @@ async function enviarConexao() {
   } catch (e) { avisar(e.message); }
 }
 
+// ---------- Painel do Atleta (EF Perfil do Atleta, fase C) ----------
+// Guias "Geral" + uma por esporte com dado; blocos Conquistas / Desempenho /
+// Producao; contadores clicaveis (drill-down) e filtro de ano (RN-AT-14/15/16).
+// Toda a agregacao acontece aqui em cima do payload do /api/atleta/perfil
+// (uma linha por copa, totais + quebra por ano).
+
+let PERFIL = null; // { copas, guia, ano }
+
+const STATS_ZERO = { jogos: 0, v: 0, e: 0, d: 0, gols: 0, pontos: 0, sets_vencidos: 0, sets_perdidos: 0 };
+const recorte = (copa) => (PERFIL.ano === 'todos' ? copa.totais : (copa.anos[PERFIL.ano] ?? STATS_ZERO));
+const tituloNoRecorte = (copa) => copa.colocacao != null
+  && (PERFIL.ano === 'todos' || copa.ano_titulo === Number(PERFIL.ano));
+const copaNoRecorte = (copa) => PERFIL.ano === 'todos' || !!copa.anos[PERFIL.ano]
+  || copa.ano_titulo === Number(PERFIL.ano);
+const copasDaGuia = () => PERFIL.copas.filter((c) => PERFIL.guia === 'geral' || c.esporte === PERFIL.guia);
+
+async function telaPerfilAtleta() {
+  const copas = await api('/api/atleta/perfil');
+  PERFIL = { copas, guia: 'geral', ano: 'todos' };
+  renderPerfilAtleta();
+}
+
+function mudarGuiaPerfil(guia) { PERFIL.guia = guia; renderPerfilAtleta(); }
+function mudarAnoPerfil(ano) { PERFIL.ano = ano; renderPerfilAtleta(); }
+
+// Tile de contador; com `detalhe`, e clicavel e abre a lista (RN-AT-16).
+function tilePerfil(rotulo, valor, detalhe) {
+  return `<div class="card" style="flex:1;min-width:96px;text-align:center;margin:0;padding:12px 8px${detalhe ? ';cursor:pointer' : ''}"
+    ${detalhe ? `onclick="modalDetalhePerfil('${detalhe}')"` : ''}>
+    <div style="font-size:1.5rem;font-weight:700">${valor}${detalhe ? ' <span class="muted" style="font-size:.85rem">›</span>' : ''}</div>
+    <div class="muted" style="font-size:.78rem">${rotulo}</div>
+  </div>`;
+}
+
+function renderPerfilAtleta() {
+  if (!PERFIL.copas.length) {
+    $('#app').innerHTML = `
+      <div class="linha-flex" style="margin-bottom:10px"><a href="#" onclick="telaLista();return false">← Meus campeonatos</a></div>
+      <div class="card"><p class="muted" style="margin:0">Você ainda não tem conexões aprovadas.
+      Siga a copa em que você joga e use "Me conectar à Copa" na tela inicial.</p></div>`;
+    return;
+  }
+  // Guias: Geral + esportes presentes; anos: uniao das quebras + anos de titulo.
+  const esportes = [...new Map(PERFIL.copas.map((c) => [c.esporte, c.esporte_nome]))];
+  const anos = [...new Set(PERFIL.copas.flatMap((c) => [
+    ...Object.keys(c.anos).map(Number), ...(c.ano_titulo ? [c.ano_titulo] : []),
+  ]))].sort((a, b) => b - a);
+
+  const escopo = copasDaGuia();
+  const soma = (campo) => escopo.reduce((t, c) => t + recorte(c)[campo], 0);
+  const conquistas = (n) => escopo.filter((c) => c.colocacao === n && tituloNoRecorte(c)).length;
+  const nCopas = escopo.filter(copaNoRecorte).length;
+  const temEmpate = escopo.some((c) => c.empate_possivel);
+  const temGols = escopo.some((c) => c.producao === 'gols');
+  const temPontos = escopo.some((c) => c.producao === 'pontos');
+  const temSets = escopo.some((c) => c.producao === 'sets');
+  // Media de pontos por jogo (basquete): so sobre as copas de pontos do recorte.
+  const copasPontos = escopo.filter((c) => c.producao === 'pontos');
+  const jogosPontos = copasPontos.reduce((t, c) => t + recorte(c).jogos, 0);
+  const media = jogosPontos ? (copasPontos.reduce((t, c) => t + recorte(c).pontos, 0) / jogosPontos).toFixed(1) : null;
+
+  $('#app').innerHTML = `
+    <div class="linha-flex" style="margin-bottom:10px">
+      <a href="#" onclick="telaLista();return false">← Meus campeonatos</a>
+    </div>
+    <h2 style="margin:4px 0 10px">📊 Painel do Atleta</h2>
+    <div class="abas">
+      <button class="aba ${PERFIL.guia === 'geral' ? 'ativa' : ''}" onclick="mudarGuiaPerfil('geral')">Geral</button>
+      ${esportes.map(([chave, nome]) =>
+        `<button class="aba ${PERFIL.guia === chave ? 'ativa' : ''}" onclick="mudarGuiaPerfil('${chave}')">${esc(nome)}</button>`).join('')}
+    </div>
+    <div class="linha-flex" style="margin:10px 0">
+      <label style="margin:0">Ano</label>
+      <select style="width:auto" onchange="mudarAnoPerfil(this.value)">
+        <option value="todos">Todos</option>
+        ${anos.map((a) => `<option value="${a}" ${String(PERFIL.ano) === String(a) ? 'selected' : ''}>${a}</option>`).join('')}
+      </select>
+    </div>
+    <h3 style="margin:14px 0 6px">🏆 Conquistas</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${tilePerfil('Títulos', conquistas(1), 'titulos')}
+      ${tilePerfil('2º lugar', conquistas(2), 'segundo')}
+      ${tilePerfil('3º lugar', conquistas(3), 'terceiro')}
+    </div>
+    <h3 style="margin:14px 0 6px">📈 Desempenho</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${tilePerfil('Copas', nCopas, 'copas')}
+      ${tilePerfil('Vitórias', soma('v'))}
+      ${temEmpate ? tilePerfil('Empates', soma('e')) : ''}
+      ${tilePerfil('Derrotas', soma('d'))}
+    </div>
+    ${temGols || temPontos || temSets ? `
+    <h3 style="margin:14px 0 6px">⚽ Produção</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${temGols ? tilePerfil('Gols', soma('gols'), 'gols') : ''}
+      ${temPontos ? tilePerfil(`Pontos${media != null ? ` (média ${media}/jogo)` : ''}`, soma('pontos'), 'pontos') : ''}
+      ${temSets ? tilePerfil('Sets vencidos', soma('sets_vencidos'), 'sets') : ''}
+      ${temSets ? tilePerfil('Sets perdidos', soma('sets_perdidos'), 'sets') : ''}
+    </div>` : ''}
+    <p class="muted" style="margin-top:14px;font-size:.78rem">Estatísticas das copas conectadas, calculadas ao vivo.
+    Fora da Pelada Épica, jogos e sets são <strong>do time/dupla</strong> em que você joga. Toque num contador para ver de quais copas ele veio.</p>`;
+}
+
+const MEDALHA_PERFIL = { 1: '🥇', 2: '🥈', 3: '🥉' };
+const ICONE_ESPORTE_PERFIL = (copa) => `<span class="muted">${esc(copa.esporte_nome)}</span>`;
+
+// Drill-down (RN-AT-16): lista das copas por tras de um contador. Copa ainda
+// publicada tem link para a pagina publica; despublicada fica sem link.
+function modalDetalhePerfil(tipo) {
+  const rotulos = {
+    titulos: 'Títulos', segundo: '2º lugar', terceiro: '3º lugar',
+    copas: 'Copas disputadas', gols: 'Gols', pontos: 'Pontos', sets: 'Sets',
+  };
+  const escopo = copasDaGuia();
+  let linhas = [];
+  const linha = (copa, valorHtml) => `
+    <div style="border-bottom:1px solid var(--borda);padding:9px 0" class="linha-flex">
+      <div>
+        ${copa.publicado ? `<a href="/c/${esc(copa.slug)}" target="_blank"><strong>${esc(copa.nome)}</strong></a>` : `<strong>${esc(copa.nome)}</strong>`}
+        ${copa.temporada ? `<span class="badge">${esc(copa.temporada)}</span>` : ''}
+        <div class="muted" style="font-size:.78rem">${PERFIL.guia === 'geral' ? `${esc(copa.esporte_nome)} • ` : ''}${esc(copa.time_nome ?? copa.alvo_nome ?? '')}</div>
+      </div>
+      <span class="espacador"></span>
+      <div style="font-weight:700">${valorHtml}</div>
+    </div>`;
+
+  if (tipo === 'titulos' || tipo === 'segundo' || tipo === 'terceiro') {
+    const n = { titulos: 1, segundo: 2, terceiro: 3 }[tipo];
+    linhas = escopo.filter((c) => c.colocacao === n && tituloNoRecorte(c))
+      .map((c) => linha(c, `${MEDALHA_PERFIL[n]}${c.ano_titulo ? ` <span class="muted" style="font-weight:400">${c.ano_titulo}</span>` : ''}`));
+  } else if (tipo === 'copas') {
+    linhas = escopo.filter(copaNoRecorte)
+      .map((c) => linha(c, `<span class="muted" style="font-weight:400">${recorte(c).jogos} jogo${recorte(c).jogos === 1 ? '' : 's'}</span>`));
+  } else if (tipo === 'gols' || tipo === 'pontos') {
+    linhas = escopo.filter((c) => c.producao === tipo && recorte(c)[tipo] > 0)
+      .map((c) => linha(c, String(recorte(c)[tipo])));
+  } else if (tipo === 'sets') {
+    linhas = escopo.filter((c) => c.producao === 'sets' && recorte(c).jogos > 0)
+      .map((c) => linha(c, `${recorte(c).sets_vencidos} <span class="muted" style="font-weight:400">x</span> ${recorte(c).sets_perdidos}`));
+  }
+  abrirModal(`
+    <h3>${rotulos[tipo]}${PERFIL.ano !== 'todos' ? ` — ${PERFIL.ano}` : ''}</h3>
+    ${linhas.join('') || '<p class="muted">Nada por aqui neste recorte.</p>'}`);
+}
+
 async function telaLista() {
   DET = null;
   const [lista, limites, seguindo, conexoes] = await Promise.all([
@@ -297,6 +442,8 @@ async function telaLista() {
     <div class="linha-flex" style="margin:22px 0 8px">
       <h3 style="margin:0">Atleta</h3>
       <span class="espacador"></span>
+      ${conexoes.some((c) => c.status === 'aprovada')
+        ? '<button class="botao mini" onclick="telaPerfilAtleta()">📊 Minhas estatísticas</button>' : ''}
       <button class="botao secundario mini" onclick="modalConectarCopa()">Me conectar à Copa</button>
     </div>
     ${conexoes.length ? conexoes.map(cardConexaoAtleta).join('')
