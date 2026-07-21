@@ -39,9 +39,11 @@ import {
 } from '../src/encerramento.js';
 import {
   listarConectaveis, elencoParaConexao, solicitarConexao, minhasConexoes,
-  removerConexaoDoAtleta, filaDoCampeonato, decidirConexao, revogarConexao, contarPendentes,
+  removerConexaoDoAtleta, filaDoCampeonato, decidirConexao, aprovarTodasConexoes,
+  revogarConexao, contarPendentes,
 } from '../src/conexoes.js';
 import { perfilDoAtleta, congelarEstatisticas, congelarConexao } from '../src/perfil.js';
+import { notificacoesDaConta } from '../src/notificacoes.js';
 import { erroValidacao, erroConflito, erroProibido, erroNaoEncontrado } from '../src/erros.js';
 import { CRITERIOS_VALIDOS } from '../src/classificacao.js';
 import { ESPORTES, obterEsporte } from '../src/esportes.js';
@@ -870,9 +872,24 @@ export function montarRotas(db, { limites = {} } = {}) {
     res.json(decidirConexao(db, c, req.params.cid, req.body?.acao, req.conta.id));
   });
 
+  // Aprovar todas as pendentes de uma vez (EF Notificacoes, fase C / RN-NT-10).
+  rotas.post('/campeonatos/:id/conexoes/aprovar-todas', logado, (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
+    res.json(aprovarTodasConexoes(db, c, req.conta.id));
+  });
+
   rotas.delete('/campeonatos/:id/conexoes/:cid', logado, (req, res) => {
     const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
     res.json(revogarConexao(db, c, req.params.cid));
+  });
+
+  // ---------- central de notificacoes (EF Notificacoes, fase B) ----------
+
+  // Notificacoes da conta logada (derivadas, RN-NT-08). No MVP: solicitacoes de
+  // conexao pendentes agrupadas por copa do dono (RN-NT-06). O estado de "lido"
+  // e do cliente (localStorage, RN-NT-09) — nao ha rota de "marcar como lido".
+  rotas.get('/notificacoes', logado, (req, res) => {
+    res.json(notificacoesDaConta(db, req.conta.id));
   });
 
   // ---------- times e jogadores (admin) ----------

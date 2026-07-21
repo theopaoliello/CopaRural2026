@@ -43,6 +43,10 @@
   <span class="marca"><a href="/admin"><img src="/img/marca-branca.png" alt=""> Copa Manager</a></span>
   <div class="direita">
     <span id="ola" class="muted" style="color:#d9efe4"></span>
+    <div id="sino-wrap" style="position:relative;display:none">
+      <button class="botao secundario mini" id="btn-sino" title="Notificações" onclick="alternarSino(event)">🔔<span id="sino-contador" class="sino-badge" style="display:none">0</span></button>
+      <div id="sino-dropdown" class="sino-dropdown" style="display:none"></div>
+    </div>
     <button class="botao secundario mini" id="btn-sair">Sair</button>
   </div>
 </header>
@@ -197,7 +201,7 @@ async function removerConexao(id, status) {
 // (ou conexao direta ao time nas copas 2x2/1x1 sem elenco) -> observacao.
 let CONEXAO = null; // { conectaveis, elenco }
 
-async function modalConectarCopa() {
+async function modalConectarCopa(slugPre) {
   const conectaveis = (await api('/api/atleta/conectaveis')).filter((c) => !c.minha_conexao || c.minha_conexao === 'recusada');
   CONEXAO = { conectaveis, elenco: null };
   if (!conectaveis.length) {
@@ -216,6 +220,12 @@ async function modalConectarCopa() {
       ${conectaveis.map((c) => `<option value="${esc(c.slug)}">${esc(c.nome)}${c.temporada ? ` (${esc(c.temporada)})` : ''}</option>`).join('')}
     </select>
     <div id="conectar-passos"></div>`);
+  // Atalho do Atleta (RN-NT-02): copa vinda da pagina publica ja pre-selecionada,
+  // pulando direto para a escolha do time/jogador.
+  if (slugPre && conectaveis.some((c) => c.slug === slugPre)) {
+    $('#conectar-copa').value = slugPre;
+    conectarEscolheuCopa();
+  }
 }
 
 async function conectarEscolheuCopa() {
@@ -1863,7 +1873,11 @@ async function abaAtletas() {
   const fila = await api(`/api/campeonatos/${DET.campeonato.id}/conexoes`);
   $('#painel').innerHTML = `
     <div class="card">
-      <h3>Solicitações de atletas ${fila.pendentes.length ? `<span class="badge" style="background:#fef3c7;color:#92400e">${fila.pendentes.length}</span>` : ''}</h3>
+      <div class="linha-flex">
+        <h3 style="margin:0">Solicitações de atletas ${fila.pendentes.length ? `<span class="badge" style="background:#fef3c7;color:#92400e">${fila.pendentes.length}</span>` : ''}</h3>
+        <span class="espacador"></span>
+        ${fila.pendentes.length >= 2 ? `<button class="botao mini" onclick="aprovarTodasConexoes(${fila.pendentes.length})">Aprovar todas (${fila.pendentes.length})</button>` : ''}
+      </div>
       <p class="muted">Atletas pedindo para vincular o próprio perfil a um jogador (ou dupla) desta copa.
       Aprovar <strong>não dá nenhum acesso</strong> à gestão do campeonato — o atleta apenas passa a ver as estatísticas dele.</p>
       ${fila.pendentes.map((cx) => linhaConexaoDono(cx, true)).join('') || '<p class="muted">Nenhuma solicitação pendente.</p>'}
@@ -1879,6 +1893,19 @@ async function decidirConexao(id, acao) {
   try {
     await api(`/api/campeonatos/${DET.campeonato.id}/conexoes/${id}/decidir`, 'POST', { acao });
     avisar(acao === 'aprovar' ? 'Conexão aprovada!' : 'Solicitação recusada.');
+    carregarNotificacoes(); // a fila mudou: o sino reflete (RN-NT-08)
+    telaCampeonato(DET.campeonato.id, 'atletas');
+  } catch (e) { avisar(e.message); }
+}
+
+async function aprovarTodasConexoes(n) {
+  if (!confirm(`Aprovar as ${n} solicitações pendentes desta copa?`)) return; // RN-NT (aprovar-todas pede confirmação)
+  try {
+    const r = await api(`/api/campeonatos/${DET.campeonato.id}/conexoes/aprovar-todas`, 'POST');
+    avisar(r.ignoradas
+      ? `${r.aprovadas} aprovada(s); ${r.ignoradas} ignorada(s) (jogador já conectado a outra conta).`
+      : `${r.aprovadas} solicitaç${r.aprovadas === 1 ? 'ão aprovada' : 'ões aprovadas'}!`);
+    carregarNotificacoes(); // a fila mudou: o sino reflete (RN-NT-08)
     telaCampeonato(DET.campeonato.id, 'atletas');
   } catch (e) { avisar(e.message); }
 }
@@ -2402,6 +2429,97 @@ async function executarSeguirPendente() {
   return true;
 }
 
+// Intencao de "Eu jogo nesta Copa" (EF Notificacoes, fase A / RN-NT-02/03/04):
+// guardada quando alguem clicou no atalho da pagina publica. Segue a copa
+// (pre-requisito do fluxo, RN-AT-02) e abre "Me conectar a Copa" pre-selecionado.
+// Se ja ha conexao pendente/aprovada, leva a aba "Sou Atleta" em vez do modal.
+// Ignora intencao velha (> 1h). Roda com o painel ja carregado (telaLista).
+async function executarConectarPendente() {
+  let intencao = null;
+  try { intencao = JSON.parse(localStorage.getItem('cm_conectar_pendente') || 'null'); } catch {}
+  try { localStorage.removeItem('cm_conectar_pendente'); } catch {}
+  if (!intencao?.slug || !intencao.em || Date.now() - intencao.em > 60 * 60 * 1000) return;
+  const slug = intencao.slug;
+  try { await fetch(`/api/seguir/${encodeURIComponent(slug)}`, { method: 'POST' }); } catch {}
+  let conectaveis = [];
+  try { conectaveis = await api('/api/atleta/conectaveis'); } catch {}
+  const copa = conectaveis.find((c) => c.slug === slug);
+  // Ja pendente/aprovada -> painel do atleta (RN-NT-03); senao, abre o modal.
+  if (copa?.minha_conexao && copa.minha_conexao !== 'recusada') {
+    mudarAbaPainel('atleta');
+    return;
+  }
+  await telaLista(); // recarrega (a copa recem-seguida entra em "Acompanho")
+  modalConectarCopa(slug);
+}
+
+// ---------- central de notificacoes (EF Notificacoes, fase B) ----------
+// Notificacoes derivadas (RN-NT-08); "lido" e do cliente via localStorage
+// (RN-NT-09). No MVP: solicitacoes de conexao pendentes por copa do dono.
+let NOTIFS = { itens: [] };
+const CHAVE_NOTIF_VISTO = 'cm_notif_visto';
+
+function notifVisto() {
+  try { return localStorage.getItem(CHAVE_NOTIF_VISTO) || ''; } catch { return ''; }
+}
+function notifNaoLidas() {
+  const visto = notifVisto();
+  return NOTIFS.itens.filter((it) => (it.atualizado_em || '') > visto);
+}
+async function carregarNotificacoes() {
+  try { NOTIFS = await api('/api/notificacoes'); } catch { NOTIFS = { itens: [] }; }
+  pintarSino();
+}
+function pintarSino() {
+  const wrap = $('#sino-wrap');
+  if (!wrap) return;
+  wrap.style.display = '';
+  const n = notifNaoLidas().length;
+  const badge = $('#sino-contador');
+  if (n > 0) { badge.textContent = n > 9 ? '9+' : String(n); badge.style.display = ''; }
+  else badge.style.display = 'none';
+}
+function renderNotificacoes() {
+  const dd = $('#sino-dropdown');
+  const visto = notifVisto();
+  if (!NOTIFS.itens.length) {
+    dd.innerHTML = '<div class="sino-vazio">Tudo em dia por aqui 🎉</div>';
+    return;
+  }
+  dd.innerHTML = NOTIFS.itens.map((it) => {
+    const nova = (it.atualizado_em || '') > visto;
+    const temp = it.temporada ? ` <span class="muted">${esc(it.temporada)}</span>` : '';
+    return `<button class="sino-item ${nova ? 'nova' : ''}" onclick="abrirNotificacao(${it.campeonato_id})">
+      <span class="sino-titulo">🎽 ${esc(it.titulo)}${temp}</span>
+      <div class="muted">${esc(it.texto)}</div>
+    </button>`;
+  }).join('');
+}
+function alternarSino(ev) {
+  ev.stopPropagation();
+  const dd = $('#sino-dropdown');
+  if (dd.style.display === 'none') {
+    renderNotificacoes(); // desenha com o "visto" atual (destaque das novas)
+    dd.style.display = '';
+    // Abrir marca como lido (RN-NT-09): visto = solicitacao mais nova exibida.
+    const maxTs = NOTIFS.itens.reduce((m, it) => ((it.atualizado_em || '') > m ? it.atualizado_em : m), '');
+    if (maxTs) { try { localStorage.setItem(CHAVE_NOTIF_VISTO, maxTs); } catch {} }
+    pintarSino();
+  } else {
+    dd.style.display = 'none';
+  }
+}
+function abrirNotificacao(campeonatoId) {
+  $('#sino-dropdown').style.display = 'none';
+  telaCampeonato(campeonatoId, 'atletas'); // RN-NT-07
+}
+// Fecha o dropdown ao clicar fora (o botao para a propagacao, entao nao se fecha sozinho).
+document.addEventListener('click', (e) => {
+  const wrap = $('#sino-wrap');
+  const dd = $('#sino-dropdown');
+  if (wrap && dd && !wrap.contains(e.target)) dd.style.display = 'none';
+});
+
 async function iniciarPainel() {
   if (await executarSeguirPendente()) return; // seguiu e voltou para a copa
   EU = await api('/api/auth/eu');
@@ -2410,7 +2528,9 @@ async function iniciarPainel() {
     : `Olá, ${EU.nome.split(' ')[0]}!${EU.master ? ' 👑' : ''}`;
   barraMaster();
   if (EU.master && !EU.tenant) return telaMaster();
-  return telaLista();
+  await telaLista();
+  await executarConectarPendente();
+  carregarNotificacoes();
 }
 
 iniciarPainel().catch(() => { location.href = '/'; });

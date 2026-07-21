@@ -238,5 +238,28 @@ table.tabela { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
 .botao-esporte .badge { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); }
 .linha-flex { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .espacador { flex: 1; }
+
+/* central de notificacoes (sino no topo) */
+#btn-sino { position: relative; }
+.sino-badge {
+  position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px;
+  padding: 0 5px; box-sizing: border-box; background: var(--vermelho); color: #fff;
+  border-radius: 9px; font-size: 0.7rem; font-weight: 700; line-height: 18px; text-align: center;
+}
+.sino-dropdown {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 50;
+  width: min(320px, 88vw); max-height: 70vh; overflow-y: auto;
+  background: #fff; color: var(--tinta); border: 1px solid var(--borda);
+  border-radius: 12px; box-shadow: var(--sombra); padding: 6px;
+}
+.sino-item {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  border-radius: 8px; padding: 10px 12px; cursor: pointer; font: inherit; color: inherit;
+}
+.sino-item:hover { background: var(--verde-bg); }
+.sino-item + .sino-item { border-top: 1px solid var(--borda); }
+.sino-item.nova { background: #fffdf5; }
+.sino-item .sino-titulo { font-weight: 700; }
+.sino-vazio { padding: 18px 12px; text-align: center; color: var(--cinza); font-size: 0.9rem; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (max-width: 540px) { .grid-2 { grid-template-columns: 1fr; } }

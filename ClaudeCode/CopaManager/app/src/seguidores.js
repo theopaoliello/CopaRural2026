@@ -56,7 +56,19 @@ export function deixarDeSeguir(db, contaId, slug) {
 // (decisao da spec, secao 7).
 export function estadoDeSeguir(db, contaId, slug) {
   const c = campeonatoPublicado(db, slug);
-  return { logado: !!contaId, seguindo: contaId ? estaSeguindo(db, contaId, c.id) : false };
+  // Estado da conexao de atleta nesta copa (EF Notificacoes) — dirige o botao
+  // "Eu jogo nesta Copa": null/recusada = atalho normal, pendente = aviso,
+  // aprovada = botao vira "Jogando esta Copa". null quando anonimo.
+  const conexao = contaId
+    ? (db
+        .prepare('SELECT status FROM conexoes_atleta WHERE conta_id = ? AND campeonato_id = ?')
+        .get(contaId, c.id)?.status ?? null)
+    : null;
+  return {
+    logado: !!contaId,
+    seguindo: contaId ? estaSeguindo(db, contaId, c.id) : false,
+    conexao,
+  };
 }
 
 // Lista da secao "Seguindo" da home (RN-SG-04): as copas que a conta segue, com

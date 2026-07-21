@@ -285,6 +285,28 @@ export function decidirConexao(db, campeonato, conexaoId, acao, decididoPor) {
   return db.prepare('SELECT * FROM conexoes_atleta WHERE id = ?').get(cx.id);
 }
 
+// Dono aprova TODAS as solicitacoes pendentes de uma vez (EF Notificacoes, fase
+// C / RN-NT-10). Idempotente: aprova so o que ainda esta pendente. Reaproveita
+// decidirConexao (mesmas invariantes: exclusividade do jogador, congelamento em
+// copa encerrada). Um conflito (dois pedidos pro mesmo jogador) NAO aborta o
+// lote — aprova o resto e devolve a contagem de ignoradas para o dono resolver.
+export function aprovarTodasConexoes(db, campeonato, decididoPor) {
+  const pendentes = db
+    .prepare("SELECT id FROM conexoes_atleta WHERE campeonato_id = ? AND status = 'pendente' ORDER BY id")
+    .all(campeonato.id);
+  let aprovadas = 0;
+  let ignoradas = 0;
+  for (const { id } of pendentes) {
+    try {
+      decidirConexao(db, campeonato, id, 'aprovar', decididoPor);
+      aprovadas += 1;
+    } catch {
+      ignoradas += 1; // jogador ja reivindicado / resolvida no intervalo
+    }
+  }
+  return { aprovadas, ignoradas };
+}
+
 // Dono revoga uma conexao aprovada (aprovacao errada, RN-AT-06): a linha some,
 // o jogador volta a ficar disponivel e o historico congelado da copa e
 // REMOVIDO do perfil — a premissa e que a conexao era indevida (pessoa

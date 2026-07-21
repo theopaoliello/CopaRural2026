@@ -304,6 +304,144 @@ test('conexoes: aceita_conexoes desligada tira a copa do fluxo (RN-AT-19)', asyn
   assert.equal((await atleta('GET', '/api/atleta/conectaveis')).corpo.length, 1);
 });
 
+// EF Notificacoes e Atalho do Atleta, fase A: a pagina publica precisa saber se
+// a copa aceita conexoes para exibir (ou nao) o botao "Eu jogo nesta Copa".
+test('atalho do atleta: /api/publico expoe aceita_conexoes e reflete o toggle (RN-NT-01)', async () => {
+  const dono = cliente();
+  await registrarEntrar(dono, { nome: 'Dono8', email: 'dono8-cx@teste.com', senha: 'segredo1' });
+  const { camp } = await copaComElenco(dono, 'Copa Atalho');
+
+  // Copa nasce aceitando conexoes: o publico expoe a flag ligada (anonimo, sem cookie).
+  const anon = cliente();
+  const pubOn = await anon('GET', `/api/publico/${camp.slug}`);
+  assert.equal(pubOn.status, 200);
+  assert.equal(pubOn.corpo.campeonato.aceita_conexoes, 1);
+
+  // Dono desliga: o publico passa a expor a flag desligada (botao some no cliente).
+  await dono('PATCH', `/api/campeonatos/${camp.id}`, { aceita_conexoes: false });
+  const pubOff = await anon('GET', `/api/publico/${camp.slug}`);
+  assert.equal(pubOff.corpo.campeonato.aceita_conexoes, 0);
+});
+
+// EF Notificacoes: o botao "Eu jogo nesta Copa" da pagina publica le o estado da
+// conexao em /api/seguir/:slug/estado (null -> pendente -> aprovada).
+test('atalho do atleta: /estado devolve o status da conexao para o botao', async () => {
+  const dono = cliente();
+  const atleta = cliente();
+  await registrarEntrar(dono, { nome: 'Dono10', email: 'dono10-cx@teste.com', senha: 'segredo1' });
+  await registrarEntrar(atleta, { nome: 'Ester', email: 'ester-cx@teste.com', senha: 'segredo1' });
+  const { camp, jogadores } = await copaComElenco(dono, 'Copa Estado');
+  const estado = () => atleta('GET', `/api/seguir/${camp.slug}/estado`);
+
+  // Sem conexao: null. Anonimo tambem null.
+  assert.equal((await estado()).corpo.conexao, null);
+  assert.equal((await cliente()('GET', `/api/seguir/${camp.slug}/estado`)).corpo.conexao, null);
+
+  // Solicita -> pendente.
+  await atleta('POST', `/api/seguir/${camp.slug}`);
+  await atleta('POST', '/api/atleta/conexoes', { slug: camp.slug, jogador_id: jogadores[0].id });
+  assert.equal((await estado()).corpo.conexao, 'pendente');
+
+  // Dono aprova -> aprovada.
+  const fila = (await dono('GET', `/api/campeonatos/${camp.id}/conexoes`)).corpo;
+  await dono('POST', `/api/campeonatos/${camp.id}/conexoes/${fila.pendentes[0].id}/decidir`, { acao: 'aprovar' });
+  assert.equal((await estado()).corpo.conexao, 'aprovada');
+});
+
+// EF Notificacoes, fase B: solicitacoes pendentes viram notificacao agrupada por
+// copa, so para o dono, e derivada (some ao resolver). RN-NT-06/08/12.
+test('notificacoes: solicitacoes pendentes agrupadas por copa, dono-only, derivadas', async () => {
+  const dono = cliente();
+  const ana = cliente();
+  const bia = cliente();
+  await registrarEntrar(dono, { nome: 'Dono9', email: 'dono9-cx@teste.com', senha: 'segredo1' });
+  await registrarEntrar(ana, { nome: 'Ana N', email: 'ana-n@teste.com', senha: 'segredo1' });
+  await registrarEntrar(bia, { nome: 'Bia N', email: 'bia-n@teste.com', senha: 'segredo1' });
+  const { camp, jogadores } = await copaComElenco(dono, 'Copa Notif');
+  const [jAna, jBia] = jogadores;
+
+  // Sem pendencias: nenhuma notificacao.
+  assert.deepEqual((await dono('GET', '/api/notificacoes')).corpo.itens, []);
+
+  // Duas atletas solicitam conexao -> uma notificacao agrupada com contagem 2.
+  await ana('POST', `/api/seguir/${camp.slug}`);
+  await ana('POST', '/api/atleta/conexoes', { slug: camp.slug, jogador_id: jAna.id });
+  await bia('POST', `/api/seguir/${camp.slug}`);
+  const solBia = await bia('POST', '/api/atleta/conexoes', { slug: camp.slug, jogador_id: jBia.id });
+
+  const nDono = (await dono('GET', '/api/notificacoes')).corpo;
+  assert.equal(nDono.itens.length, 1);
+  assert.equal(nDono.itens[0].campeonato_id, camp.id);
+  assert.equal(nDono.itens[0].contagem, 2);
+  assert.match(nDono.itens[0].texto, /2 solicita/);
+
+  // Dono-only (RN-NT-12): a atleta nao ve nada.
+  assert.deepEqual((await ana('GET', '/api/notificacoes')).corpo.itens, []);
+
+  // Resolver encolhe/zera a notificacao (derivada, RN-NT-08).
+  const fila = (await dono('GET', `/api/campeonatos/${camp.id}/conexoes`)).corpo;
+  await dono('POST', `/api/campeonatos/${camp.id}/conexoes/${fila.pendentes[0].id}/decidir`, { acao: 'aprovar' });
+  const nDepois1 = (await dono('GET', '/api/notificacoes')).corpo;
+  assert.equal(nDepois1.itens[0].contagem, 1);
+  assert.match(nDepois1.itens[0].texto, /1 solicita/);
+
+  await dono('POST', `/api/campeonatos/${camp.id}/conexoes/${solBia.corpo.id}/decidir`, { acao: 'recusar' });
+  assert.deepEqual((await dono('GET', '/api/notificacoes')).corpo.itens, []);
+});
+
+// EF Notificacoes, fase C: aprovar todas as pendentes de uma vez. RN-NT-10.
+test('aprovar-todas: aprova as pendentes de uma vez; idempotente e dono-only', async () => {
+  const dono = cliente();
+  const ana = cliente();
+  const bia = cliente();
+  await registrarEntrar(dono, { nome: 'Dono11', email: 'dono11-cx@teste.com', senha: 'segredo1' });
+  await registrarEntrar(ana, { nome: 'Ana L', email: 'ana-l@teste.com', senha: 'segredo1' });
+  await registrarEntrar(bia, { nome: 'Bia L', email: 'bia-l@teste.com', senha: 'segredo1' });
+  const { camp, jogadores } = await copaComElenco(dono, 'Copa Lote');
+  const [jAna, jBia] = jogadores;
+
+  for (const [c, jid] of [[ana, jAna.id], [bia, jBia.id]]) {
+    await c('POST', `/api/seguir/${camp.slug}`);
+    await c('POST', '/api/atleta/conexoes', { slug: camp.slug, jogador_id: jid });
+  }
+
+  // Nao-dono nao aprova em lote (dono-only).
+  assert.equal((await ana('POST', `/api/campeonatos/${camp.id}/conexoes/aprovar-todas`)).status, 404);
+
+  const r = await dono('POST', `/api/campeonatos/${camp.id}/conexoes/aprovar-todas`);
+  assert.deepEqual(r.corpo, { aprovadas: 2, ignoradas: 0 });
+  const fila = (await dono('GET', `/api/campeonatos/${camp.id}/conexoes`)).corpo;
+  assert.equal(fila.pendentes.length, 0);
+  assert.equal(fila.conectados.length, 2);
+
+  // Idempotente: sem pendentes, nada a aprovar.
+  assert.deepEqual((await dono('POST', `/api/campeonatos/${camp.id}/conexoes/aprovar-todas`)).corpo, { aprovadas: 0, ignoradas: 0 });
+});
+
+test('aprovar-todas: dois pedidos pro mesmo jogador -> 1 aprovada, 1 ignorada (nao aborta)', async () => {
+  const dono = cliente();
+  const ana = cliente();
+  const gil = cliente();
+  await registrarEntrar(dono, { nome: 'Dono12', email: 'dono12-cx@teste.com', senha: 'segredo1' });
+  await registrarEntrar(ana, { nome: 'Ana X', email: 'ana-x@teste.com', senha: 'segredo1' });
+  await registrarEntrar(gil, { nome: 'Gil X', email: 'gil-x@teste.com', senha: 'segredo1' });
+  const { camp, jogadores } = await copaComElenco(dono, 'Copa Conflito Lote');
+  const [jAna] = jogadores;
+
+  // Ana e Gil disputam o MESMO jogador.
+  for (const c of [ana, gil]) {
+    await c('POST', `/api/seguir/${camp.slug}`);
+    await c('POST', '/api/atleta/conexoes', { slug: camp.slug, jogador_id: jAna.id });
+  }
+
+  const r = await dono('POST', `/api/campeonatos/${camp.id}/conexoes/aprovar-todas`);
+  assert.equal(r.corpo.aprovadas, 1);
+  assert.equal(r.corpo.ignoradas, 1);
+  const fila = (await dono('GET', `/api/campeonatos/${camp.id}/conexoes`)).corpo;
+  assert.equal(fila.conectados.length, 1);
+  assert.equal(fila.pendentes.length, 1); // o conflitante segue pendente para o dono resolver
+});
+
 test('conexoes: fila, decidir e revogar sao dono-only; anonimo leva 401', async () => {
   const dono = cliente();
   const colab = cliente();

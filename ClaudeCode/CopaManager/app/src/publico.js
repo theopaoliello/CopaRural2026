@@ -132,6 +132,9 @@ export function dadosPublicos(db, slug) {
       // Encerramento (EF Perfil do Atleta, fase A): a pagina publica mostra o
       // podio quando o gestor encerrou a copa; NULL = em andamento.
       encerrado_em: campeonato.encerrado_em,
+      // Atalho do Atleta (EF Notificacoes, fase A / RN-NT-01): a pagina publica
+      // so mostra "Eu jogo nesta Copa" quando o organizador aceita conexoes.
+      aceita_conexoes: campeonato.aceita_conexoes,
     },
     podio: podioComNomes(db, campeonato),
     classificacao,

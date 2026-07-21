@@ -86,7 +86,7 @@ test('seguir: fluxo completo (seguir, listar, estado, deixar de seguir)', async 
   const anon = cliente();
   const estAnon = await anon('GET', `/api/seguir/${slug}/estado`);
   assert.equal(estAnon.status, 200);
-  assert.deepEqual(estAnon.corpo, { logado: false, seguindo: false });
+  assert.deepEqual(estAnon.corpo, { logado: false, seguindo: false, conexao: null });
 
   // Seguir exige login (RN-SG-05): anonimo tomando POST leva 401.
   const semLogin = await anon('POST', `/api/seguir/${slug}`);
@@ -99,7 +99,7 @@ test('seguir: fluxo completo (seguir, listar, estado, deixar de seguir)', async 
 
   // Estado do Bob reflete que ele segue (RN-SG-06).
   const estBob = await bob('GET', `/api/seguir/${slug}/estado`);
-  assert.deepEqual(estBob.corpo, { logado: true, seguindo: true });
+  assert.deepEqual(estBob.corpo, { logado: true, seguindo: true, conexao: null });
 
   // Aparece na secao "Seguindo" do Bob, com contagens e nome do dono.
   const seguindo = await bob('GET', '/api/seguindo');
@@ -129,7 +129,7 @@ test('seguir: fluxo completo (seguir, listar, estado, deixar de seguir)', async 
   const del = await bob('DELETE', `/api/seguir/${slug}`);
   assert.deepEqual(del.corpo, { seguindo: false });
   assert.equal((await bob('GET', '/api/seguindo')).corpo.length, 0);
-  assert.deepEqual((await bob('GET', `/api/seguir/${slug}/estado`)).corpo, { logado: true, seguindo: false });
+  assert.deepEqual((await bob('GET', `/api/seguir/${slug}/estado`)).corpo, { logado: true, seguindo: false, conexao: null });
   const delDeNovo = await bob('DELETE', `/api/seguir/${slug}`);
   assert.deepEqual(delDeNovo.corpo, { seguindo: false });
 });
