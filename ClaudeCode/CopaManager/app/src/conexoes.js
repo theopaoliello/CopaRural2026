@@ -6,6 +6,7 @@
 import { erroValidacao, erroConflito, erroNaoEncontrado } from './erros.js';
 import { obterEsporte } from './esportes.js';
 import { textoLimitado } from './campeonatos.js';
+import { congelarConexao, apagarCongelado } from './perfil.js';
 
 // E-mail mascarado para a fila do dono (RN-AT-20, minimizacao LGPD):
 // "theo@gmail.com" -> "th•••@gmail.com". O dono reconhece quem pede sem
@@ -200,14 +201,16 @@ export function minhasConexoes(db, contaId) {
 }
 
 // O atleta cancela a solicitacao ou se desconecta (RN-AT-06): a linha some e,
-// se havia jogador reivindicado, ele volta a ficar disponivel. Na fase D, a
-// desconexao de uma aprovada tambem removera o historico congelado.
+// se havia jogador reivindicado, ele volta a ficar disponivel. A desconexao
+// APAGA o historico congelado da copa (decisao fechada da EF: apagar, nao
+// ocultar — e o dado dele; se quer tirar do perfil, tira).
 export function removerConexaoDoAtleta(db, contaId, conexaoId) {
   const cx = db
     .prepare('SELECT * FROM conexoes_atleta WHERE id = ? AND conta_id = ?')
     .get(Number(conexaoId), contaId);
   if (!cx) throw erroNaoEncontrado('Conexao nao encontrada.');
   db.prepare('DELETE FROM conexoes_atleta WHERE id = ?').run(cx.id);
+  apagarCongelado(db, contaId, cx.campeonato_id);
   return { ok: true };
 }
 
@@ -276,17 +279,23 @@ export function decidirConexao(db, campeonato, conexaoId, acao, decididoPor) {
   db.prepare(
     "UPDATE conexoes_atleta SET status = ?, decidido_por = ?, decidido_em = datetime('now') WHERE id = ?",
   ).run(acao === 'aprovar' ? 'aprovada' : 'recusada', decididoPor, cx.id);
+  // Aprovacao em copa JA encerrada: congela na hora (fase D) — o painel de
+  // copa encerrada le do snapshot, e este atleta acabou de ganhar o dele.
+  if (acao === 'aprovar' && campeonato.encerrado_em) congelarConexao(db, cx.id);
   return db.prepare('SELECT * FROM conexoes_atleta WHERE id = ?').get(cx.id);
 }
 
-// Dono revoga uma conexao aprovada (aprovacao errada, RN-AT-06): a linha some
-// e o jogador volta a ficar disponivel. Fase D removera o historico junto.
+// Dono revoga uma conexao aprovada (aprovacao errada, RN-AT-06): a linha some,
+// o jogador volta a ficar disponivel e o historico congelado da copa e
+// REMOVIDO do perfil — a premissa e que a conexao era indevida (pessoa
+// errada); manter o numero seria manter uma fraude (EF 5.1).
 export function revogarConexao(db, campeonato, conexaoId) {
   const cx = db
     .prepare("SELECT * FROM conexoes_atleta WHERE id = ? AND campeonato_id = ? AND status = 'aprovada'")
     .get(Number(conexaoId), campeonato.id);
   if (!cx) throw erroNaoEncontrado('Conexao aprovada nao encontrada.');
   db.prepare('DELETE FROM conexoes_atleta WHERE id = ?').run(cx.id);
+  apagarCongelado(db, cx.conta_id, campeonato.id);
   return { ok: true };
 }
 

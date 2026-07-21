@@ -7,6 +7,7 @@ import { erroValidacao, erroConflito } from './erros.js';
 import { obterEsporte } from './esportes.js';
 import { vencedorConfronto } from './tabela.js';
 import { classificacaoDoCampeonato } from './campeonatos.js';
+import { congelarEstatisticas, descongelarCampeonato } from './perfil.js';
 
 // Estado que dirige o card de Config e o dialogo de exclusao (EF 3.5):
 // "fim definido" = ha jogos e nenhum pendente — a leitura mais proxima de
@@ -110,14 +111,19 @@ export function encerrarCampeonato(db, campeonato, dados = {}) {
   const podio = JSON.stringify({ primeiro, segundo, terceiro });
   db.prepare("UPDATE campeonatos SET encerrado_em = datetime('now'), podio = ? WHERE id = ?")
     .run(podio, campeonato.id);
+  // Congela DEPOIS de gravar o podio (RN-AT-08): o snapshot ja nasce com a
+  // colocacao — e o numero final e oficial da competicao (EF secao 5).
+  congelarEstatisticas(db, campeonato.id);
   return db.prepare('SELECT * FROM campeonatos WHERE id = ?').get(campeonato.id);
 }
 
 // Reabre um campeonato encerrado (RN-AT-12): o podio e descartado e sera
 // declarado de novo no proximo encerramento (correcoes nao ficam para sempre).
+// Os snapshots congelados sao descartados junto: a copa volta ao vivo.
 export function reabrirCampeonato(db, campeonato) {
   if (!campeonato.encerrado_em) throw erroConflito('Este campeonato nao esta encerrado.');
   db.prepare('UPDATE campeonatos SET encerrado_em = NULL, podio = NULL WHERE id = ?').run(campeonato.id);
+  descongelarCampeonato(db, campeonato.id);
   return db.prepare('SELECT * FROM campeonatos WHERE id = ?').get(campeonato.id);
 }
 

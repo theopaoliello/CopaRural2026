@@ -41,7 +41,7 @@ import {
   listarConectaveis, elencoParaConexao, solicitarConexao, minhasConexoes,
   removerConexaoDoAtleta, filaDoCampeonato, decidirConexao, revogarConexao, contarPendentes,
 } from '../src/conexoes.js';
-import { perfilDoAtleta } from '../src/perfil.js';
+import { perfilDoAtleta, congelarEstatisticas, congelarConexao } from '../src/perfil.js';
 import { erroValidacao, erroConflito, erroProibido, erroNaoEncontrado } from '../src/erros.js';
 import { CRITERIOS_VALIDOS } from '../src/classificacao.js';
 import { ESPORTES, obterEsporte } from '../src/esportes.js';
@@ -274,6 +274,12 @@ export function montarRotas(db, { limites = {} } = {}) {
           : 'Digite o e-mail da conta para confirmar a exclusao.',
       );
     }
+    // RN-AT-09: os campeonatos desta conta vao cair em CASCADE — congela antes
+    // o historico dos OUTROS atletas conectados a eles. Os snapshots do
+    // proprio titular somem junto com a conta (RN-AT-19 do perfil, LGPD).
+    for (const { id } of db.prepare('SELECT id FROM campeonatos WHERE conta_id = ?').all(conta.id)) {
+      congelarEstatisticas(db, id);
+    }
     db.prepare('DELETE FROM contas WHERE id = ?').run(conta.id);
     res.append('Set-Cookie', cookieDeSaida());
     res.json({ ok: true });
@@ -456,6 +462,11 @@ export function montarRotas(db, { limites = {} } = {}) {
       ).all(alvo.id),
     ];
     for (const { c } of imagens) apagarImagem(c);
+    // RN-AT-09: congela o historico dos atletas conectados aos campeonatos
+    // desta conta antes de o CASCADE apagar tudo (mesma regra da rota LGPD).
+    for (const { id } of db.prepare('SELECT id FROM campeonatos WHERE conta_id = ?').all(alvo.id)) {
+      congelarEstatisticas(db, id);
+    }
     db.prepare('DELETE FROM contas WHERE id = ?').run(alvo.id);
     res.json({ ok: true });
   });
@@ -656,6 +667,9 @@ export function montarRotas(db, { limites = {} } = {}) {
 
   rotas.delete('/campeonatos/:id', logado, (req, res) => {
     const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
+    // RN-AT-09: congela ANTES do DELETE (o CASCADE nao da gancho) — o
+    // historico dos atletas conectados nunca e apagado pela exclusao da copa.
+    congelarEstatisticas(db, c.id);
     db.prepare('DELETE FROM campeonatos WHERE id = ?').run(c.id);
     res.json({ ok: true });
   });
@@ -954,6 +968,12 @@ export function montarRotas(db, { limites = {} } = {}) {
 
   rotas.delete('/jogadores/:id', logado, (req, res) => {
     const j = jogadorComAcesso(db, req.conta.id, req.params.id, 'times');
+    // EF 5.1: excluir o jogador derruba a conexao do atleta em cascata — o
+    // historico dele congela ANTES para nao sumir junto.
+    const cx = db
+      .prepare("SELECT id FROM conexoes_atleta WHERE jogador_id = ? AND status = 'aprovada'")
+      .get(j.id);
+    if (cx) congelarConexao(db, cx.id);
     // Eventos historicos ficam com jogador nulo (gols "sem autor"), nao somem.
     db.prepare('DELETE FROM jogadores WHERE id = ?').run(j.id);
     res.json({ ok: true });

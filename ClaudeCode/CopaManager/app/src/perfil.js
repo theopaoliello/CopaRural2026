@@ -1,8 +1,11 @@
-// Painel do Atleta (EF Perfil do Atleta, fase C): estatisticas das copas com
-// conexao APROVADA, calculadas AO VIVO a partir de jogos/eventos (RN-AT-07) —
-// nada e armazenado nesta fase; o snapshot congelado e a fase D. O payload e
-// uma linha por copa com totais e a quebra por ano; as guias, os contadores e
-// o drill-down (RN-AT-14/15/16) sao agregados pelo cliente em cima disso.
+// Painel do Atleta (EF Perfil do Atleta, fases C e D). Duas fontes:
+// - AO VIVO (RN-AT-07): copas conectadas em andamento, calculadas de
+//   jogos/eventos a cada carga — nenhum numero armazenado que possa divergir.
+// - CONGELADO (RN-AT-08/09): snapshot em `atleta_estatisticas`, gravado ao
+//   encerrar a copa e antes de qualquer exclusao. E o que faz o historico do
+//   atleta SOBREVIVER a exclusao do campeonato — o requisito central da EF.
+// O payload e uma linha por copa com totais e a quebra por ano; as guias, os
+// contadores e o drill-down (RN-AT-14/15/16) sao agregados pelo cliente.
 import { obterEsporte } from './esportes.js';
 
 // Ano de um jogo (EF 2.3): primeiro ano plausivel em `data` (texto livre,
@@ -154,20 +157,161 @@ function copaDoPerfil(db, cx) {
   };
 }
 
-// Painel completo da conta: uma linha por copa com conexao aprovada (RN-AT-07,
-// ao vivo). Copas pendentes/recusadas ficam de fora — nada de estatistica sem
-// aprovacao do dono. Ordena pelas mais recentes.
+// Conexoes aprovadas com os campos da copa, prontas para copaDoPerfil.
+const SELECT_CONEXOES = `
+  SELECT cx.id AS conexao_id, cx.conta_id, cx.alvo_tipo, cx.jogador_id, cx.time_id,
+         c.id AS campeonato_id, c.nome, c.slug, c.publicado, c.esporte, c.modalidade,
+         c.temporada, c.encerrado_em, c.podio
+  FROM conexoes_atleta cx
+  JOIN campeonatos c ON c.id = cx.campeonato_id
+  WHERE cx.status = 'aprovada'`;
+
+// ---------- congelamento (fase D) ----------
+
+// Ano de referencia do snapshot: o ano do titulo quando houver; senao o ano
+// com mais jogos; senao o ano do congelamento (copa sem nenhum jogo).
+function anoDeReferencia(copa) {
+  if (copa.ano_titulo) return copa.ano_titulo;
+  const anos = Object.entries(copa.anos);
+  if (anos.length) {
+    return Number(anos.sort((a, b) => b[1].jogos - a[1].jogos || Number(b[0]) - Number(a[0]))[0][0]);
+  }
+  return new Date().getFullYear();
+}
+
+// Grava (ou regrava) o snapshot de UMA conexao aprovada. Fonte da verdade e o
+// mesmo calculo ao vivo da fase C — nada de logica de apuracao duplicada.
+function congelarUma(db, cx) {
+  const copa = copaDoPerfil(db, cx);
+  const anosComJogo = Object.keys(copa.anos).map(Number);
+  db.prepare('DELETE FROM atleta_estatisticas WHERE conta_id = ? AND campeonato_id = ?')
+    .run(cx.conta_id, cx.campeonato_id);
+  db.prepare(
+    `INSERT INTO atleta_estatisticas
+     (conta_id, campeonato_id, campeonato_nome, esporte, modalidade, temporada,
+      time_nome, jogador_nome, ano, periodo_inicio, periodo_fim,
+      jogos, vitorias, empates, derrotas, gols, pontos, sets_vencidos, sets_perdidos, colocacao)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    cx.conta_id,
+    cx.campeonato_id,
+    copa.nome,
+    copa.esporte,
+    copa.modalidade,
+    copa.temporada,
+    copa.time_nome,
+    copa.alvo_tipo === 'jogador' ? copa.alvo_nome : null,
+    anoDeReferencia(copa),
+    anosComJogo.length ? String(Math.min(...anosComJogo)) : null,
+    anosComJogo.length ? String(Math.max(...anosComJogo)) : null,
+    copa.totais.jogos, copa.totais.v, copa.totais.e, copa.totais.d,
+    copa.totais.gols, copa.totais.pontos, copa.totais.sets_vencidos, copa.totais.sets_perdidos,
+    copa.colocacao,
+  );
+}
+
+// FUNCAO UNICA de congelamento de um campeonato (EF secao 5): chamada ao
+// encerrar (RN-AT-08) e por TODOS os caminhos que excluem campeonatos —
+// rota do dono, master, exclusao de conta LGPD (RN-AT-09). O CASCADE do
+// SQLite nao da gancho: quem apagar sem passar por aqui perde o historico
+// dos atletas silenciosamente. Idempotente (regrava).
+export function congelarEstatisticas(db, campeonatoId) {
+  const conexoes = db.prepare(`${SELECT_CONEXOES} AND cx.campeonato_id = ?`).all(campeonatoId);
+  for (const cx of conexoes) congelarUma(db, cx);
+  return conexoes.length;
+}
+
+// Congela uma conexao especifica: aprovacao em copa JA encerrada e exclusao
+// de jogador do elenco (EF 5.1 — congela antes de a conexao cair em cascata).
+export function congelarConexao(db, conexaoId) {
+  const cx = db.prepare(`${SELECT_CONEXOES} AND cx.id = ?`).get(Number(conexaoId));
+  if (cx) congelarUma(db, cx);
+}
+
+// Reabrir descarta os snapshots (RN-AT-12): a copa volta ao calculo ao vivo e
+// o congelamento sera regravado no proximo encerramento.
+export function descongelarCampeonato(db, campeonatoId) {
+  db.prepare('DELETE FROM atleta_estatisticas WHERE campeonato_id = ?').run(campeonatoId);
+}
+
+// Revogacao/desconexao removem o historico da copa do perfil (RN-AT-06):
+// diferente do fim da copa, aqui a premissa e que o vinculo nao valia.
+export function apagarCongelado(db, contaId, campeonatoId) {
+  db.prepare('DELETE FROM atleta_estatisticas WHERE conta_id = ? AND campeonato_id = ?')
+    .run(contaId, campeonatoId);
+}
+
+// Converte um snapshot na MESMA forma das linhas ao vivo — o painel nao
+// distingue as fontes; so ganha as flags `congelado` e `removido` (etiqueta
+// "Campeonato removido" no drill-down, EF 3.3.3).
+function linhaCongelada(s) {
+  const preset = obterEsporte(s.esporte);
+  const alvoTipo = s.jogador_nome ? 'jogador' : 'time';
+  const totais = {
+    jogos: s.jogos, v: s.vitorias, e: s.empates, d: s.derrotas,
+    gols: s.gols, pontos: s.pontos, sets_vencidos: s.sets_vencidos, sets_perdidos: s.sets_perdidos,
+  };
+  return {
+    congelado: true,
+    removido: s.campeonato_id == null,
+    conexao_id: null,
+    campeonato_id: s.campeonato_id,
+    nome: s.campeonato_nome,
+    slug: s.slug ?? null,
+    publicado: !!s.publicado,
+    esporte: s.esporte,
+    esporte_nome: preset?.nome ?? s.esporte,
+    modalidade: s.modalidade,
+    temporada: s.temporada,
+    alvo_tipo: alvoTipo,
+    alvo_nome: s.jogador_nome ?? s.time_nome,
+    time_nome: s.time_nome,
+    empate_possivel: !!preset?.empate,
+    producao: preset?.placar === 'sets' ? 'sets'
+      : alvoTipo === 'jogador' && preset?.evento_individual === 'pontos' ? 'pontos'
+      : alvoTipo === 'jogador' && preset?.evento_individual ? 'gols'
+      : null,
+    encerrado: true,
+    colocacao: s.colocacao,
+    ano_titulo: s.colocacao != null ? s.ano : null,
+    totais,
+    // O snapshot colapsa a copa no ano de referencia (decisao da EF 4.2).
+    anos: s.ano != null ? { [s.ano]: totais } : {},
+  };
+}
+
+// ---------- painel (vivo + congelado) ----------
+
+// Uma linha por copa. Regra da fonte (EF secao 5): copa em andamento = ao
+// vivo; copa ENCERRADA = snapshot (o numero final e oficial); copa excluida =
+// snapshot orfao (campeonato_id NULL). Copa encerrada sem snapshot (estado
+// anterior a fase D) cai no calculo ao vivo — os numeros sao identicos.
 export function perfilDoAtleta(db, contaId) {
   const conexoes = db
+    .prepare(`${SELECT_CONEXOES} AND cx.conta_id = ? ORDER BY cx.criado_em DESC`)
+    .all(contaId);
+  const congelados = db
     .prepare(
-      `SELECT cx.id AS conexao_id, cx.alvo_tipo, cx.jogador_id, cx.time_id,
-              c.id AS campeonato_id, c.nome, c.slug, c.publicado, c.esporte, c.modalidade,
-              c.temporada, c.encerrado_em, c.podio
-       FROM conexoes_atleta cx
-       JOIN campeonatos c ON c.id = cx.campeonato_id
-       WHERE cx.conta_id = ? AND cx.status = 'aprovada'
-       ORDER BY cx.criado_em DESC`,
+      `SELECT ae.*, c.slug, c.publicado
+       FROM atleta_estatisticas ae
+       LEFT JOIN campeonatos c ON c.id = ae.campeonato_id
+       WHERE ae.conta_id = ? ORDER BY ae.congelado_em DESC`,
     )
     .all(contaId);
-  return conexoes.map((cx) => copaDoPerfil(db, cx));
+  const snapshotPorCampeonato = new Map(
+    congelados.filter((s) => s.campeonato_id != null).map((s) => [s.campeonato_id, s]),
+  );
+  const campeonatosComConexao = new Set(conexoes.map((cx) => cx.campeonato_id));
+
+  const linhas = conexoes.map((cx) => {
+    const snap = cx.encerrado_em ? snapshotPorCampeonato.get(cx.campeonato_id) : null;
+    return snap ? linhaCongelada(snap) : copaDoPerfil(db, cx);
+  });
+  // Snapshots sem conexao viva: copas excluidas (orfaos) e o caso do jogador
+  // removido do elenco (conexao caiu em cascata, historico ficou — EF 5.1).
+  for (const s of congelados) {
+    if (s.campeonato_id != null && campeonatosComConexao.has(s.campeonato_id)) continue;
+    linhas.push(linhaCongelada(s));
+  }
+  return linhas;
 }

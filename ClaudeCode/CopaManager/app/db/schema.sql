@@ -314,3 +314,44 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_conexao_jogador
   ON conexoes_atleta(jogador_id) WHERE status = 'aprovada' AND jogador_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_conexoes_conta ON conexoes_atleta(conta_id);
 CREATE INDEX IF NOT EXISTS idx_conexoes_campeonato ON conexoes_atleta(campeonato_id);
+
+-- Historico congelado do atleta (EF Perfil do Atleta, fase D): snapshot das
+-- estatisticas de uma copa, gravado ao ENCERRAR (RN-AT-08) e antes de EXCLUIR
+-- (RN-AT-09). Desnormalizada DE PROPOSITO (RN-AT-11): repete nomes e rotulos
+-- para continuar legivel depois que a copa (e tudo dela) for apagada — e a
+-- unica tabela do sistema que existe para sobreviver a propria origem.
+-- campeonato_id e referencia FRACA (SET NULL): a copa some, os numeros ficam.
+-- Sem colunas de cartao: decisao de produto (RN-AT-14).
+CREATE TABLE IF NOT EXISTS atleta_estatisticas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conta_id INTEGER NOT NULL REFERENCES contas(id) ON DELETE CASCADE,
+  campeonato_id INTEGER REFERENCES campeonatos(id) ON DELETE SET NULL,
+  campeonato_nome TEXT NOT NULL,
+  esporte TEXT NOT NULL,
+  modalidade TEXT,
+  temporada TEXT,
+  time_nome TEXT,
+  -- NULL nas conexoes de time (2x2/1x1): a exibicao usa time_nome
+  jogador_nome TEXT,
+  -- ano de referencia da copa para o filtro do painel (titulo > mais jogos)
+  ano INTEGER,
+  periodo_inicio TEXT,
+  periodo_fim TEXT,
+  jogos INTEGER NOT NULL DEFAULT 0,
+  vitorias INTEGER NOT NULL DEFAULT 0,
+  empates INTEGER NOT NULL DEFAULT 0,
+  derrotas INTEGER NOT NULL DEFAULT 0,
+  gols INTEGER NOT NULL DEFAULT 0,
+  pontos INTEGER NOT NULL DEFAULT 0,
+  sets_vencidos INTEGER NOT NULL DEFAULT 0,
+  sets_perdidos INTEGER NOT NULL DEFAULT 0,
+  colocacao INTEGER,
+  congelado_em TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Enquanto a copa existe, ha no maximo UM snapshot por conta por copa (o
+-- congelamento regrava). Copas ja apagadas (campeonato_id NULL) ficam fora do
+-- indice: sao linhas historicas independentes.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_congelado_conta_camp
+  ON atleta_estatisticas(conta_id, campeonato_id) WHERE campeonato_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_congelado_conta ON atleta_estatisticas(conta_id);

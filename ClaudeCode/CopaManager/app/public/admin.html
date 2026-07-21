@@ -389,6 +389,7 @@ function modalDetalhePerfil(tipo) {
       <div>
         ${copa.publicado ? `<a href="/c/${esc(copa.slug)}" target="_blank"><strong>${esc(copa.nome)}</strong></a>` : `<strong>${esc(copa.nome)}</strong>`}
         ${copa.temporada ? `<span class="badge">${esc(copa.temporada)}</span>` : ''}
+        ${copa.removido ? '<span class="badge" style="background:#eee;color:#666" title="A competição foi excluída; suas estatísticas ficaram preservadas">Campeonato removido</span>' : ''}
         <div class="muted" style="font-size:.78rem">${PERFIL.guia === 'geral' ? `${esc(copa.esporte_nome)} • ` : ''}${esc(copa.time_nome ?? copa.alvo_nome ?? '')}</div>
       </div>
       <span class="espacador"></span>
@@ -416,8 +417,9 @@ function modalDetalhePerfil(tipo) {
 
 async function telaLista() {
   DET = null;
-  const [lista, limites, seguindo, conexoes] = await Promise.all([
-    api('/api/campeonatos'), api('/api/conta/limites'), api('/api/seguindo'), api('/api/atleta/conexoes'),
+  const [lista, limites, seguindo, conexoes, perfil] = await Promise.all([
+    api('/api/campeonatos'), api('/api/conta/limites'), api('/api/seguindo'),
+    api('/api/atleta/conexoes'), api('/api/atleta/perfil'),
   ]);
   const proprios = lista.filter((c) => !c.compartilhado);
   const compartilhados = lista.filter((c) => c.compartilhado);
@@ -442,7 +444,7 @@ async function telaLista() {
     <div class="linha-flex" style="margin:22px 0 8px">
       <h3 style="margin:0">Atleta</h3>
       <span class="espacador"></span>
-      ${conexoes.some((c) => c.status === 'aprovada')
+      ${perfil.length
         ? '<button class="botao mini" onclick="telaPerfilAtleta()">📊 Minhas estatísticas</button>' : ''}
       <button class="botao secundario mini" onclick="modalConectarCopa()">Me conectar à Copa</button>
     </div>
