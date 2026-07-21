@@ -37,6 +37,10 @@ import { seguir, deixarDeSeguir, estadoDeSeguir, listarSeguidos } from '../src/s
 import {
   estadoEncerramento, sugerirPodio, encerrarCampeonato, reabrirCampeonato,
 } from '../src/encerramento.js';
+import {
+  listarConectaveis, elencoParaConexao, solicitarConexao, minhasConexoes,
+  removerConexaoDoAtleta, filaDoCampeonato, decidirConexao, revogarConexao, contarPendentes,
+} from '../src/conexoes.js';
 import { erroValidacao, erroConflito, erroProibido, erroNaoEncontrado } from '../src/erros.js';
 import { CRITERIOS_VALIDOS } from '../src/classificacao.js';
 import { ESPORTES, obterEsporte } from '../src/esportes.js';
@@ -81,6 +85,8 @@ export function montarRotas(db, { limites = {} } = {}) {
   const limiteConvite = criarLimitador({ max: 30, janelaMs: 60 * 60_000, ...limites.convite });
   // Seguir/deixar de seguir: evita inflar contadores de forma automatizada.
   const limiteSeguir = criarLimitador({ max: 60, janelaMs: 10 * 60_000, ...limites.seguir });
+  // Solicitacoes de conexao de atleta (RN-AT-22): anti-spam na fila do dono.
+  const limiteConexao = criarLimitador({ max: 20, janelaMs: 60 * 60_000, ...limites.conexao });
 
   // Login OPCIONAL: popula req.conta se houver sessao valida, mas nunca barra
   // o anonimo. Usado pelo estado do botao "Seguir" na pagina publica (RN-SG-06).
@@ -588,6 +594,8 @@ export function montarRotas(db, { limites = {} } = {}) {
       banners: ehDono ? db.prepare('SELECT * FROM banners WHERE campeonato_id = ? ORDER BY ordem, id').all(c.id) : [],
       banners_liberados: bannersLiberados,
       meu_acesso: meuAcesso,
+      // Badge da aba Atletas (fase B): pendentes so interessam ao dono.
+      n_conexoes_pendentes: ehDono ? contarPendentes(db, c.id) : 0,
       classificacao,
       vagas: vagasDoCampeonato(db, c, classificacao),
     });
@@ -621,7 +629,8 @@ export function montarRotas(db, { limites = {} } = {}) {
     db.prepare(
       `UPDATE campeonatos SET nome = ?, temporada = ?, modalidade = ?, descricao = ?, cor_tema = ?,
        slug = ?, criterios_desempate = ?, regras = ?, publicado = ?, status = ?,
-       premiacao = ?, premia_artilheiro = ?, rebaixamento_modo = ?, rebaixamento_qtd = ? WHERE id = ?`,
+       premiacao = ?, premia_artilheiro = ?, rebaixamento_modo = ?, rebaixamento_qtd = ?,
+       aceita_conexoes = ? WHERE id = ?`,
     ).run(
       nome,
       b.temporada !== undefined ? textoLimitado(b.temporada, 40, 'Temporada') : c.temporada,
@@ -637,6 +646,8 @@ export function montarRotas(db, { limites = {} } = {}) {
       premios.premia_artilheiro,
       premios.rebaixamento_modo,
       premios.rebaixamento_qtd,
+      // RN-AT-19: dono liga/desliga as conexoes de atleta na copa dele.
+      b.aceita_conexoes !== undefined ? (b.aceita_conexoes ? 1 : 0) : c.aceita_conexoes,
       c.id,
     );
     res.json(db.prepare('SELECT * FROM campeonatos WHERE id = ?').get(c.id));
@@ -796,6 +807,50 @@ export function montarRotas(db, { limites = {} } = {}) {
   rotas.post('/campeonatos/:id/reabrir', logado, (req, res) => {
     const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
     res.json(reabrirCampeonato(db, c));
+  });
+
+  // ---------- conexoes de atleta (EF Perfil do Atleta, fase B) ----------
+
+  // Lado do ATLETA: "Me conectar a Copa". Exige login (e-mail confirmado por
+  // construcao: sessao so existe apos confirmar) e seguir a copa (RN-AT-02).
+  rotas.get('/atleta/conectaveis', logado, (req, res) => {
+    res.json(listarConectaveis(db, req.conta.id));
+  });
+
+  rotas.get('/atleta/copa/:slug/elenco', logado, (req, res) => {
+    res.json(elencoParaConexao(db, req.conta.id, req.params.slug));
+  });
+
+  rotas.get('/atleta/conexoes', logado, (req, res) => {
+    res.json(minhasConexoes(db, req.conta.id));
+  });
+
+  // body: { slug, jogador_id? , time_id? (copas 2x2/1x1), observacao? }
+  rotas.post('/atleta/conexoes', limiteConexao.middleware, logado, (req, res) => {
+    res.status(201).json(solicitarConexao(db, req.conta.id, req.body ?? {}));
+  });
+
+  // Cancela a solicitacao ou desconecta (RN-AT-06) — so a propria conta.
+  rotas.delete('/atleta/conexoes/:id', logado, (req, res) => {
+    res.json(removerConexaoDoAtleta(db, req.conta.id, req.params.id));
+  });
+
+  // Lado do DONO: fila de solicitacoes + conectados. Decidir quem e quem no
+  // historico da copa e exclusivo do dono (RN-AT-05) — colaborador nao ve.
+  rotas.get('/campeonatos/:id/conexoes', logado, (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
+    res.json(filaDoCampeonato(db, c));
+  });
+
+  // body: { acao: 'aprovar' | 'recusar' }
+  rotas.post('/campeonatos/:id/conexoes/:cid/decidir', logado, (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
+    res.json(decidirConexao(db, c, req.params.cid, req.body?.acao, req.conta.id));
+  });
+
+  rotas.delete('/campeonatos/:id/conexoes/:cid', logado, (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
+    res.json(revogarConexao(db, c, req.params.cid));
   });
 
   // ---------- times e jogadores (admin) ----------

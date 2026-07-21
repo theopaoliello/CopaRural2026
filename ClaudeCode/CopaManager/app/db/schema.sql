@@ -115,6 +115,9 @@ CREATE TABLE IF NOT EXISTS campeonatos (
   -- {"primeiro": id, "segundo": id|null, "terceiro": id|null} com ids de
   -- times (esportes de clubes) ou jogadores (Pelada Epica).
   podio TEXT,
+  -- Conexoes de atleta ligadas/desligadas pelo dono (RN-AT-19): com 0 a copa
+  -- nao aparece como conectavel e novas solicitacoes sao barradas.
+  aceita_conexoes INTEGER NOT NULL DEFAULT 1,
   criado_em TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -280,3 +283,34 @@ CREATE TABLE IF NOT EXISTS seguidores (
 
 CREATE INDEX IF NOT EXISTS idx_seguidores_conta ON seguidores(conta_id);
 CREATE INDEX IF NOT EXISTS idx_seguidores_campeonato ON seguidores(campeonato_id);
+
+-- Conexoes de atleta (EF Perfil do Atleta, fase B): a conta pede para ser
+-- reconhecida como um JOGADOR do campeonato ou, nas copas 2x2/1x1 sem elenco,
+-- como integrante de um TIME (RN-AT-04/25 — alvo decidido pela ESTRUTURA).
+-- Vinculo VIVO: some em cascata com a copa/jogador/time (o historico congelado
+-- da fase D mora em outra tabela). UNIQUE(conta, campeonato) = uma conexao por
+-- pessoa por copa (RN-AT-03); re-solicitar apos recusa REUSA a linha.
+CREATE TABLE IF NOT EXISTS conexoes_atleta (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conta_id INTEGER NOT NULL REFERENCES contas(id) ON DELETE CASCADE,
+  campeonato_id INTEGER NOT NULL REFERENCES campeonatos(id) ON DELETE CASCADE,
+  alvo_tipo TEXT NOT NULL CHECK (alvo_tipo IN ('jogador', 'time')),
+  jogador_id INTEGER REFERENCES jogadores(id) ON DELETE CASCADE,
+  time_id INTEGER REFERENCES times(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pendente'
+    CHECK (status IN ('pendente', 'aprovada', 'recusada')),
+  -- "sou o Theo, camisa 10" — ajuda o dono a reconhecer quem pede
+  observacao TEXT,
+  decidido_por INTEGER REFERENCES contas(id) ON DELETE SET NULL,
+  decidido_em TEXT,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (conta_id, campeonato_id)
+);
+
+-- Trava anti-fraude estrutural (RN-AT-04): um jogador aprovado pertence a UMA
+-- conta. Times ficam de fora do indice de proposito — numa dupla 2x2, dois
+-- atletas conectam-se ao MESMO time legitimamente.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conexao_jogador
+  ON conexoes_atleta(jogador_id) WHERE status = 'aprovada' AND jogador_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_conexoes_conta ON conexoes_atleta(conta_id);
+CREATE INDEX IF NOT EXISTS idx_conexoes_campeonato ON conexoes_atleta(campeonato_id);

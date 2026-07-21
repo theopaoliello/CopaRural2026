@@ -139,10 +139,140 @@ async function deixarDeSeguir(slug) {
   catch (e) { avisar(e.message); }
 }
 
+// ---------- conexoes de atleta (EF Perfil do Atleta, fase B) ----------
+
+const BADGE_CONEXAO = {
+  pendente: ['Pendente', 'background:#fef3c7;color:#92400e'],
+  aprovada: ['Conectado', 'background:#d1fae5;color:#065f46'],
+  recusada: ['Recusada', 'background:#fee2e2;color:#991b1b'],
+};
+
+function cardConexaoAtleta(cx) {
+  const [rotulo, cor] = BADGE_CONEXAO[cx.status] ?? [cx.status, ''];
+  const acao = cx.status === 'aprovada' ? 'Desconectar' : cx.status === 'pendente' ? 'Cancelar' : 'Remover';
+  return `<div class="card card-camp" onclick="location.href='/c/${esc(cx.slug)}'">
+    <div class="linha-flex">
+      <div>
+        <strong>${esc(cx.campeonato_nome)}</strong> ${cx.temporada ? `<span class="badge">${esc(cx.temporada)}</span>` : ''}
+        <span class="badge" style="${cor}">${rotulo}</span>
+        <div class="muted">${cx.alvo_tipo === 'time' ? 'Time/dupla' : 'Jogador'}: <strong>${esc(cx.alvo_nome ?? '—')}</strong></div>
+      </div>
+      <span class="espacador"></span>
+      <button class="botao ${cx.status === 'aprovada' ? 'perigo' : 'secundario'} mini"
+        onclick="event.stopPropagation();removerConexao(${cx.id}, '${cx.status}')">${acao}</button>
+    </div>
+  </div>`;
+}
+
+async function removerConexao(id, status) {
+  const msg = status === 'aprovada'
+    ? 'Desconectar desta copa? Suas estatísticas dela deixam de aparecer no seu perfil.'
+    : 'Remover esta solicitação?';
+  if (!confirm(msg)) return;
+  try { await api(`/api/atleta/conexoes/${id}`, 'DELETE'); telaLista(); }
+  catch (e) { avisar(e.message); }
+}
+
+// Fluxo "Me conectar a Copa" (EF 3.1): copa (das seguidas) -> time -> jogador
+// (ou conexao direta ao time nas copas 2x2/1x1 sem elenco) -> observacao.
+let CONEXAO = null; // { conectaveis, elenco }
+
+async function modalConectarCopa() {
+  const conectaveis = (await api('/api/atleta/conectaveis')).filter((c) => !c.minha_conexao || c.minha_conexao === 'recusada');
+  CONEXAO = { conectaveis, elenco: null };
+  if (!conectaveis.length) {
+    abrirModal(`
+      <h3>Me conectar à Copa</h3>
+      <p class="muted">Para se conectar, primeiro <strong>siga</strong> a copa em que você joga:
+      abra a página pública dela e toque em "Seguir esta Copa". Ela aparecerá aqui.</p>`);
+    return;
+  }
+  abrirModal(`
+    <h3>Me conectar à Copa</h3>
+    <p class="muted">Escolha a copa em que você joga. O organizador vai avaliar sua solicitação.</p>
+    <label>Copa</label>
+    <select id="conectar-copa" onchange="conectarEscolheuCopa()">
+      <option value="">Escolha…</option>
+      ${conectaveis.map((c) => `<option value="${esc(c.slug)}">${esc(c.nome)}${c.temporada ? ` (${esc(c.temporada)})` : ''}</option>`).join('')}
+    </select>
+    <div id="conectar-passos"></div>`);
+}
+
+async function conectarEscolheuCopa() {
+  const slug = $('#conectar-copa').value;
+  const alvoDiv = $('#conectar-passos');
+  if (!slug) { alvoDiv.innerHTML = ''; return; }
+  try { CONEXAO.elenco = await api(`/api/atleta/copa/${encodeURIComponent(slug)}/elenco`); }
+  catch (e) { alvoDiv.innerHTML = `<p class="aviso erro" style="display:block">${esc(e.message)}</p>`; return; }
+  const E = CONEXAO.elenco;
+  if (E.pelada) {
+    alvoDiv.innerHTML = `
+      <label>Quem é você no elenco?</label>
+      <select id="conectar-jogador">${opcoesJogador(E.jogadores)}</select>
+      ${camposFinaisConexao()}`;
+    return;
+  }
+  alvoDiv.innerHTML = `
+    <label>Seu time</label>
+    <select id="conectar-time" onchange="conectarEscolheuTime()">
+      <option value="">Escolha…</option>
+      ${E.times.map((t) => `<option value="${t.id}">${esc(t.nome)}</option>`).join('')}
+    </select>
+    <div id="conectar-jogador-passo"></div>`;
+}
+
+function conectarEscolheuTime() {
+  const time = CONEXAO.elenco.times.find((t) => t.id === Number($('#conectar-time').value));
+  const passo = $('#conectar-jogador-passo');
+  if (!time) { passo.innerHTML = ''; return; }
+  if (time.sem_elenco) {
+    // Copas 2x2/1x1: o nome do time E o nome das pessoas — conexao ao time.
+    passo.innerHTML = `
+      <p class="muted">Este time não tem jogadores cadastrados: você se conectará ao
+      <strong>time/dupla ${esc(time.nome)}</strong> e receberá os resultados dele.</p>
+      ${camposFinaisConexao()}`;
+    return;
+  }
+  passo.innerHTML = `
+    <label>Quem é você no elenco?</label>
+    <select id="conectar-jogador">${opcoesJogador(time.jogadores)}</select>
+    ${camposFinaisConexao()}`;
+}
+
+function opcoesJogador(jogadores) {
+  return ['<option value="">Escolha…</option>', ...jogadores.map((j) =>
+    `<option value="${j.id}" ${j.disponivel ? '' : 'disabled'}>${esc(j.nome)}${j.numero ? ` (${j.numero})` : ''}${j.disponivel ? '' : ' — já reivindicado'}</option>`,
+  )].join('');
+}
+
+function camposFinaisConexao() {
+  return `
+    <label>Observação para o organizador (opcional)</label>
+    <input type="text" id="conectar-obs" maxlength="200" placeholder='Ex.: "sou o Theo, camisa 10"'>
+    <p><button class="botao" onclick="enviarConexao()">Solicitar conexão</button></p>`;
+}
+
+async function enviarConexao() {
+  const time = CONEXAO.elenco.pelada ? null : CONEXAO.elenco.times.find((t) => t.id === Number($('#conectar-time')?.value));
+  const jogadorId = $('#conectar-jogador')?.value ? Number($('#conectar-jogador').value) : null;
+  if (!jogadorId && !time?.sem_elenco) { avisar('Escolha o seu nome no elenco.'); return; }
+  try {
+    await api('/api/atleta/conexoes', 'POST', {
+      slug: CONEXAO.elenco.campeonato.slug,
+      jogador_id: jogadorId,
+      time_id: !jogadorId && time?.sem_elenco ? time.id : null,
+      observacao: $('#conectar-obs')?.value || null,
+    });
+    fecharModal();
+    avisar('Solicitação enviada. O organizador da copa vai avaliar.');
+    telaLista();
+  } catch (e) { avisar(e.message); }
+}
+
 async function telaLista() {
   DET = null;
-  const [lista, limites, seguindo] = await Promise.all([
-    api('/api/campeonatos'), api('/api/conta/limites'), api('/api/seguindo'),
+  const [lista, limites, seguindo, conexoes] = await Promise.all([
+    api('/api/campeonatos'), api('/api/conta/limites'), api('/api/seguindo'), api('/api/atleta/conexoes'),
   ]);
   const proprios = lista.filter((c) => !c.compartilhado);
   const compartilhados = lista.filter((c) => c.compartilhado);
@@ -164,6 +294,13 @@ async function telaLista() {
     ${seguindo.length ? `
       <h3 style="margin:22px 0 8px">Seguindo</h3>
       ${seguindo.map(cardSeguindo).join('')}` : ''}
+    <div class="linha-flex" style="margin:22px 0 8px">
+      <h3 style="margin:0">Atleta</h3>
+      <span class="espacador"></span>
+      <button class="botao secundario mini" onclick="modalConectarCopa()">Me conectar à Copa</button>
+    </div>
+    ${conexoes.length ? conexoes.map(cardConexaoAtleta).join('')
+    : '<div class="card"><p class="muted" style="margin:0">Conecte-se a uma copa que você joga para, em breve, acompanhar suas estatísticas por aqui. Siga a copa e clique em "Me conectar à Copa".</p></div>'}
     <p class="muted" style="text-align:center;margin-top:24px">
       <a href="/privacidade.html" target="_blank">Política de Privacidade</a> •
       <a href="#" onclick="modalExcluirConta();return false">Excluir minha conta</a>
@@ -476,6 +613,9 @@ async function telaCampeonato(id, aba = abaAtual) {
     ['classificacao', ESP?.rotulos.classificacao ?? 'Classificação'],
     ...(A.regras ? [['regras', 'Regras']] : []),
     ...(A.banners && DET.banners_liberados ? [['banners', 'Banners']] : []),
+    // Conexoes de atleta (fase B): decidir quem e quem e dono-only (RN-AT-05);
+    // o badge numerico e como o dono descobre pedidos novos (sem notificacao).
+    ...(A.dono ? [['atletas', `Atletas${DET.n_conexoes_pendentes ? ` 🔔${DET.n_conexoes_pendentes}` : ''}`]] : []),
     ...(A.config ? [['config', 'Configurações']] : []),
   ];
   // Se a aba pedida nao esta disponivel (colaborador, recurso revogado), cai na
@@ -497,7 +637,7 @@ async function telaCampeonato(id, aba = abaAtual) {
     <div id="painel"></div>
   `;
   const abaParticipantes = ESP?.ranking === 'individual' ? abaJogadoresPelada : abaTimes;
-  ({ jogos: abaJogos, times: abaParticipantes, sorteio: abaSorteio, classificacao: abaClassif, regras: abaRegras, banners: abaBanners, config: abaConfig }[aba])();
+  ({ jogos: abaJogos, times: abaParticipantes, sorteio: abaSorteio, classificacao: abaClassif, regras: abaRegras, banners: abaBanners, atletas: abaAtletas, config: abaConfig }[aba])();
 }
 
 // ---------- aba jogos ----------
@@ -1457,6 +1597,62 @@ async function salvarRegras() {
   } catch (e) { avisar(e.message); }
 }
 
+// ---------- aba atletas (conexoes, EF Perfil do Atleta fase B) ----------
+
+function linhaConexaoDono(cx, pendente) {
+  const alvo = cx.alvo_tipo === 'time'
+    ? `time/dupla <strong>${esc(cx.alvo_nome)}</strong>`
+    : `jogador <strong>${esc(cx.alvo_nome)}</strong>${cx.time_nome && cx.time_nome !== cx.alvo_nome ? ` (${esc(cx.time_nome)})` : ''}`;
+  return `<div style="border-bottom:1px solid var(--borda);padding:10px 0">
+    <div class="linha-flex">
+      <div>
+        <strong>${esc(cx.conta_nome)}</strong> <span class="muted">${esc(cx.conta_email)}</span>
+        <div class="muted">quer se conectar como ${alvo} • ${esc(formatarData(cx.criado_em.replace(' ', 'T')))}</div>
+        ${cx.observacao ? `<div class="muted">“${esc(cx.observacao)}”</div>` : ''}
+        ${cx.aviso_variante ? '<div class="muted" style="color:#92400e">⚠️ Este time já tem mais conexões do que a variante sugere — confira antes de aprovar.</div>' : ''}
+      </div>
+      <span class="espacador"></span>
+      ${pendente
+        ? `<button class="botao mini" onclick="decidirConexao(${cx.id}, 'aprovar')">Aprovar</button>
+           <button class="botao secundario mini" onclick="decidirConexao(${cx.id}, 'recusar')">Recusar</button>`
+        : `<button class="botao perigo mini" onclick="revogarConexao(${cx.id})">Revogar</button>`}
+    </div>
+  </div>`;
+}
+
+async function abaAtletas() {
+  const fila = await api(`/api/campeonatos/${DET.campeonato.id}/conexoes`);
+  $('#painel').innerHTML = `
+    <div class="card">
+      <h3>Solicitações de atletas ${fila.pendentes.length ? `<span class="badge" style="background:#fef3c7;color:#92400e">${fila.pendentes.length}</span>` : ''}</h3>
+      <p class="muted">Atletas pedindo para vincular o próprio perfil a um jogador (ou dupla) desta copa.
+      Aprovar <strong>não dá nenhum acesso</strong> à gestão do campeonato — o atleta apenas passa a ver as estatísticas dele.</p>
+      ${fila.pendentes.map((cx) => linhaConexaoDono(cx, true)).join('') || '<p class="muted">Nenhuma solicitação pendente.</p>'}
+    </div>
+    <div class="card">
+      <h3>Atletas conectados ${fila.conectados.length ? `<span class="badge">${fila.conectados.length}</span>` : ''}</h3>
+      ${fila.conectados.map((cx) => linhaConexaoDono(cx, false)).join('') || '<p class="muted">Ninguém conectado ainda.</p>'}
+    </div>`;
+}
+
+async function decidirConexao(id, acao) {
+  if (acao === 'recusar' && !confirm('Recusar esta solicitação? O atleta poderá pedir de novo.')) return;
+  try {
+    await api(`/api/campeonatos/${DET.campeonato.id}/conexoes/${id}/decidir`, 'POST', { acao });
+    avisar(acao === 'aprovar' ? 'Conexão aprovada!' : 'Solicitação recusada.');
+    telaCampeonato(DET.campeonato.id, 'atletas');
+  } catch (e) { avisar(e.message); }
+}
+
+async function revogarConexao(id) {
+  if (!confirm('Revogar esta conexão? As estatísticas desta copa saem do perfil do atleta.')) return;
+  try {
+    await api(`/api/campeonatos/${DET.campeonato.id}/conexoes/${id}`, 'DELETE');
+    avisar('Conexão revogada.');
+    telaCampeonato(DET.campeonato.id, 'atletas');
+  } catch (e) { avisar(e.message); }
+}
+
 // ---------- aba config ----------
 
 async function abaConfig() {
@@ -1472,6 +1668,8 @@ async function abaConfig() {
       <p><a href="${esc(url)}" target="_blank">${esc(url)}</a>
       <button class="botao secundario mini" onclick="navigator.clipboard.writeText('${esc(url)}').then(()=>avisar('Link copiado!'))">Copiar</button></p>
       <label><input type="checkbox" id="cfg-publicado" ${c.publicado ? 'checked' : ''} style="width:auto"> Página pública ativa</label>
+      <label style="margin-top:6px"><input type="checkbox" id="cfg-aceita-conexoes" ${c.aceita_conexoes ? 'checked' : ''} style="width:auto"> Aceitar conexões de atletas
+        <span class="muted" style="font-weight:400">(atletas podem pedir para vincular o perfil deles a esta copa)</span></label>
     </div>
     <div class="card">
       <h3>Identidade</h3>
@@ -1554,6 +1752,7 @@ async function salvarConfig() {
     nome: $('#cfg-nome').value, temporada: $('#cfg-temporada').value || null,
     descricao: $('#cfg-descricao').value || null, cor_tema: $('#cfg-cor').value,
     publicado: $('#cfg-publicado').checked,
+    aceita_conexoes: $('#cfg-aceita-conexoes').checked,
   };
   if ($('#cfg-premiacao')) { // card da pelada (premiacao e rebaixamento)
     dados.premiacao = $('#cfg-premiacao').value;

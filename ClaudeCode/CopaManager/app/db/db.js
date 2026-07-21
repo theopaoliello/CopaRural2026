@@ -80,6 +80,9 @@ function migrarColunas(db) {
   // seguem "em andamento" (NULL) ate o dono encerrar explicitamente.
   addSeFaltar('campeonatos', 'encerrado_em TEXT');
   addSeFaltar('campeonatos', 'podio TEXT');
+  // Conexoes de atleta (fase B): copas existentes nascem aceitando (DEFAULT 1);
+  // a tabela conexoes_atleta vem do schema.sql (CREATE IF NOT EXISTS no boot).
+  addSeFaltar('campeonatos', 'aceita_conexoes INTEGER NOT NULL DEFAULT 1');
 }
 
 // Bancos criados antes dos tipos 'gol_contra' (2026-07) ou 'pontos'/'valor'
