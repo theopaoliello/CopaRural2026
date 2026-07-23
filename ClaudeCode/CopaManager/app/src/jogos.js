@@ -3,7 +3,7 @@
 // O formato do lancamento e dirigido pelo modelo de placar do esporte:
 // modelo A (gols, o historico) ou modelo B (sets, com parciais opcionais).
 import { erroValidacao, erroConflito } from './erros.js';
-import { vencedorConfronto } from './tabela.js';
+import { vencedorConfronto, perdedorConfronto, CONFRONTO_TERCEIRO } from './tabela.js';
 import { obterEsporte, ESPORTE_PADRAO } from './esportes.js';
 
 const TIPOS_EVENTO = ['gol', 'gol_contra', 'amarelo', 'vermelho'];
@@ -19,10 +19,13 @@ function pernasDoConfronto(db, jogo) {
 }
 
 function proximasPernas(db, jogo) {
-  const totalNaRodada = db
-    .prepare("SELECT COUNT(DISTINCT confronto) AS n FROM jogos WHERE campeonato_id = ? AND fase = 'mata' AND rodada = ?")
-    .get(jogo.campeonato_id, jogo.rodada).n;
-  if (totalNaRodada <= 1) return []; // ja era a final
+  // Fim da chave = ULTIMA rodada (RN-MM-17). A leitura antiga era "rodada com
+  // um confronto so", que numa chave com folgas pode ser uma fase do meio —
+  // numa escada, toda rodada tem um jogo. Em chave cheia da no mesmo.
+  const ultima = db
+    .prepare("SELECT MAX(rodada) AS r FROM jogos WHERE campeonato_id = ? AND fase = 'mata'")
+    .get(jogo.campeonato_id).r;
+  if (jogo.rodada >= ultima) return [];
   return db
     .prepare(
       `SELECT * FROM jogos
@@ -32,25 +35,50 @@ function proximasPernas(db, jogo) {
     .all(jogo.campeonato_id, jogo.rodada + 1, Math.floor(jogo.confronto / 2));
 }
 
-// Recalcula o vencedor do confronto e preenche (ou limpa) a vaga na fase seguinte.
-function propagarVencedor(db, jogo) {
-  if (jogo.fase !== 'mata') return;
-  const proximas = proximasPernas(db, jogo);
-  if (!proximas.length) return;
+// Pernas da disputa de 3o lugar alimentadas por ESTE confronto (RN-MM-22):
+// so a penultima rodada alimenta a disputa, e com o perdedor. Vazio quando
+// o campeonato nao tem disputa ou o confronto nao e de semifinal.
+function pernasDaDisputa(db, jogo) {
+  const ultima = db
+    .prepare("SELECT MAX(rodada) AS r FROM jogos WHERE campeonato_id = ? AND fase = 'mata'")
+    .get(jogo.campeonato_id).r;
+  if (jogo.rodada !== ultima - 1) return [];
+  return db
+    .prepare(
+      `SELECT * FROM jogos
+       WHERE campeonato_id = ? AND fase = 'mata' AND rodada = ? AND confronto = ?
+       ORDER BY perna`,
+    )
+    .all(jogo.campeonato_id, ultima, CONFRONTO_TERCEIRO);
+}
 
-  if (proximas.some((p) => p.status === 'encerrado')) {
-    throw erroConflito(
-      'A fase seguinte deste confronto ja tem resultado lancado. Apague primeiro o resultado da fase seguinte.',
-    );
-  }
-
-  const vencedor = vencedorConfronto(pernasDoConfronto(db, jogo));
-  const ladoCasa = jogo.confronto % 2 === 0; // confrontos pares ocupam o mando na proxima fase
-  for (const p of proximas) {
+// Escreve (ou limpa) a vaga que este confronto alimenta no destino.
+function preencherVaga(db, jogo, destino, time, mensagemConflito) {
+  if (!destino.length) return;
+  if (destino.some((p) => p.status === 'encerrado')) throw erroConflito(mensagemConflito);
+  const ladoCasa = jogo.confronto % 2 === 0; // confrontos pares ocupam o mando no destino
+  for (const p of destino) {
     // Perna 1 respeita o lado do chaveamento; perna 2 inverte o mando.
     const coluna = (p.perna === 1) === ladoCasa ? 'time_casa_id' : 'time_fora_id';
-    db.prepare(`UPDATE jogos SET ${coluna} = ? WHERE id = ?`).run(vencedor, p.id);
+    db.prepare(`UPDATE jogos SET ${coluna} = ? WHERE id = ?`).run(time, p.id);
   }
+}
+
+// Recalcula o resultado do confronto e preenche (ou limpa) as vagas que ele
+// alimenta: o vencedor na fase seguinte e — havendo disputa de 3o lugar — o
+// perdedor da semifinal no confronto 1 da ultima rodada (RN-MM-22).
+function propagarVencedor(db, jogo) {
+  if (jogo.fase !== 'mata') return;
+  const pernas = pernasDoConfronto(db, jogo);
+  const vencedor = vencedorConfronto(pernas);
+  preencherVaga(
+    db, jogo, proximasPernas(db, jogo), vencedor,
+    'A fase seguinte deste confronto ja tem resultado lancado. Apague primeiro o resultado da fase seguinte.',
+  );
+  preencherVaga(
+    db, jogo, pernasDaDisputa(db, jogo), perdedorConfronto(pernas, vencedor),
+    'A disputa de 3o lugar ja tem resultado lancado. Apague primeiro o resultado dela.',
+  );
 }
 
 // Valida e grava um resultado, no formato do modelo de placar do esporte.
@@ -377,6 +405,13 @@ export function apagarResultado(db, jogo) {
     if (proximas.some((p) => p.status === 'encerrado')) {
       throw erroConflito(
         'A fase seguinte ja tem resultado lancado. Apague primeiro o resultado da fase seguinte.',
+      );
+    }
+    // A semifinal tambem alimenta a disputa de 3o: apagar o resultado dela
+    // esvaziaria uma vaga de um jogo ja decidido.
+    if (pernasDaDisputa(db, jogo).some((p) => p.status === 'encerrado')) {
+      throw erroConflito(
+        'A disputa de 3o lugar ja tem resultado lancado. Apague primeiro o resultado dela.',
       );
     }
   }

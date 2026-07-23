@@ -17,11 +17,13 @@ import {
 import {
   criarCampeonato, classificacaoDoCampeonato, gerarMataDoCampeonato, criarJogoAvulso,
   slugificar, slugDisponivel, textoLimitado, validarCorTema, validarPremiacaoRebaixamento,
-  vagasDoCampeonato, MAX_NOME_JOGADOR, MAX_NOME_TIME,
+  vagasDoCampeonato, definirDisputaTerceiro, chaveamentoDoCampeonato, salvarChaveamento,
+  MAX_NOME_JOGADOR, MAX_NOME_TIME,
 } from '../src/campeonatos.js';
 import {
   planoDeVagas, sugerirCombinacao, textoSugestao, resumoDoPlano, tamanhosPrevistos,
 } from '../src/melhores.js';
+import { catalogoDeChaveamentos } from '../src/chaveamentos.js';
 import { criarLimitador } from '../src/ratelimit.js';
 import { registrarResultado, apagarResultado } from '../src/jogos.js';
 import { matrizEntrosamento, sortearTimes } from '../src/sorteio.js';
@@ -517,6 +519,12 @@ export function montarRotas(db, { limites = {} } = {}) {
     });
   });
 
+  // Catalogo de chaveamentos de um tamanho de chave (RN-MM-04): alimenta a
+  // galeria do wizard e o desenhador. So descreve estrutura — nada de banco.
+  rotas.get('/chaveamentos', logado, (req, res) => {
+    res.json(catalogoDeChaveamentos(req.query.vagas));
+  });
+
   // ---------- campeonatos (admin) ----------
 
   // Consumo e tetos da conta efetiva (RN-GC-12): alimenta o contador "2/3"
@@ -631,6 +639,11 @@ export function montarRotas(db, { limites = {} } = {}) {
         throw erroValidacao('Criterios de desempate invalidos.');
       }
       criterios = JSON.stringify(b.criterios_desempate);
+    }
+    // Disputa de 3o lugar (RN-MM-24): muda a estrutura do mata-mata, entao sai
+    // da UPDATE geral e passa pela funcao que cria/apaga o jogo.
+    if (b.disputa_terceiro !== undefined && !!b.disputa_terceiro !== !!c.disputa_terceiro) {
+      definirDisputaTerceiro(db, c, !!b.disputa_terceiro);
     }
     // Premiacao e rebaixamento so existem na pelada (fase 4b: config editavel).
     let premios = {
@@ -795,6 +808,22 @@ export function montarRotas(db, { limites = {} } = {}) {
       .prepare('INSERT INTO jogadores (campeonato_id, nome, tipo, goleiro) VALUES (?, ?, ?, ?)')
       .run(c.id, nome, tipo, req.body?.goleiro ? 1 : 0);
     res.status(201).json(db.prepare('SELECT * FROM jogadores WHERE id = ?').get(Number(info.lastInsertRowid)));
+  });
+
+  // ---------- aba Chaveamento (EF Mata-mata Manual, fase B) ----------
+
+  // Estado da chave: desenho, vagas de entrada e se ainda e editavel. Leitura
+  // vale para qualquer pessoa com acesso ao campeonato.
+  rotas.get('/campeonatos/:id/chaveamento', logado, (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id);
+    res.json(chaveamentoDoCampeonato(db, c));
+  });
+
+  // Reposicionar (ou declarar as vagas) e estrutural, como gerar o mata:
+  // so o dono (RN-CO-05).
+  rotas.put('/campeonatos/:id/chaveamento', logado, (req, res) => {
+    const c = campeonatoComAcesso(db, req.conta.id, req.params.id, 'dono');
+    res.json(salvarChaveamento(db, c, req.body ?? {}));
   });
 
   rotas.post('/campeonatos/:id/gerar-mata', logado, (req, res) => {

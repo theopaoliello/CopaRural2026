@@ -118,6 +118,15 @@ CREATE TABLE IF NOT EXISTS campeonatos (
   -- Conexoes de atleta ligadas/desligadas pelo dono (RN-AT-19): com 0 a copa
   -- nao aparece como conectavel e novas solicitacoes sao barradas.
   aceita_conexoes INTEGER NOT NULL DEFAULT 1,
+  -- Disputa de 3o lugar (EF Mata-mata Manual, RN-MM-21): jogo extra no
+  -- confronto 1 da ultima rodada, entre os perdedores das semifinais.
+  disputa_terceiro INTEGER NOT NULL DEFAULT 0,
+  -- Modelo do mata-mata (RN-MM-01): 'padrao' (montagem automatica, potencia
+  -- de 2) ou 'manual' (chave com folgas, desenho escolhido pelo gestor).
+  mata_modelo TEXT NOT NULL DEFAULT 'padrao',
+  -- JSON do modelo manual (RN-MM-04): { desenho: '6A', vagas: 6 }. A estrutura
+  -- em si e derivavel dos jogos; isto guarda QUAL desenho foi escolhido.
+  mata_chave TEXT,
   criado_em TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

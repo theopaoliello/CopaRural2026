@@ -1,9 +1,11 @@
 // Montagem dos dados publicos de um campeonato (pagina do torcedor).
 // Somente leitura; nada aqui exige login.
 import { erroNaoEncontrado } from './erros.js';
-import { classificacaoDoCampeonato, vagasDoCampeonato } from './campeonatos.js';
+import { classificacaoDoCampeonato, vagasDoCampeonato, chaveamentoDoCampeonato } from './campeonatos.js';
 import { estatisticasJogadores } from './classificacao.js';
-import { nomeFaseMata, vencedorConfronto } from './tabela.js';
+import {
+  nomeRodadaMata, vencedorConfronto, ultimaRodadaMata, CONFRONTO_TERCEIRO,
+} from './tabela.js';
 import { podioComNomes } from './encerramento.js';
 import { obterEsporte, ESPORTE_PADRAO } from './esportes.js';
 
@@ -92,20 +94,55 @@ export function dadosPublicos(db, slug) {
   // Chaveamento do mata-mata agrupado por rodada, com nome da fase e vencedor.
   const mata = jogos.filter((j) => j.fase === 'mata');
   const rodadasMata = [...new Set(mata.map((j) => j.rodada))].sort((a, b) => a - b);
+  const ultimaMata = ultimaRodadaMata(mata);
   const chaveamento = rodadasMata.map((r) => {
     const daRodada = mata.filter((j) => j.rodada === r);
     const confrontos = [...new Set(daRodada.map((j) => j.confronto))].sort((a, b) => a - b);
+    // A disputa de 3o nao conta para o nome da fase: com ela, a ultima rodada
+    // tem 2 confrontos e continua sendo a Final (RN-MM-15).
+    const daChave = confrontos.filter((c) => !(r === ultimaMata && c === CONFRONTO_TERCEIRO));
     return {
       rodada: r,
-      fase: nomeFaseMata(confrontos.length),
+      fase: nomeRodadaMata(r, ultimaMata, daChave.length),
       confrontos: confrontos.map((c) => {
         const pernas = daRodada.filter((j) => j.confronto === c);
-        return { confronto: c, jogos: pernas.map((j) => j.id), vencedor: vencedorConfronto(pernas) };
+        return {
+          confronto: c,
+          disputa_terceiro: r === ultimaMata && c === CONFRONTO_TERCEIRO,
+          jogos: pernas.map((j) => j.id),
+          vencedor: vencedorConfronto(pernas),
+        };
       }),
     };
   });
 
+  // Desenho da chave (EF Mata-mata Manual, fase D): estrutura + vagas de
+  // entrada. No misto manual isso existe ANTES de o mata ser gerado — e o que
+  // deixa o torcedor ver o caminho ("1o do Grupo A") desde o comeco.
+  let chave = null;
+  if (campeonato.formato !== 'pontos') {
+    const c = chaveamentoDoCampeonato(db, campeonato);
+    if (c.rodadas.length) {
+      chave = {
+        modelo: c.modelo,
+        desenho: c.desenho,
+        gerado: c.gerado,
+        vagas: c.vagas ?? c.slots.length,
+        rodadas: c.rodadas,
+        slots: c.slots.map((s) => ({
+          rodada: s.rodada,
+          confronto: s.confronto,
+          lado: s.lado,
+          time_id: s.time_id ?? null,
+          rotulo: s.rotulo_texto ?? null,
+          previa: s.previa_nome ?? null,
+        })),
+      };
+    }
+  }
+
   return {
+    chave,
     esporte: {
       chave: preset.chave,
       nome: preset.nome,

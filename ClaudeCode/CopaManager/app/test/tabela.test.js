@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   gerarPontosCorridos, gerarMataMata, dividirEmGrupos,
   ordemChaveamento, vencedorConfronto, seedsDeGrupos, nomeFaseMata,
+  perdedorConfronto, aceitaDisputaTerceiro, jogoDisputaTerceiro,
 } from '../src/tabela.js';
 
 test('pontos corridos: 4 times, turno unico = 6 jogos em 3 rodadas', () => {
@@ -151,4 +152,38 @@ test('nomes das fases do mata-mata', () => {
   assert.equal(nomeFaseMata(1), 'Final');
   assert.equal(nomeFaseMata(2), 'Semifinal');
   assert.equal(nomeFaseMata(4), 'Quartas de final');
+});
+
+// ---------- disputa de 3o lugar (RN-MM-21/22) ----------
+
+test('perdedor do confronto: o outro time, e null enquanto nao ha vencedor', () => {
+  const pernas = [{ time_casa_id: 10, time_fora_id: 20, gols_casa: 2, gols_fora: 1, status: 'encerrado', perna: 1 }];
+  assert.equal(vencedorConfronto(pernas), 10);
+  assert.equal(perdedorConfronto(pernas), 20);
+  const aberto = [{ time_casa_id: 10, time_fora_id: 20, status: 'agendado', perna: 1 }];
+  assert.equal(perdedorConfronto(aberto), null);
+});
+
+test('disputa de 3o: so cabe quando a penultima rodada tem 2 confrontos', () => {
+  assert.equal(aceitaDisputaTerceiro(gerarMataMata([1, 2, 3, 4])), true);
+  assert.equal(aceitaDisputaTerceiro(gerarMataMata([1, 2, 3, 4, 5, 6, 7, 8])), true);
+  // Final unica: nao ha semifinais, logo nao ha dois perdedores comparaveis.
+  assert.equal(aceitaDisputaTerceiro(gerarMataMata([1, 2])), false);
+  assert.equal(aceitaDisputaTerceiro([]), false);
+  // Chave em que alguem espera na final (uma semifinal so): 3o indefinido.
+  const lider = [
+    { rodada: 1, confronto: 0, perna: 1 },
+    { rodada: 2, confronto: 0, perna: 1 },
+    { rodada: 3, confronto: 0, perna: 1 },
+  ];
+  assert.equal(aceitaDisputaTerceiro(lider), false);
+});
+
+test('disputa de 3o: jogo unico no confronto 1 da ultima rodada, mesmo em ida e volta', () => {
+  const chave = gerarMataMata([1, 2, 3, 4, 5, 6, 7, 8], { idaEVolta: true });
+  const disputa = jogoDisputaTerceiro(chave);
+  assert.deepEqual(disputa, {
+    rodada: 3, confronto: 1, perna: 1, time_casa_id: null, time_fora_id: null,
+  });
+  assert.equal(jogoDisputaTerceiro(gerarMataMata([1, 2])), null);
 });

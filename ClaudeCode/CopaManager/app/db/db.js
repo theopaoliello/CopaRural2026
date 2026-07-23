@@ -83,6 +83,13 @@ function migrarColunas(db) {
   // Conexoes de atleta (fase B): copas existentes nascem aceitando (DEFAULT 1);
   // a tabela conexoes_atleta vem do schema.sql (CREATE IF NOT EXISTS no boot).
   addSeFaltar('campeonatos', 'aceita_conexoes INTEGER NOT NULL DEFAULT 1');
+  // Disputa de 3o lugar (EF Mata-mata Manual, fase A2): copas existentes
+  // nascem sem ela (DEFAULT 0) — nada muda em nenhum mata-mata ja gerado.
+  addSeFaltar('campeonatos', 'disputa_terceiro INTEGER NOT NULL DEFAULT 0');
+  // Mata-mata Manual Personalizado (fase B): campeonatos existentes sao todos
+  // do modelo Padrao (DEFAULT) — a montagem automatica deles nao muda.
+  addSeFaltar('campeonatos', "mata_modelo TEXT NOT NULL DEFAULT 'padrao'");
+  addSeFaltar('campeonatos', 'mata_chave TEXT');
 }
 
 // Bancos criados antes dos tipos 'gol_contra' (2026-07) ou 'pontos'/'valor'

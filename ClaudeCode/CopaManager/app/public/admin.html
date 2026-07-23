@@ -62,6 +62,7 @@
   </div>
 </div>
 
+<script src="/chave.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -120,7 +121,17 @@ function dataHoraCompleta(iso) {
   if (!iso || Number.isNaN(d.getTime())) return null;
   return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
-const nomeFase = (n) => ({ 1: 'Final', 2: 'Semifinal', 4: 'Quartas de final', 8: 'Oitavas de final' }[n] || `Fase de ${n * 2} times`);
+const nomeFase = (n) => ({ 1: 'Final', 2: 'Semifinal', 4: 'Quartas de final', 8: 'Oitavas de final', 16: '16 avos de final' }[n] || `Fase de ${n * 2} times`);
+// Nome da rodada pela distancia ate o fim (RN-MM-15): numa chave com folgas a
+// contagem de confrontos engana (uma escada tem 1 jogo por rodada). Em chave
+// cheia devolve exatamente o mesmo de antes. Espelha src/tabela.js.
+function nomeRodada(rodada, totalRodadas, confrontos) {
+  const distancia = totalRodadas - rodada + 1;
+  if (distancia <= 1) return 'Final';
+  if (distancia === 2) return 'Semifinal';
+  if (confrontos === 2 ** (distancia - 1)) return nomeFase(confrontos);
+  return rodada === 1 ? 'Fase preliminar' : `Fase ${rodada}`;
+}
 
 // ================= LISTA DE CAMPEONATOS =================
 
@@ -637,7 +648,13 @@ function telaNovoForm(chaveEsporte) {
         <label>Descrição</label><textarea name="descricao" placeholder="Fala do campeonato para a página pública…"></textarea>
       </fieldset>
 
-      <fieldset><legend>2. Formato</legend>
+      <fieldset><legend>2. ${esc(esporte.rotulos.participantes)}</legend>
+        <label>${esc(esporte.rotulos.participante)} por linha * <span class="muted">(até 30 caracteres cada)</span></label>
+        <textarea name="times" rows="8" required placeholder="Real Baixada&#10;Unidos da Vila&#10;Juventude FC&#10;..."></textarea>
+        <p class="muted">A tabela de jogos é gerada automaticamente ao criar. Elencos, escudos e fotos você cadastra depois.</p>
+      </fieldset>
+
+      <fieldset><legend>3. Formato</legend>
         <label>Tipo de competição</label>
         <select name="formato" id="sel-formato">
           <option value="pontos">Pontos corridos</option>
@@ -652,23 +669,31 @@ function telaNovoForm(chaveEsporte) {
         <div class="grid-2">
           <div id="campo-grupos" style="display:none">
             <label>Quantidade de grupos</label><input type="number" name="num_grupos" value="2" min="1">
-            <label>Classificados por grupo</label><input type="number" name="classificados_por_grupo" value="2" min="1">
+            <label>Modelo do mata-mata</label>
+            <select name="mata_modelo_misto" id="sel-modelo-misto">
+              <option value="padrao">Padrão (o sistema monta a chave)</option>
+              <option value="manual">Manual Personalizado (eu escolho o desenho)</option>
+            </select>
+            <div id="campo-classificados">
+              <label>Classificados por grupo</label><input type="number" name="classificados_por_grupo" value="2" min="1">
+            </div>
+            <div id="campo-vagas-misto" style="display:none">
+              <label>Vagas no mata-mata</label><input type="number" name="mata_vagas" value="6" min="3" max="32">
+            </div>
             <p id="resumo-vagas" class="muted" style="display:none"></p>
           </div>
           <div>
             <div id="campo-iv-grupos"><label><input type="checkbox" name="ida_volta_grupos" style="width:auto"> Turno e returno (ida e volta)</label></div>
             ${esporte.chave === 'futebol' ? `<div id="campo-iv-mata" style="display:none"><label><input type="checkbox" name="ida_volta_mata" style="width:auto"> Mata-mata com jogos de ida e volta</label></div>` : ''}
+            <div id="campo-disputa3" style="display:none"><label><input type="checkbox" name="disputa_terceiro" style="width:auto"> Incluir disputa de 3º lugar</label>
+              <p class="muted" style="margin:2px 0 0" id="nota-disputa3">Jogo único entre os perdedores das semifinais. Com ele, o pódio sai completo ao encerrar.</p></div>
           </div>
         </div>
-      </fieldset>
-
-      <fieldset><legend>3. ${esc(esporte.rotulos.participantes)}</legend>
-        <label>${esc(esporte.rotulos.participante)} por linha * <span class="muted">(até 30 caracteres cada)</span></label>
-        <textarea name="times" rows="8" required placeholder="Real Baixada&#10;Unidos da Vila&#10;Juventude FC&#10;..."></textarea>
-        <label><input type="checkbox" name="sortear" checked style="width:auto"> Sortear a distribuição (grupos/chaveamento)</label>
+        <div id="galeria-chave" style="display:none"></div>
+        <label style="margin-top:10px"><input type="checkbox" name="sortear" checked style="width:auto"> Sortear a distribuição (grupos/chaveamento)</label>
         <p class="muted">Desmarcado, a ordem digitada manda: os primeiros times formam o Grupo A (e assim por diante);
-        no mata-mata, cada dupla de linhas vira um confronto (1º×2º, 3º×4º…).</p>
-        <p class="muted">A tabela de jogos é gerada automaticamente ao criar. Elencos, escudos e fotos você cadastra depois.</p>
+        no mata-mata, cada dupla de linhas vira um confronto (1º×2º, 3º×4º…) — ou, no chaveamento manual,
+        a ordem preenche as posições do desenho (1ª linha = P1). Dá para reposicionar depois, na aba Chaveamento.</p>
       </fieldset>
 
       <div id="aviso-novo" class="aviso"></div>
@@ -686,7 +711,13 @@ function telaNovoForm(chaveEsporte) {
     // Ida e volta no mata so existe no futebol (RN-TC-05): o campo pode nem estar na tela.
     const ivMata = $('#campo-iv-mata');
     if (ivMata) ivMata.style.display = f !== 'pontos' ? '' : 'none';
+    // Disputa de 3o lugar (RN-MM-21): so faz sentido onde ha mata-mata.
+    $('#campo-disputa3').style.display = f !== 'pontos' ? '' : 'none';
+    const manual = $('#sel-modelo-misto').value === 'manual';
+    $('#campo-classificados').style.display = f === 'grupos_mata' && !manual ? '' : 'none';
+    $('#campo-vagas-misto').style.display = f === 'grupos_mata' && manual ? '' : 'none';
     atualizarResumoVagas();
+    atualizarGaleria();
   };
   $('#sel-formato').onchange = mudouFormato;
 
@@ -695,7 +726,11 @@ function telaNovoForm(chaveEsporte) {
   let timerResumo = null;
   const atualizarResumoVagas = () => {
     const el = $('#resumo-vagas');
-    if ($('#sel-formato').value !== 'grupos_mata') { el.style.display = 'none'; return; }
+    // O resumo de Melhores Colocados so vale no misto Padrao — no manual quem
+    // manda sao os rotulos das vagas.
+    if ($('#sel-formato').value !== 'grupos_mata' || $('#sel-modelo-misto').value === 'manual') {
+      el.style.display = 'none'; return;
+    }
     clearTimeout(timerResumo);
     timerResumo = setTimeout(async () => {
       const form = $('#form-novo');
@@ -714,9 +749,83 @@ function telaNovoForm(chaveEsporte) {
       } catch { el.style.display = 'none'; }
     }, 250);
   };
+  // Galeria de chaveamentos (EF Mata-mata Manual, RN-MM-02/04): no mata puro o
+  // numero de participantes vem da lista de times — potencia de 2 e chave
+  // cheia (Padrao); fora dela o modelo e o Manual e o gestor escolhe o desenho.
+  let timerGaleria = null;
+  let catalogoChave = null;
+  const contarTimes = () => String($('#form-novo').times.value).split('\n').map((s) => s.trim()).filter(Boolean).length;
+  const desenhoEscolhido = () => {
+    const marcado = $('#form-novo').querySelector('input[name=mata_desenho]:checked');
+    return catalogoChave?.find((d) => d.id === marcado?.value) ?? null;
+  };
+  // A caixa de 3o lugar segue o desenho (RN-MM-21): sem duas semifinais, nao ha 3o.
+  const atualizarDisputa3 = () => {
+    const cx = $('#form-novo').disputa_terceiro;
+    if (!cx) return;
+    const n = contarTimes();
+    let aceita = true;
+    if (catalogoChave) aceita = desenhoEscolhido()?.aceita_disputa_terceiro ?? false;
+    else if ($('#sel-formato').value === 'mata') aceita = n === 0 || n >= 4;
+    cx.disabled = !aceita;
+    if (!aceita) cx.checked = false;
+    $('#nota-disputa3').textContent = aceita
+      ? 'Jogo único entre os perdedores das semifinais. Com ele, o pódio sai completo ao encerrar.'
+      : 'Este chaveamento não comporta disputa de 3º: a fase anterior à final tem um confronto só.';
+  };
+  window.atualizarDisputa3Galeria = atualizarDisputa3; // usado pelos radios da galeria
+  const atualizarGaleria = () => {
+    const el = $('#galeria-chave');
+    const form = $('#form-novo');
+    const formato = $('#sel-formato').value;
+    // No mata puro o tamanho da chave e o numero de times; no misto manual,
+    // o gestor declara quantas vagas o mata tem.
+    const mistoManual = formato === 'grupos_mata' && $('#sel-modelo-misto').value === 'manual';
+    const n = mistoManual ? Number(form.mata_vagas.value || 0) : contarTimes();
+    const potencia = n >= 2 && (n & (n - 1)) === 0;
+    if ((formato !== 'mata' && !mistoManual) || n < 3 || n > 32 || potencia) {
+      el.style.display = 'none';
+      catalogoChave = null;
+      atualizarDisputa3();
+      return;
+    }
+    clearTimeout(timerGaleria);
+    timerGaleria = setTimeout(async () => {
+      try { catalogoChave = await api(`/api/chaveamentos?vagas=${n}`); } catch { return; }
+      el.style.display = '';
+      el.innerHTML = `
+        <p style="margin:10px 0 4px"><strong>Modelo: Manual Personalizado</strong>
+          <span class="muted">— ${mistoManual
+            ? `chave de ${n} vagas. Quem vai para cada vaga (“1º do Grupo A”, “Melhor 3º”) você ajusta na aba Chaveamento.`
+            : `com ${n} times a chave tem folgas.`} Escolha o desenho:</span></p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          ${catalogoChave.map((d) => `
+          <label style="border:1px solid var(--borda);border-radius:8px;padding:8px;cursor:pointer;font-weight:400;width:220px">
+            <input type="radio" name="mata_desenho" value="${d.id}" ${d.recomendado ? 'checked' : ''} style="width:auto" onchange="atualizarDisputa3Galeria()">
+            <strong>${d.id} — ${esc(d.nome)}</strong>
+            <div style="margin:6px 0">${ChaveSVG.desenhar(ChaveSVG.deCatalogo(d), { rotulos: false })}</div>
+            <div class="muted" style="font-size:.75rem">${d.jogos} jogos · ${d.rodadas} rodadas · ${d.aceita_disputa_terceiro ? 'aceita' : 'sem'} disputa de 3º</div>
+            <div class="muted" style="font-size:.75rem">${esc(d.quando)}</div>
+          </label>`).join('')}
+        </div>`;
+      atualizarDisputa3();
+    }, 250);
+  };
   ['num_grupos', 'classificados_por_grupo', 'times'].forEach((campo) => {
     $('#form-novo')[campo].addEventListener('input', atualizarResumoVagas);
   });
+  $('#form-novo').times.addEventListener('input', atualizarGaleria);
+  // Misto manual: alternar o modelo troca "classificados por grupo" por
+  // "vagas no mata-mata" e liga a galeria de desenhos.
+  const mudouModeloMisto = () => {
+    const manual = $('#sel-modelo-misto').value === 'manual';
+    $('#campo-classificados').style.display = manual ? 'none' : '';
+    $('#campo-vagas-misto').style.display = manual ? '' : 'none';
+    atualizarResumoVagas();
+    atualizarGaleria();
+  };
+  $('#sel-modelo-misto').onchange = mudouModeloMisto;
+  $('#form-novo').mata_vagas.addEventListener('input', atualizarGaleria);
   mudouFormato();
 
   $('#form-novo').onsubmit = async (e) => {
@@ -730,7 +839,11 @@ function telaNovoForm(chaveEsporte) {
         melhor_de: f.get('melhor_de') ? Number(f.get('melhor_de')) : undefined,
         num_grupos: Number(f.get('num_grupos') || 1),
         classificados_por_grupo: Number(f.get('classificados_por_grupo') || 2),
+        mata_modelo: f.get('formato') === 'grupos_mata' ? f.get('mata_modelo_misto') : undefined,
+        mata_vagas: Number(f.get('mata_vagas') || 0) || undefined,
         ida_volta_grupos: !!f.get('ida_volta_grupos'), ida_volta_mata: !!f.get('ida_volta_mata'),
+        disputa_terceiro: !!f.get('disputa_terceiro'),
+        mata_desenho: f.get('mata_desenho') || undefined,
         sortear: !!f.get('sortear'),
         times: String(f.get('times')).split('\n').map((s) => s.trim()).filter(Boolean),
       });
@@ -857,6 +970,9 @@ async function telaCampeonato(id, aba = abaAtual) {
   const A = DET.meu_acesso ?? { dono: true, jogos: true, times: true, regras: true, sorteio: true, banners: true, config: true };
   const abas = [
     ...(A.jogos ? [['jogos', 'Jogos']] : []),
+    // Aba Chaveamento (EF Mata-mata Manual, RN-MM-05/06): reposicionar e
+    // estrutural como gerar o mata — dono-only, nos dois modelos.
+    ...(A.dono && c.formato !== 'pontos' && ESP?.ranking !== 'individual' ? [['chaveamento', 'Chaveamento']] : []),
     ...(A.times ? [['times', ESP?.rotulos.participantes ?? 'Times']] : []),
     ...(ESP?.ranking === 'individual' && A.sorteio ? [['sorteio', 'Sorteio']] : []),
     ['classificacao', ESP?.rotulos.classificacao ?? 'Classificação'],
@@ -886,7 +1002,7 @@ async function telaCampeonato(id, aba = abaAtual) {
     <div id="painel"></div>
   `;
   const abaParticipantes = ESP?.ranking === 'individual' ? abaJogadoresPelada : abaTimes;
-  ({ jogos: abaJogos, times: abaParticipantes, sorteio: abaSorteio, classificacao: abaClassif, regras: abaRegras, banners: abaBanners, atletas: abaAtletas, config: abaConfig }[aba])();
+  ({ jogos: abaJogos, chaveamento: abaChaveamento, times: abaParticipantes, sorteio: abaSorteio, classificacao: abaClassif, regras: abaRegras, banners: abaBanners, atletas: abaAtletas, config: abaConfig }[aba])();
 }
 
 // ---------- aba jogos ----------
@@ -959,13 +1075,198 @@ function abaJogos() {
   }
   if (mata.length) {
     const rodadas = [...new Set(mata.map((j) => j.rodada))].sort((a, b) => a - b);
+    // Disputa de 3o lugar (RN-MM-15): e o confronto 1 da ultima rodada e nao
+    // conta para o nome da fase — com ela, a ultima rodada segue sendo a Final.
+    const ultima = Math.max(...rodadas);
+    const ehDisputa3 = (j) => j.rodada === ultima && j.confronto === 1;
     html += `<div class="card"><h3>Mata-mata</h3>${rodadas.map((r) => {
       const daRodada = mata.filter((j) => j.rodada === r);
-      const nConfrontos = new Set(daRodada.map((j) => j.confronto)).size;
-      return `<div class="rotulo-rodada">${nomeFase(nConfrontos)}</div>${daRodada.map(linhaJogoAdmin).join('')}`;
+      const nConfrontos = new Set(daRodada.filter((j) => !ehDisputa3(j)).map((j) => j.confronto)).size;
+      return `<div class="rotulo-rodada">${nomeRodada(r, ultima, nConfrontos)}</div>${daRodada.map((j) =>
+        (ehDisputa3(j) ? '<div class="muted" style="font-size:.75rem">Disputa de 3º lugar</div>' : '')
+        + linhaJogoAdmin(j)).join('')}`;
     }).join('')}</div>`;
   }
   $('#painel').innerHTML = html || '<div class="card"><p class="muted">Sem jogos.</p></div>';
+}
+
+// ---------- aba Chaveamento (EF Mata-mata Manual, fase B) ----------
+
+let CHAV = null; // { dados: resposta do GET, slots: copia em edicao }
+
+const nomeTimeChave = (id) => DET.times.find((t) => t.id === id)?.nome ?? '?';
+
+async function abaChaveamento() {
+  const dados = await api(`/api/campeonatos/${DET.campeonato.id}/chaveamento`);
+  CHAV = { dados, slots: dados.slots.map((s) => ({ ...s })) };
+  if (!dados.gerado && !dados.rotulos_disponiveis) {
+    $('#painel').innerHTML = `<div class="card"><h3>Chaveamento</h3>
+      <p class="muted">O chaveamento aparece aqui quando o mata-mata for gerado, com a fase de grupos encerrada.</p></div>`;
+    return;
+  }
+  if (dados.gerado) renderChaveamento();
+  else renderRotulos();
+}
+
+// Misto manual antes da geração (RN-MM-08): as vagas são rótulos, com prévia
+// ao vivo de quem as ocuparia hoje.
+function renderRotulos() {
+  const d = CHAV.dados;
+  const svg = ChaveSVG.desenhar(ChaveSVG.deChaveamento(
+    { ...d, slots: CHAV.slots }, (id) => null, (s) => s.rotulo_texto,
+  ));
+  const mudou = JSON.stringify(CHAV.slots.map((s) => s.rotulo)) !== JSON.stringify(d.slots.map((s) => s.rotulo));
+  const opcoes = d.rotulos_disponiveis;
+
+  const linhas = CHAV.slots.map((s, i) => {
+    const atual = opcoes.find((o) => o.chave === chaveDoRotulo(s.rotulo));
+    return `<div class="linha-flex" style="gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--borda);padding:8px 0">
+      <span class="muted" style="min-width:150px">${esc(nomeDaVaga(d, s))}</span>
+      <select onchange="trocarRotulo(${i}, this.value)" style="width:auto;display:inline-block">
+        ${opcoes.map((o) => `<option value="${o.chave}" ${o.chave === atual?.chave ? 'selected' : ''}>${esc(o.texto)}</option>`).join('')}
+      </select>
+      <span class="muted">${s.previa_nome ? `→ hoje: <strong>${esc(s.previa_nome)}</strong>` : ''}</span>
+    </div>`;
+  }).join('');
+
+  $('#painel').innerHTML = `
+    <div class="card">
+      <div class="linha-flex" style="flex-wrap:wrap;gap:8px">
+        <h3 style="margin:0">Chaveamento</h3>
+        <span class="badge">Manual · desenho ${esc(d.desenho ?? '')}</span>
+        <span class="espacador"></span>
+        <button class="botao secundario mini" onclick="restaurarRotulos()">Cruzamento clássico</button>
+        <button class="botao mini" ${mudou ? '' : 'disabled'} onclick="salvarRotulos()">Salvar vagas</button>
+      </div>
+      <p class="muted">Declare quem vai para cada vaga da chave. Isso aparece na página pública desde já —
+        os times entram no lugar dos rótulos quando o mata-mata for gerado.</p>
+      <div style="overflow-x:auto;padding:6px 0">${svg}</div>
+      ${d.reencontros?.length ? `<p class="aviso" style="display:block">⚠️ ${d.reencontros.length === 1 ? 'Um confronto reúne' : `${d.reencontros.length} confrontos reúnem`}
+        times do mesmo grupo já na primeira fase (${d.reencontros.map((r) => `Grupo ${esc(r.grupo)}`).join(', ')}). Dá para trocar as vagas abaixo — ou manter, se for essa a intenção.</p>` : ''}
+      <div id="aviso-chave" class="aviso"></div>
+    </div>
+    <div class="card">
+      <h3>Vagas</h3>
+      ${d.grupos_pendentes
+        ? `<p class="muted">Prévia com a classificação de agora — ainda faltam ${d.grupos_pendentes} jogo(s) da fase de grupos.
+           As vagas só se confirmam com todos encerrados.</p>`
+        : '<p class="muted">Fase de grupos encerrada: a prévia abaixo é o que vai valer ao gerar o mata-mata.</p>'}
+      ${linhas}
+    </div>`;
+}
+
+const chaveDoRotulo = (r) => (!r ? '' : r.tipo === 'grupo_posicao'
+  ? `g:${r.grupo}:${r.posicao}` : `m:${r.posicao}:${r.ordem}`);
+
+// Nome amigável da vaga: "Quartas de final · confronto 2 (casa)".
+function nomeDaVaga(d, s) {
+  const r = d.rodadas.find((x) => x.rodada === s.rodada);
+  return `${r?.nome ?? `Rodada ${s.rodada}`} · ${s.lado === 'casa' ? 'mandante' : 'visitante'}`;
+}
+
+function trocarRotulo(i, chave) {
+  const novo = CHAV.dados.rotulos_disponiveis.find((o) => o.chave === chave);
+  if (!novo) return;
+  const { tipo, grupo, posicao, ordem } = novo;
+  // Rótulo já usado em outra vaga troca de lugar com esta (sem repetir).
+  const j = CHAV.slots.findIndex((s, k) => k !== i && chaveDoRotulo(s.rotulo) === chave);
+  if (j >= 0) CHAV.slots[j] = { ...CHAV.slots[j], rotulo: CHAV.slots[i].rotulo, previa_nome: null };
+  CHAV.slots[i] = {
+    ...CHAV.slots[i],
+    rotulo: tipo === 'grupo_posicao' ? { tipo, grupo, posicao } : { tipo, posicao, ordem },
+    previa_nome: null,
+  };
+  renderRotulos();
+}
+
+function restaurarRotulos() {
+  CHAV.slots = CHAV.dados.slots.map((s) => ({ ...s }));
+  renderRotulos();
+}
+
+async function salvarRotulos() {
+  try {
+    await api(`/api/campeonatos/${DET.campeonato.id}/chaveamento`, 'PUT', {
+      slots: CHAV.slots.map(({ posicao, rotulo }) => ({ posicao, rotulo })),
+    });
+    avisar('Vagas salvas!');
+    telaCampeonato(DET.campeonato.id, 'chaveamento');
+  } catch (e) {
+    const av = $('#aviso-chave'); av.textContent = e.message; av.className = 'aviso erro';
+  }
+}
+
+function renderChaveamento() {
+  const d = CHAV.dados;
+  const svg = ChaveSVG.desenhar(ChaveSVG.deChaveamento({ ...d, slots: CHAV.slots }, nomeTimeChave));
+  const mudou = JSON.stringify(CHAV.slots) !== JSON.stringify(d.slots);
+
+  // Editor: um bloco por confronto que tem vaga de entrada, na ordem da chave.
+  const blocos = [];
+  for (const r of d.rodadas) {
+    for (const c of r.confrontos.filter((x) => !x.disputa_terceiro)) {
+      const lado = (l) => {
+        const i = CHAV.slots.findIndex((s) => s.rodada === r.rodada && s.confronto === c.confronto && s.lado === l);
+        if (i < 0) return '<em class="muted">vencedor de confronto anterior</em>';
+        return `<select onchange="trocarPosicao(${i}, this.value)" style="width:auto;display:inline-block">
+          ${DET.times.map((t) => `<option value="${t.id}" ${t.id === CHAV.slots[i].time_id ? 'selected' : ''}>${esc(t.nome)}</option>`).join('')}</select>`;
+      };
+      if (!CHAV.slots.some((s) => s.rodada === r.rodada && s.confronto === c.confronto)) continue;
+      blocos.push(`<div class="linha-flex" style="gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--borda);padding:8px 0">
+        <span class="muted" style="min-width:120px">${esc(r.nome)}</span>${lado('casa')}<span>×</span>${lado('fora')}
+      </div>`);
+    }
+  }
+
+  $('#painel').innerHTML = `
+    <div class="card">
+      <div class="linha-flex" style="flex-wrap:wrap;gap:8px">
+        <h3 style="margin:0">Chaveamento</h3>
+        <span class="badge">${d.modelo === 'manual' ? `Manual · desenho ${esc(d.desenho ?? '')}` : 'Padrão'}</span>
+        ${d.editavel ? '' : '<span class="badge" style="background:#fef3c7;color:#92400e">🔒 Chave congelada</span>'}
+        <span class="espacador"></span>
+        ${d.editavel ? `<button class="botao secundario mini" onclick="sortearPosicoes()">Sortear posições</button>
+          <button class="botao mini" ${mudou ? '' : 'disabled'} onclick="salvarPosicoes()">Salvar posições</button>` : ''}
+      </div>
+      <p class="muted">${d.editavel
+        ? 'As posições podem ser trocadas enquanto nenhum jogo do mata-mata tem resultado. Escolher um time que já está em outra posição troca os dois de lugar.'
+        : 'A chave congelou com o primeiro resultado lançado. Para reposicionar, apague os resultados do mata-mata.'}</p>
+      <div style="overflow-x:auto;padding:6px 0">${svg}</div>
+      <div id="aviso-chave" class="aviso"></div>
+    </div>
+    ${d.editavel ? `<div class="card"><h3>Posições</h3>${blocos.join('')}</div>` : ''}`;
+}
+
+// Trocar = permutar: o time escolhido cede a posicao antiga dele para o time
+// que estava aqui — o conjunto de participantes nunca muda (RN-MM-10).
+function trocarPosicao(i, novoTimeId) {
+  const novo = Number(novoTimeId);
+  const j = CHAV.slots.findIndex((s) => s.time_id === novo);
+  if (j >= 0) CHAV.slots[j] = { ...CHAV.slots[j], time_id: CHAV.slots[i].time_id };
+  CHAV.slots[i] = { ...CHAV.slots[i], time_id: novo };
+  renderChaveamento();
+}
+
+function sortearPosicoes() {
+  const ids = CHAV.slots.map((s) => s.time_id);
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+  CHAV.slots = CHAV.slots.map((s, i) => ({ ...s, time_id: ids[i] }));
+  renderChaveamento();
+}
+
+async function salvarPosicoes() {
+  try {
+    await api(`/api/campeonatos/${DET.campeonato.id}/chaveamento`, 'PUT', {
+      slots: CHAV.slots.map(({ rodada, confronto, lado, time_id }) => ({ rodada, confronto, lado, time_id })),
+    });
+    avisar('Posições salvas!');
+    telaCampeonato(DET.campeonato.id, 'chaveamento');
+  } catch (e) {
+    const av = $('#aviso-chave'); av.textContent = e.message; av.className = 'aviso erro';
+  }
 }
 
 // ---------- Pelada Epica: novo jogo, escalacao e jogadores ----------
@@ -1744,7 +2045,7 @@ function legendaVagas(v, classificacao) {
   if (!v || v.modo === 'inviavel') return '';
   if (!classificacao.some((g) => g.linhas.some((l) => l.zona))) return '';
   let txt = 'Linhas em verde: classificação ao mata-mata.';
-  if (v.modo !== 'exata') txt += ` Linha em âmbar: ${v.posicao_disputa}º colocado, em disputa entre os grupos.`;
+  if (v.posicao_disputa) txt += ` Linha em âmbar: ${v.posicao_disputa}º colocado, em disputa entre os grupos.`;
   return `<p class="legenda-zonas">${txt}</p>`;
 }
 
@@ -1781,7 +2082,7 @@ function cardMelhores(v, times, rotuloTime) {
             ${v.criterios_media.map((c) => `<td>${mediaTexto(l.medias[c])}</td>`).join('')}</tr>`;
         }).join('')}</tbody>
       </table></div>
-      <p class="legenda-zonas">Acima da linha de corte: ${v.modo === 'corte' ? 'avançam ao mata-mata' : 'levam as vagas extras'}. As vagas só se confirmam com todos os jogos dos grupos encerrados.</p>
+      <p class="legenda-zonas">Acima da linha de corte: ${v.modo === 'repescagem' ? 'levam as vagas extras' : 'avançam ao mata-mata'}. As vagas só se confirmam com todos os jogos dos grupos encerrados.</p>
     </div>`;
 }
 
@@ -1936,6 +2237,10 @@ async function abaConfig() {
       <label><input type="checkbox" id="cfg-publicado" ${c.publicado ? 'checked' : ''} style="width:auto"> Página pública ativa</label>
       <label style="margin-top:6px"><input type="checkbox" id="cfg-aceita-conexoes" ${c.aceita_conexoes ? 'checked' : ''} style="width:auto"> Aceitar conexões de atletas
         <span class="muted" style="font-weight:400">(atletas podem pedir para vincular o perfil deles a esta copa)</span></label>
+      ${c.formato !== 'pontos' ? `
+      <label style="margin-top:6px"><input type="checkbox" id="cfg-disputa3" ${c.disputa_terceiro ? 'checked' : ''} style="width:auto"> Disputa de 3º lugar
+        <span class="muted" style="font-weight:400">(jogo único entre os perdedores das semifinais)</span></label>
+      <p class="muted" style="margin:2px 0 0">Pode ligar ou desligar enquanto a disputa não tiver resultado. Com o mata-mata já gerado, o jogo é criado (ou apagado) na hora.</p>` : ''}
     </div>
     <div class="card">
       <h3>Identidade</h3>
@@ -2020,6 +2325,8 @@ async function salvarConfig() {
     publicado: $('#cfg-publicado').checked,
     aceita_conexoes: $('#cfg-aceita-conexoes').checked,
   };
+  // Disputa de 3o (RN-MM-24): so existe nos formatos com mata-mata.
+  if ($('#cfg-disputa3')) dados.disputa_terceiro = $('#cfg-disputa3').checked;
   if ($('#cfg-premiacao')) { // card da pelada (premiacao e rebaixamento)
     dados.premiacao = $('#cfg-premiacao').value;
     dados.premia_artilheiro = $('#cfg-premia-artilheiro').checked;

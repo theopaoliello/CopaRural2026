@@ -7,6 +7,13 @@ import {
   embaralhar,
   ehPotenciaDe2,
   seedsDeGrupos,
+  aceitaDisputaTerceiro,
+  jogoDisputaTerceiro,
+  vencedorConfronto,
+  perdedorConfronto,
+  ultimaRodadaMata,
+  nomeRodadaMata,
+  CONFRONTO_TERCEIRO,
 } from './tabela.js';
 import {
   calcularClassificacao, calcularClassificacaoSets, calcularClassificacaoPontos,
@@ -22,6 +29,12 @@ import {
 import {
   conferirLimiteCampeonatos, conferirLimiteTimes, conferirLimiteJogadoresPelada,
 } from './limites.js';
+import { obterDesenho, gerarChaveManual } from './chaveamentos.js';
+import {
+  rotulosPadrao, validarRotulos, resolverRotulos, zonasDosRotulos,
+  rotulosDisponiveis, textoRotulo, evitarReencontros, reencontrosDosRotulos,
+  resumoDosRotulos, gruposElegiveis, LETRAS as LETRAS_GRUPO,
+} from './rotulos.js';
 
 const FORMATOS = ['pontos', 'mata', 'grupos_mata'];
 const LETRAS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -117,10 +130,53 @@ export function criarCampeonato(db, contaId, dados) {
   }
   const sortear = dados.sortear !== false; // padrao: sorteia a distribuicao
 
-  if (formato === 'mata' && !ehPotenciaDe2(nomesTimes.length)) {
-    throw erroValidacao('Mata-mata puro exige 2, 4, 8, 16... times.');
+  // Disputa de 3o lugar (RN-MM-21): exige duas semifinais de verdade, ou seja,
+  // uma chave de 4 ou mais. Na fase de grupos a chave so nasce depois — o que
+  // da para conferir aqui e o tamanho previsto dela (plano de vagas).
+  const disputaTerceiro = formato !== 'pontos' && !!dados.disputa_terceiro;
+  if (disputaTerceiro && formato === 'mata' && nomesTimes.length < 4) {
+    throw erroValidacao('Nao ha como disputar o 3o lugar numa chave de 2 times.');
   }
-  if (formato === 'grupos_mata') {
+
+  // Modelo do mata-mata (RN-MM-01/02): a divisao e pelo numero de participantes,
+  // sem sobreposicao — potencia de 2 e chave cheia (Padrao); fora dela, a chave
+  // so existe com folgas (Manual Personalizado, com desenho do catalogo).
+  let mataModelo = 'padrao';
+  let desenhoManual = null;
+  let rotulosManual = null;
+  if (formato === 'mata' && !ehPotenciaDe2(nomesTimes.length)) {
+    if (dados.mata_modelo === 'padrao') {
+      throw erroValidacao('Mata-mata Padrao exige 2, 4, 8, 16... times. Com outro numero, use o Manual Personalizado.');
+    }
+    mataModelo = 'manual';
+    desenhoManual = obterDesenho(nomesTimes.length, dados.mata_desenho ?? `${nomesTimes.length}A`);
+    if (disputaTerceiro && !desenhoManual.aceita_disputa_terceiro) {
+      throw erroValidacao(`O chaveamento ${desenhoManual.id} nao comporta disputa de 3o lugar: a fase anterior a final tem um confronto so.`);
+    }
+  } else if (formato === 'grupos_mata' && dados.mata_modelo === 'manual') {
+    // Misto manual (fase C): o gestor declara QUANTAS vagas o mata tem e qual
+    // o desenho; quem ocupa cada uma vira rotulo ("1o do Grupo A"), editavel
+    // ate a geracao. Nada de repescagem/corte automaticos (RN-MM-11).
+    mataModelo = 'manual';
+    const vagas = Math.trunc(Number(dados.mata_vagas));
+    desenhoManual = obterDesenho(vagas, dados.mata_desenho ?? `${vagas}A`);
+    if (vagas > nomesTimes.length) {
+      throw erroValidacao(`O mata-mata teria ${vagas} vagas para ${nomesTimes.length} times cadastrados.`);
+    }
+    if (disputaTerceiro && !desenhoManual.aceita_disputa_terceiro) {
+      throw erroValidacao(`O chaveamento ${desenhoManual.id} nao comporta disputa de 3o lugar: a fase anterior a final tem um confronto so.`);
+    }
+    const tamanhos = tamanhosPrevistos(nomesTimes.length, numGrupos);
+    // O padrao ja sai sem reencontro de grupo na 1a fase (decisao da EF 10):
+    // sugestao, nao imposicao — o gestor pode reordenar depois.
+    rotulosManual = validarRotulos(
+      dados.mata_rotulos ?? evitarReencontros(rotulosPadrao(vagas, numGrupos), desenhoManual),
+      { vagas, grupos: tamanhos.map((t, g) => ({ nome: LETRAS_GRUPO[g], tamanho: t })) },
+    );
+  } else if (dados.mata_modelo === 'manual') {
+    throw erroValidacao(`Com ${nomesTimes.length} times a chave e cheia: o modelo Padrao ja monta o chaveamento (e as posicoes podem ser ajustadas na aba Chaveamento).`);
+  }
+  if (formato === 'grupos_mata' && mataModelo !== 'manual') {
     // Melhores Colocados (RN-MC-02/06): potencia exata segue como sempre;
     // fora dela, o plano completa (repescagem) ou corta. So rejeita quando
     // nem completar nem cortar fecham uma chave — com sugestao de ajuste.
@@ -143,6 +199,9 @@ export function criarCampeonato(db, contaId, dados) {
     if (plano.modo === 'exata' && classificadosPorGrupo >= porGrupo && nomesTimes.length % numGrupos === 0) {
       throw erroValidacao('Ha grupos em que todos os times se classificariam. Ajuste a configuracao.');
     }
+    if (disputaTerceiro && plano.vagas < 4) {
+      throw erroValidacao('Nao ha como disputar o 3o lugar numa chave de 2 times.');
+    }
   }
 
   // O preset do esporte define os padroes; o organizador pode ajustar (RN-TC-02).
@@ -154,13 +213,21 @@ export function criarCampeonato(db, contaId, dados) {
 
   const slug = slugDisponivel(db, slugificar(dados.slug || `${nome} ${dados.temporada ?? ''}`));
 
+  // No misto manual quem classifica sao os rotulos; a coluna guarda o valor
+  // DERIVADO (quantos entram direto em todos os grupos) para as telas que ja
+  // exibem "N grupos x C classificados" continuarem verdadeiras.
+  const classificadosGravados = rotulosManual
+    ? Math.max(1, zonasDosRotulos(rotulosManual, Array.from({ length: numGrupos }, (_, g) => LETRAS_GRUPO[g])).diretosPorGrupo)
+    : classificadosPorGrupo;
+
   const info = db
     .prepare(
       `INSERT INTO campeonatos
        (conta_id, nome, temporada, esporte, modalidade, descricao, cor_tema, slug, formato,
         num_grupos, ida_volta_grupos, ida_volta_mata, classificados_por_grupo,
-        pontos_vitoria, pontos_empate, criterios_desempate, melhor_de)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        pontos_vitoria, pontos_empate, criterios_desempate, melhor_de, disputa_terceiro,
+        mata_modelo, mata_chave)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       contaId,
@@ -175,11 +242,20 @@ export function criarCampeonato(db, contaId, dados) {
       numGrupos,
       idaVoltaGrupos,
       idaVoltaMata,
-      classificadosPorGrupo,
+      classificadosGravados,
       Math.max(0, Number(dados.pontos_vitoria ?? esporte.pontuacao?.vitoria ?? 3)),
       Math.max(0, Number(dados.pontos_empate ?? esporte.pontuacao?.empate ?? 1)),
       JSON.stringify(criterios),
       melhorDe,
+      disputaTerceiro ? 1 : 0,
+      mataModelo,
+      desenhoManual
+        ? JSON.stringify({
+          desenho: desenhoManual.id,
+          vagas: desenhoManual.vagas,
+          ...(rotulosManual ? { rotulos: rotulosManual } : {}),
+        })
+        : null,
     );
   const campeonatoId = Number(info.lastInsertRowid);
 
@@ -193,9 +269,14 @@ export function criarCampeonato(db, contaId, dados) {
 
   if (formato === 'mata') {
     const ids = ordem.map((n) => Number(insTime.run(campeonatoId, null, n).lastInsertRowid));
-    // Pareamento pela lista: sem sorteio, a ordem digitada monta o chaveamento
-    // (1o x 2o, 3o x 4o...); com sorteio, a lista ja vem embaralhada.
-    for (const j of gerarMataMata(ids, { idaEVolta: !!idaVoltaMata, pareamento: 'lista' })) {
+    // Padrao: pareamento pela lista — sem sorteio, a ordem digitada monta o
+    // chaveamento (1o x 2o, 3o x 4o...); com sorteio, a lista ja vem
+    // embaralhada. Manual: a lista ocupa as posicoes P1..PN do desenho.
+    const jogos = desenhoManual
+      ? gerarChaveManual(desenhoManual, ids, { idaEVolta: !!idaVoltaMata })
+      : gerarMataMata(ids, { idaEVolta: !!idaVoltaMata, pareamento: 'lista' });
+    const disputa = disputaTerceiro ? jogoDisputaTerceiro(jogos) : null;
+    for (const j of disputa ? [...jogos, disputa] : jogos) {
       insJogo.run(campeonatoId, 'mata', j.rodada, j.confronto, j.perna, null, j.time_casa_id, j.time_fora_id);
     }
   } else if (formato === 'pontos') {
@@ -468,6 +549,19 @@ export function classificacaoDoCampeonato(db, campeonato) {
 // classificados diretos e ambar na posicao em disputa quando ha repescagem ou
 // corte. Como na pelada, so marca grupos que ja tem resultado.
 export function aplicarZonasGrupos(classificacao, campeonato) {
+  // Modelo manual (RN-MM-12): as zonas saem dos rotulos, nao do plano de vagas.
+  if (campeonato.mata_modelo === 'manual' && campeonato.mata_chave) {
+    const { rotulos } = JSON.parse(campeonato.mata_chave);
+    if (!rotulos) return;
+    const zonas = zonasDosRotulos(rotulos, classificacao.map((g) => nomeCurtoDoGrupo(g.grupo)));
+    for (const { linhas } of classificacao) {
+      if (!linhas.some((l) => l.pj > 0)) continue;
+      for (const l of linhas.slice(0, zonas.diretosPorGrupo)) l.zona = 'classifica';
+      const emDisputa = zonas.posicaoDisputa && linhas[zonas.posicaoDisputa - 1];
+      if (emDisputa && !emDisputa.zona) emDisputa.zona = 'disputa';
+    }
+    return;
+  }
   const plano = planoDeVagas({
     numGrupos: classificacao.length,
     classificados: campeonato.classificados_por_grupo,
@@ -506,6 +600,9 @@ export function aplicarZonasPelada(linhas, campeonato) {
   }
 }
 
+// Os grupos nascem como "Grupo A"; os rotulos falam so a letra.
+const nomeCurtoDoGrupo = (grupo) => String(grupo?.nome ?? '').replace(/^Grupo\s+/i, '');
+
 // ---------- melhores colocados: plano de vagas e ranking entre grupos ----------
 
 // Plano de vagas + ranking entre grupos derivados da classificacao ja
@@ -532,11 +629,91 @@ function analiseDeVagas(campeonato, classificacao) {
   return { porGrupo, plano, ranking };
 }
 
+// Reencontros de mesmo grupo na 1a fase de um mata JA GERADO (RN-MC-04).
+function reencontrosNoMata(db, campeonatoId) {
+  const grupoDoTime = new Map(
+    db.prepare('SELECT id, grupo_id FROM times WHERE campeonato_id = ?').all(campeonatoId)
+      .map((t) => [t.id, t.grupo_id]),
+  );
+  return db
+    .prepare(
+      `SELECT confronto, time_casa_id, time_fora_id FROM jogos
+       WHERE campeonato_id = ? AND fase = 'mata' AND rodada = 1 AND perna = 1`,
+    )
+    .all(campeonatoId)
+    .filter((j) => j.time_casa_id != null && j.time_fora_id != null
+      && grupoDoTime.get(j.time_casa_id) === grupoDoTime.get(j.time_fora_id))
+    .map((j) => j.confronto);
+}
+
+// Bloco `vagas` do modelo manual (fase C): mesma forma do payload de Melhores
+// Colocados — para as telas nao saberem a diferenca — mas com a chave, a
+// posicao em disputa e o ranking saindo dos ROTULOS declarados.
+function vagasDosRotulos(db, campeonato, classificacao) {
+  const porGrupo = classificacao.filter((g) => g.grupo);
+  const { rotulos, vagas } = JSON.parse(campeonato.mata_chave);
+  if (!porGrupo.length || !rotulos) return null;
+
+  const nomes = porGrupo.map((g) => nomeCurtoDoGrupo(g.grupo));
+  const { diretosPorGrupo, posicaoDisputa } = zonasDosRotulos(rotulos, nomes);
+  const emDisputa = rotulos.filter(
+    (r) => r.tipo === 'melhor_posicao' && r.posicao === posicaoDisputa,
+  ).length;
+
+  // Ranking entre grupos so existe quando ha vaga decidida por comparacao.
+  const criterios = JSON.parse(campeonato.criterios_desempate);
+  let ranking = [];
+  let criteriosMedia = [];
+  if (emDisputa > 0) {
+    const candidatos = gruposElegiveis(rotulos, posicaoDisputa, nomes)
+      .map((nome) => {
+        const g = porGrupo.find((x) => nomeCurtoDoGrupo(x.grupo) === nome);
+        const linha = g?.linhas[posicaoDisputa - 1];
+        return linha ? { ...linha, grupo_id: g.grupo.id, grupo_nome: g.grupo.nome } : null;
+      })
+      .filter(Boolean);
+    ranking = rankearEntreGrupos(candidatos, criterios);
+    criteriosMedia = criteriosDeMedia(criterios);
+  }
+
+  const tamanhos = porGrupo.map((g) => g.linhas.length);
+  return {
+    modo: 'manual',
+    chave: vagas,
+    diretos_por_grupo: diretosPorGrupo,
+    total_diretos: diretosPorGrupo * nomes.length,
+    posicao_disputa: posicaoDisputa,
+    em_disputa: emDisputa,
+    resumo: resumoDosRotulos(rotulos, nomes),
+    grupos_desiguais: new Set(tamanhos).size > 1,
+    criterios_media: criteriosMedia,
+    ranking: ranking.map((l, i) => ({
+      time_id: l.time_id,
+      nome: l.nome,
+      grupo_id: l.grupo_id,
+      grupo_nome: l.grupo_nome,
+      pj: l.pj,
+      medias: Object.fromEntries(criteriosMedia.map((c) => {
+        const v = mediaDoCriterio(l, c);
+        return [c, v === Infinity ? null : Math.round(v * 1000) / 1000];
+      })),
+      classifica: i < emDisputa,
+    })),
+    repescados: ranking.slice(0, emDisputa).map((l) => l.time_id),
+    reencontros: reencontrosNoMata(db, campeonato.id),
+  };
+}
+
 // Bloco derivado `vagas` dos payloads do admin e da pagina publica (EF 7):
 // modo, posicao em disputa, resumo e o ranking entre grupos ao vivo.
 // Recebe a classificacao ja calculada para nao computar duas vezes.
 export function vagasDoCampeonato(db, campeonato, classificacao) {
   if (campeonato.formato !== 'grupos_mata') return null;
+  // Modelo manual: quem manda sao os rotulos, nao o plano de vagas. Sem este
+  // desvio o payload descreveria uma chave que nao e a do campeonato.
+  if (campeonato.mata_modelo === 'manual' && campeonato.mata_chave) {
+    return vagasDosRotulos(db, campeonato, classificacao);
+  }
   const analise = analiseDeVagas(campeonato, classificacao);
   if (!analise) return null;
   const { porGrupo, plano, ranking } = analise;
@@ -610,6 +787,19 @@ export function gerarMataDoCampeonato(db, campeonato) {
   }
 
   const classificacao = classificacaoDoCampeonato(db, campeonato);
+
+  // Modelo manual (RN-MM-08/09): os rotulos declarados definem quem entra, e
+  // em que vaga. Nada de plano de vagas — a chave ja tem tamanho e desenho.
+  if (campeonato.mata_modelo === 'manual') {
+    const meta = JSON.parse(campeonato.mata_chave);
+    const desenho = obterDesenho(meta.vagas, meta.desenho);
+    const times = resolverRotulos(
+      meta.rotulos, classificacao.filter((g) => g.grupo), JSON.parse(campeonato.criterios_desempate),
+    );
+    const jogosManual = gerarChaveManual(desenho, times, { idaEVolta: !!campeonato.ida_volta_mata });
+    return inserirJogosDoMata(db, campeonato, jogosManual);
+  }
+
   const analise = analiseDeVagas(campeonato, classificacao);
   let jogos;
   if (!analise || analise.plano.modo === 'exata') {
@@ -635,12 +825,286 @@ export function gerarMataDoCampeonato(db, campeonato) {
     jogos = gerarMataMata(pares.flat(), { idaEVolta: !!campeonato.ida_volta_mata, pareamento: 'lista' });
   }
 
+  return inserirJogosDoMata(db, campeonato, jogos);
+}
+
+// Grava a chave gerada, acrescentando a disputa de 3o lugar quando marcada
+// (RN-MM-21/22): ela entra vazia — os perdedores chegam pela propagacao.
+function inserirJogosDoMata(db, campeonato, jogos) {
+  const disputa = campeonato.disputa_terceiro ? jogoDisputaTerceiro(jogos) : null;
+  const todos = disputa ? [...jogos, disputa] : jogos;
   const insJogo = db.prepare(
     `INSERT INTO jogos (campeonato_id, fase, rodada, confronto, perna, time_casa_id, time_fora_id)
      VALUES (?, 'mata', ?, ?, ?, ?, ?)`,
   );
-  for (const j of jogos) {
+  for (const j of todos) {
     insJogo.run(campeonato.id, j.rodada, j.confronto, j.perna, j.time_casa_id, j.time_fora_id);
   }
-  return jogos.length;
+  return todos.length;
+}
+
+// ---------- disputa de 3o lugar: liga/desliga (RN-MM-24) ----------
+
+const jogosDoMata = (db, campeonatoId) => db
+  .prepare("SELECT * FROM jogos WHERE campeonato_id = ? AND fase = 'mata' ORDER BY rodada, confronto, perna")
+  .all(campeonatoId);
+
+// Liga ou desliga a disputa de 3o. Antes do mata gerado so muda a flag; com o
+// mata na mesa, cria (ou apaga) o jogo. Ligar depois das semifinais decididas
+// ja traz os perdedores para as vagas — o organizador nao precisa esperar.
+export function definirDisputaTerceiro(db, campeonato, ligar) {
+  if (campeonato.formato === 'pontos') {
+    throw erroValidacao('Este campeonato nao tem mata-mata.');
+  }
+  const alvo = ligar ? 1 : 0;
+  const jogos = jogosDoMata(db, campeonato.id);
+  const ultima = ultimaRodadaMata(jogos);
+  const existente = jogos.filter((j) => j.rodada === ultima && j.confronto === CONFRONTO_TERCEIRO);
+
+  if (existente.some((j) => j.status === 'encerrado')) {
+    throw erroConflito('A disputa de 3o lugar ja tem resultado. Apague o resultado antes de mudar esta opcao.');
+  }
+
+  if (!ligar) {
+    if (existente.length) {
+      db.prepare("DELETE FROM jogos WHERE campeonato_id = ? AND fase = 'mata' AND rodada = ? AND confronto = ?")
+        .run(campeonato.id, ultima, CONFRONTO_TERCEIRO);
+    }
+  } else if (jogos.length && !existente.length) {
+    const chave = jogos.filter((j) => !(j.rodada === ultima && j.confronto === CONFRONTO_TERCEIRO));
+    if (!aceitaDisputaTerceiro(chave)) {
+      throw erroValidacao('Esta chave nao comporta disputa de 3o lugar: a fase anterior a final precisa ter dois confrontos.');
+    }
+    const novo = jogoDisputaTerceiro(chave);
+    const id = Number(db
+      .prepare(
+        `INSERT INTO jogos (campeonato_id, fase, rodada, confronto, perna, time_casa_id, time_fora_id)
+         VALUES (?, 'mata', ?, ?, ?, NULL, NULL)`,
+      )
+      .run(campeonato.id, novo.rodada, novo.confronto, novo.perna).lastInsertRowid);
+
+    // Semifinais ja decididas preenchem as vagas na hora.
+    for (const confronto of [0, 1]) {
+      const pernas = chave.filter((j) => j.rodada === ultima - 1 && j.confronto === confronto);
+      const perdedor = perdedorConfronto(pernas, vencedorConfronto(pernas));
+      if (!perdedor) continue;
+      const coluna = confronto % 2 === 0 ? 'time_casa_id' : 'time_fora_id';
+      db.prepare(`UPDATE jogos SET ${coluna} = ? WHERE id = ?`).run(perdedor, id);
+    }
+  }
+
+  db.prepare('UPDATE campeonatos SET disputa_terceiro = ? WHERE id = ?').run(alvo, campeonato.id);
+  return db.prepare('SELECT * FROM campeonatos WHERE id = ?').get(campeonato.id);
+}
+
+// ---------- aba Chaveamento: ver e reposicionar (RN-MM-05/06/16) ----------
+
+// Grupos do campeonato com o tamanho de cada um (base da validacao de rotulos).
+function gruposComTamanho(db, campeonatoId) {
+  return db
+    .prepare(
+      `SELECT g.nome, COUNT(t.id) AS tamanho FROM grupos g
+       LEFT JOIN times t ON t.grupo_id = g.id
+       WHERE g.campeonato_id = ? GROUP BY g.id ORDER BY g.nome`,
+    )
+    .all(campeonatoId)
+    .map((g) => ({ nome: String(g.nome).replace(/^Grupo\s+/i, ''), tamanho: g.tamanho }));
+}
+
+// Chave do misto manual ANTES da geracao: desenho + rotulos + previa ao vivo
+// (EF 5.4). A previa e so informativa — as vagas so se confirmam com a fase de
+// grupos encerrada (RN-MM-13).
+function chaveDeRotulos(db, campeonato, meta) {
+  const desenho = obterDesenho(meta.vagas, meta.desenho);
+  const classificacao = classificacaoDoCampeonato(db, campeonato).filter((g) => g.grupo);
+  const criterios = JSON.parse(campeonato.criterios_desempate);
+  const nomeDoTime = new Map(
+    db.prepare('SELECT id, nome FROM times WHERE campeonato_id = ?').all(campeonato.id).map((t) => [t.id, t.nome]),
+  );
+
+  // A previa so vale quando ha jogo encerrado; e nunca derruba a tela.
+  let previa = [];
+  if (classificacao.some((g) => g.linhas.some((l) => l.pj > 0))) {
+    try { previa = resolverRotulos(meta.rotulos, classificacao, criterios); } catch { previa = []; }
+  }
+
+  const rodadas = [];
+  for (const c of desenho.confrontos) {
+    let r = rodadas.find((x) => x.rodada === c.rodada);
+    if (!r) { r = { rodada: c.rodada, nome: null, confrontos: [] }; rodadas.push(r); }
+    r.confrontos.push({ confronto: c.confronto, disputa_terceiro: false, time_casa_id: null, time_fora_id: null });
+  }
+  for (const r of rodadas) r.nome = nomeRodadaMata(r.rodada, desenho.rodadas, r.confrontos.length);
+
+  const slots = desenho.slots.map((s, i) => ({
+    rodada: s.rodada,
+    confronto: s.confronto,
+    lado: s.lado,
+    posicao: s.posicao,
+    time_id: null,
+    rotulo: meta.rotulos[s.posicao - 1],
+    rotulo_texto: textoRotulo(meta.rotulos[s.posicao - 1]),
+    previa_time_id: previa[s.posicao - 1] ?? null,
+    previa_nome: previa[s.posicao - 1] ? nomeDoTime.get(previa[s.posicao - 1]) : null,
+  }));
+
+  const pendentes = db
+    .prepare("SELECT COUNT(*) AS n FROM jogos WHERE campeonato_id = ? AND fase = 'grupos' AND status != 'encerrado'")
+    .get(campeonato.id).n;
+
+  return {
+    modelo: 'manual',
+    desenho: desenho.id,
+    gerado: false,
+    editavel: true,
+    vagas: desenho.vagas,
+    rodadas,
+    slots,
+    rotulos_disponiveis: rotulosDisponiveis(gruposComTamanho(db, campeonato.id)),
+    grupos_pendentes: pendentes,
+    // Aviso, nao trava: o gestor pode querer o reencontro (RN-MC-04).
+    reencontros: reencontrosDosRotulos(meta.rotulos, desenho),
+  };
+}
+
+// Estado da chave para a aba Chaveamento, nos DOIS modelos (na v1.2 o ajuste
+// de posicoes vale tambem no Padrao). Tudo derivado dos proprios jogos: as
+// vagas de entrada sao os lados preenchidos antes de qualquer resultado —
+// o resto da chave se preenche por propagacao.
+export function chaveamentoDoCampeonato(db, campeonato) {
+  const pernas = db
+    .prepare("SELECT * FROM jogos WHERE campeonato_id = ? AND fase = 'mata' ORDER BY rodada, confronto, perna")
+    .all(campeonato.id);
+  const meta = campeonato.mata_chave ? JSON.parse(campeonato.mata_chave) : null;
+  const base = { modelo: campeonato.mata_modelo ?? 'padrao', desenho: meta?.desenho ?? null };
+  if (!pernas.length) {
+    // Misto manual antes de gerar o mata (RN-MM-08): a chave ja existe como
+    // desenho + rotulos, e a previa mostra quem ocuparia cada vaga hoje.
+    if (meta?.rotulos) return chaveDeRotulos(db, campeonato, meta);
+    return { ...base, gerado: false, editavel: false, rodadas: [], slots: [] };
+  }
+
+  const ultima = ultimaRodadaMata(pernas);
+  const ehDisputa = (j) => j.rodada === ultima && j.confronto === CONFRONTO_TERCEIRO;
+  // RN-MM-06: qualquer resultado no mata congela desenho e posicoes.
+  const editavel = pernas.every((j) => j.status !== 'encerrado');
+
+  const rodadas = [];
+  for (const j of pernas.filter((p) => p.perna === 1)) {
+    let r = rodadas.find((x) => x.rodada === j.rodada);
+    if (!r) {
+      r = { rodada: j.rodada, nome: null, confrontos: [] };
+      rodadas.push(r);
+    }
+    r.confrontos.push({
+      confronto: j.confronto,
+      disputa_terceiro: ehDisputa(j),
+      time_casa_id: j.time_casa_id,
+      time_fora_id: j.time_fora_id,
+    });
+  }
+  for (const r of rodadas) {
+    const daChave = r.confrontos.filter((c) => !c.disputa_terceiro).length;
+    r.nome = nomeRodadaMata(r.rodada, ultima, daChave);
+  }
+
+  // Vagas de entrada: ESTRUTURAL, nao "o que esta preenchido". Um lado e vaga
+  // de entrada quando nao existe confronto alimentando-o na rodada anterior
+  // (folga ou 1a rodada) — regra que continua valendo depois que a propagacao
+  // ja encheu as fases seguintes. A disputa de 3o fica fora: ela nao pertence
+  // a arvore da chave, e alimentada pelos perdedores.
+  const existe = new Set();
+  for (const r of rodadas) {
+    for (const c of r.confrontos.filter((x) => !x.disputa_terceiro)) existe.add(`${r.rodada}:${c.confronto}`);
+  }
+  const slots = [];
+  for (const r of rodadas) {
+    for (const c of r.confrontos.filter((x) => !x.disputa_terceiro)) {
+      for (const [lado, alimentador, time] of [
+        ['casa', c.confronto * 2, c.time_casa_id],
+        ['fora', c.confronto * 2 + 1, c.time_fora_id],
+      ]) {
+        if (existe.has(`${r.rodada - 1}:${alimentador}`)) continue;
+        slots.push({ rodada: r.rodada, confronto: c.confronto, lado, time_id: time });
+      }
+    }
+  }
+  return { ...base, gerado: true, editavel, rodadas, slots };
+}
+
+// Ponto unico de gravacao da aba Chaveamento: antes de o mata existir, o que
+// se edita sao os ROTULOS (misto manual); depois, as POSICOES dos times.
+export function salvarChaveamento(db, campeonato, corpo) {
+  const meta = campeonato.mata_chave ? JSON.parse(campeonato.mata_chave) : null;
+  const jaGerado = db
+    .prepare("SELECT COUNT(*) AS n FROM jogos WHERE campeonato_id = ? AND fase = 'mata'")
+    .get(campeonato.id).n > 0;
+  if (!jaGerado && meta?.rotulos) return salvarRotulosChave(db, campeonato, corpo?.slots, meta);
+  return salvarPosicoesChave(db, campeonato, corpo?.slots);
+}
+
+// Regrava os rotulos das vagas (RN-MM-08/10). O corpo traz as vagas com o
+// rotulo de cada uma; a validacao e a mesma da criacao.
+function salvarRotulosChave(db, campeonato, slots, meta) {
+  const desenho = obterDesenho(meta.vagas, meta.desenho);
+  if (!Array.isArray(slots) || slots.length !== desenho.vagas) {
+    throw erroValidacao(`Informe as ${desenho.vagas} vagas do chaveamento.`);
+  }
+  const porPosicao = new Map();
+  for (const s of slots) {
+    const posicao = Number(s.posicao);
+    const vaga = desenho.slots.find((x) => x.posicao === posicao);
+    if (!vaga) throw erroValidacao('Ha vaga que nao pertence a este chaveamento.');
+    if (porPosicao.has(posicao)) throw erroValidacao('Ha vaga repetida.');
+    porPosicao.set(posicao, s.rotulo);
+  }
+  const rotulos = desenho.slots.map((s) => porPosicao.get(s.posicao));
+  validarRotulos(rotulos, { vagas: desenho.vagas, grupos: gruposComTamanho(db, campeonato.id) });
+
+  db.prepare('UPDATE campeonatos SET mata_chave = ?, classificados_por_grupo = ? WHERE id = ?').run(
+    JSON.stringify({ ...meta, rotulos }),
+    Math.max(1, zonasDosRotulos(rotulos, gruposComTamanho(db, campeonato.id).map((g) => g.nome)).diretosPorGrupo),
+    campeonato.id,
+  );
+  return chaveamentoDoCampeonato(db, db.prepare('SELECT * FROM campeonatos WHERE id = ?').get(campeonato.id));
+}
+
+// Regrava as posicoes da chave (RN-MM-05/16): o corpo traz TODAS as vagas de
+// entrada, com os mesmos participantes em qualquer ordem — trocar dois times
+// de lugar e inverter o mando de um confronto sao a mesma operacao.
+function salvarPosicoesChave(db, campeonato, slotsNovos) {
+  const atual = chaveamentoDoCampeonato(db, campeonato);
+  if (!atual.gerado) throw erroValidacao('O mata-mata deste campeonato ainda nao foi gerado.');
+  if (!atual.editavel) {
+    throw erroConflito('A chave ja tem resultado lancado e esta congelada. Apague os resultados do mata-mata para reposicionar.');
+  }
+
+  const chaveSlot = (s) => `${s.rodada}:${s.confronto}:${s.lado}`;
+  const vagas = new Set(atual.slots.map(chaveSlot));
+  if (!Array.isArray(slotsNovos) || slotsNovos.length !== vagas.size) {
+    throw erroValidacao(`Informe as ${vagas.size} posicoes da chave.`);
+  }
+  const vistos = new Set();
+  for (const s of slotsNovos) {
+    const k = chaveSlot(s);
+    if (!vagas.has(k)) throw erroValidacao('Ha posicao que nao pertence a esta chave.');
+    if (vistos.has(k)) throw erroValidacao('Ha posicao repetida.');
+    vistos.add(k);
+  }
+  const turma = (ts) => [...ts].sort((a, b) => a - b).join(',');
+  if (turma(atual.slots.map((s) => s.time_id)) !== turma(slotsNovos.map((s) => Number(s.time_id)))) {
+    throw erroValidacao('Use exatamente os participantes atuais da chave, sem repetir nem trocar de time.');
+  }
+
+  const pernas = db
+    .prepare("SELECT * FROM jogos WHERE campeonato_id = ? AND fase = 'mata'")
+    .all(campeonato.id);
+  for (const s of slotsNovos) {
+    for (const p of pernas.filter((j) => j.rodada === s.rodada && j.confronto === s.confronto)) {
+      // Perna 1 respeita o lado; perna 2 inverte o mando (regra de sempre).
+      const coluna = (p.perna === 1) === (s.lado === 'casa') ? 'time_casa_id' : 'time_fora_id';
+      db.prepare(`UPDATE jogos SET ${coluna} = ? WHERE id = ?`).run(Number(s.time_id), p.id);
+    }
+  }
+  return chaveamentoDoCampeonato(db, campeonato);
 }

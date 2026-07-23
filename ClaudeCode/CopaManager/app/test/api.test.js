@@ -980,11 +980,18 @@ test('limites de estrutura: times no wizard/rota e jogadores unitario e em lote 
   assert.match(quinto.corpo.mensagem, /Limite de 4 jogadores neste campeonato/);
 });
 
-test('validacao do wizard: mata-mata exige potencia de 2', async () => {
+test('validacao do wizard: mata-mata Padrao exige potencia de 2', async () => {
   const c = cliente();
   await registrarEntrar(c, { nome: 'W', email: 'w@teste.com', senha: 'segredo1' });
-  const r = await c('POST', '/api/campeonatos', { nome: 'Errado', formato: 'mata', times: ['A', 'B', 'C'] });
+  // Pedir o Padrao com 3 times continua barrado; sem pedir modelo, 3 times
+  // caem no Manual Personalizado (fase B) e a criacao passa a valer.
+  const r = await c('POST', '/api/campeonatos', {
+    nome: 'Errado', formato: 'mata', mata_modelo: 'padrao', times: ['A', 'B', 'C'],
+  });
   assert.equal(r.status, 400);
+  const ok = await c('POST', '/api/campeonatos', { nome: 'Chave de 3', formato: 'mata', times: ['A', 'B', 'C'] });
+  assert.equal(ok.status, 201, JSON.stringify(ok.corpo));
+  assert.equal(ok.corpo.mata_modelo, 'manual');
 });
 
 // ================= VERIFICACAO DE E-MAIL, GOOGLE E LGPD =================

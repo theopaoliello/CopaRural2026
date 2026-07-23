@@ -152,6 +152,60 @@ export function nomeFaseMata(confrontosNaRodada) {
   }
 }
 
+// Nome da rodada pela DISTANCIA ate o fim, nao pela quantidade de confrontos
+// (RN-MM-15). Numa chave com folgas os dois criterios divergem: uma escada tem
+// 1 confronto por rodada (todas seriam "Final") e o desenho 9C abre com 4
+// confrontos sem ser quartas de final. Em chave cheia o resultado e identico
+// ao de sempre — 8 confrontos na 1a rodada de 16 continuam "Oitavas de final".
+export function nomeRodadaMata(rodada, totalRodadas, confrontosNaRodada) {
+  const distancia = totalRodadas - rodada + 1;
+  if (distancia <= 1) return 'Final';
+  if (distancia === 2) return 'Semifinal';
+  // Rodada cheia: nome classico de sempre (e o que preserva a chave cheia).
+  if (confrontosNaRodada === 2 ** (distancia - 1)) return nomeFaseMata(confrontosNaRodada);
+  // Esqueleto de 8 com folgas: com 2 ou 3 jogos ainda sao as quartas de final
+  // (RN-MM-15) — e como todo mundo chama a primeira fase de uma chave de 6.
+  if (distancia === 3 && confrontosNaRodada >= 2) return 'Quartas de final';
+  return rodada === 1 ? 'Fase preliminar' : `Fase ${rodada}`;
+}
+
+// ---------- disputa de 3o lugar (EF Mata-mata Manual, RN-MM-21/22) ----------
+
+// A disputa e o confronto 1 da ULTIMA rodada — a final e sempre o confronto 0.
+export const CONFRONTO_TERCEIRO = 1;
+
+export const ultimaRodadaMata = (jogos) => (jogos.length ? Math.max(...jogos.map((j) => j.rodada)) : 0);
+
+export function ehDisputaTerceiro(jogo, ultimaRodada) {
+  return jogo.rodada === ultimaRodada && jogo.confronto === CONFRONTO_TERCEIRO;
+}
+
+// So existe disputa de 3o quando a penultima rodada tem exatamente 2
+// confrontos — duas semifinais de verdade, dois perdedores comparaveis.
+// Numa chave em que alguem espera na final (ou numa final unica), o 3o lugar
+// e indefinido e a opcao nao e oferecida (RN-MM-21).
+export function aceitaDisputaTerceiro(jogos) {
+  const ultima = ultimaRodadaMata(jogos);
+  if (ultima < 2) return false;
+  const penultima = new Set(
+    jogos.filter((j) => j.rodada === ultima - 1).map((j) => j.confronto),
+  );
+  return penultima.size === 2;
+}
+
+// Jogo a inserir para a disputa: sempre unico (mesmo em ida e volta, RN-MM-22)
+// e sem times — eles chegam pela propagacao dos perdedores das semifinais.
+export function jogoDisputaTerceiro(jogos) {
+  if (!aceitaDisputaTerceiro(jogos)) return null;
+  return {
+    rodada: ultimaRodadaMata(jogos),
+    confronto: CONFRONTO_TERCEIRO,
+    perna: 1,
+    time_casa_id: null,
+    time_fora_id: null,
+  };
+}
+
 // Decide o vencedor de um confronto dadas as pernas ENCERRADAS.
 // Placar agregado; empate agregado decide nos penaltis da ultima perna.
 // Devolve o time_id vencedor ou null se ainda indefinido.
@@ -179,6 +233,14 @@ export function vencedorConfronto(pernas) {
   if (ultima.penaltis_casa == null || ultima.penaltis_fora == null) return null;
   if (ultima.penaltis_casa === ultima.penaltis_fora) return null;
   return ultima.penaltis_casa > ultima.penaltis_fora ? ultima.time_casa_id : ultima.time_fora_id;
+}
+
+// O outro time do confronto, dado o vencedor ja apurado. Sem vencedor
+// definido nao ha perdedor definido (a vaga da disputa fica em aberto).
+export function perdedorConfronto(pernas, vencedor = vencedorConfronto(pernas)) {
+  if (!vencedor || !pernas.length) return null;
+  const primeira = pernas[0];
+  return primeira.time_casa_id === vencedor ? primeira.time_fora_id : primeira.time_casa_id;
 }
 
 // Ordena os classificados dos grupos em seeds: todos os 1os colocados

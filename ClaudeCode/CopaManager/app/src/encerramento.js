@@ -5,7 +5,7 @@
 // dialogo "encerrar antes de excluir" (RN-AT-10, EF 3.5).
 import { erroValidacao, erroConflito } from './erros.js';
 import { obterEsporte } from './esportes.js';
-import { vencedorConfronto } from './tabela.js';
+import { vencedorConfronto, perdedorConfronto, CONFRONTO_TERCEIRO } from './tabela.js';
 import { classificacaoDoCampeonato } from './campeonatos.js';
 import { congelarEstatisticas, descongelarCampeonato } from './perfil.js';
 
@@ -46,22 +46,29 @@ export function sugerirPodio(db, campeonato) {
   const temMata = campeonato.formato === 'mata' || campeonato.formato === 'grupos_mata';
 
   if (temMata) {
-    // Final = a rodada de mata com 1 confronto (a maior rodada gerada).
-    const pernasFinal = db
+    // Ultima rodada do mata: confronto 0 = final; confronto 1, quando existe,
+    // = disputa de 3o lugar (RN-MM-22). Antes da disputa existir, a ultima
+    // rodada tinha sempre um confronto so — dai a checagem antiga.
+    const ultima = db
       .prepare(
         `SELECT * FROM jogos WHERE campeonato_id = ? AND fase = 'mata'
          AND rodada = (SELECT MAX(rodada) FROM jogos WHERE campeonato_id = ? AND fase = 'mata')
          ORDER BY perna`,
       )
       .all(campeonato.id, campeonato.id);
-    const soUmConfronto = new Set(pernasFinal.map((j) => j.confronto)).size === 1;
-    if (!pernasFinal.length || !soUmConfronto) return vazio;
+    const confrontos = new Set(ultima.map((j) => j.confronto));
+    if (!ultima.length || confrontos.size > 2 || !confrontos.has(0)) return vazio;
+
+    const pernasFinal = ultima.filter((j) => j.confronto === 0);
     const campeao = vencedorConfronto(pernasFinal);
     if (!campeao) return vazio;
-    const vice = pernasFinal[0].time_casa_id === campeao
-      ? pernasFinal[0].time_fora_id
-      : pernasFinal[0].time_casa_id;
-    return { primeiro: campeao, segundo: vice, terceiro: null };
+    const vice = perdedorConfronto(pernasFinal, campeao);
+
+    // RN-MM-23: com disputa de 3o, o podio ja vem completo. Sem ela, o 3o
+    // segue em branco — nao ha como deduzi-lo de uma eliminacao simples.
+    const pernasDisputa = ultima.filter((j) => j.confronto === CONFRONTO_TERCEIRO);
+    const terceiro = pernasDisputa.length ? vencedorConfronto(pernasDisputa) : null;
+    return { primeiro: campeao, segundo: vice, terceiro };
   }
 
   // Pontos corridos e Pelada Epica: os 3 primeiros da classificacao/ranking.

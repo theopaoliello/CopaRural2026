@@ -43,6 +43,7 @@
   </div>
 </div>
 
+<script src="/chave.js"></script>
 <script>
 const slug = location.pathname.split('/').pop();
 let D = null; // dados publicos
@@ -97,7 +98,9 @@ function render() {
   document.title = `${c.nome} — Copa Manager`;
   if (c.cor_tema) document.documentElement.style.setProperty('--verde', c.cor_tema);
 
-  const temMata = D.chaveamento.length > 0;
+  // A aba existe assim que ha CHAVE — no misto manual ela aparece antes de o
+  // mata ser gerado, com as vagas ("1º do Grupo A") no lugar dos times.
+  const temMata = D.chaveamento.length > 0 || !!D.chave;
   const abas = [
     ['classificacao', E.rotulos.classificacao ?? 'Classificação', c.formato !== 'mata'],
     ['chaveamento', 'Mata-mata', temMata],
@@ -193,7 +196,7 @@ function abaClassificacao() {
     ? `<p class="legenda-zonas" style="margin:0 2px 10px">${esc(v.resumo)}</p>` : '';
   const temZona = D.classificacao.some((g) => g.linhas.some((l) => l.zona === 'classifica' || l.zona === 'disputa'));
   const legenda = v && temZona
-    ? `<p class="legenda-zonas">Linhas em verde: classificação ao mata-mata.${v.modo !== 'exata'
+    ? `<p class="legenda-zonas">Linhas em verde: classificação ao mata-mata.${v.posicao_disputa
       ? ` Linha em âmbar: ${v.posicao_disputa}º colocado, em disputa entre os grupos.` : ''}</p>` : '';
   return cabecalho + D.classificacao.map((g) => `
     <div class="card">
@@ -234,18 +237,80 @@ function cardMelhores() {
             ${v.criterios_media.map((c) => `<td>${media(l.medias[c])}</td>`).join('')}</tr>`;
         }).join('')}</tbody>
       </table></div>
-      <p class="legenda-zonas">Acima da linha de corte: ${v.modo === 'corte' ? 'avançam ao mata-mata' : 'levam as vagas extras'}. As vagas só se confirmam com todos os jogos dos grupos encerrados.</p>
+      <p class="legenda-zonas">Acima da linha de corte: ${v.modo === 'repescagem' ? 'levam as vagas extras' : 'avançam ao mata-mata'}. As vagas só se confirmam com todos os jogos dos grupos encerrados.</p>
     </div>`;
 }
 
 // ---------- chaveamento ----------
 
+// Desenho da chave (fase D): mostra a ESTRUTURA — folgas, entradas tardias e,
+// no misto manual, as vagas ainda por definir ("1º do Grupo A").
+function desenhoDaChave() {
+  const c = D.chave;
+  if (!c || !window.ChaveSVG) return '';
+  const nome = (id) => timePorId(id)?.nome ?? null;
+  const svg = ChaveSVG.desenhar(ChaveSVG.deChaveamento(c, nome, (s) => s.rotulo));
+  const legenda = c.gerado
+    ? 'Quem entra numa fase adiantada tem folga: avança sem jogar aquela rodada.'
+    : 'Chave definida pelo regulamento. Os times entram no lugar das vagas quando a fase de grupos terminar.';
+  return `<div class="card">
+    <div class="linha-flex" style="flex-wrap:wrap;gap:8px;align-items:center">
+      <h3 style="margin:0">Chaveamento</h3>
+      <span class="espacador"></span>
+      <button class="botao secundario mini" onclick="baixarChave()">Baixar imagem</button>
+    </div>
+    <div style="overflow-x:auto;padding:6px 0" id="svg-chave">${svg}</div>
+    <p class="legenda-zonas">${legenda}</p>
+    ${!c.gerado && c.slots.some((s) => s.previa)
+      ? `<p class="legenda-zonas">Prévia de hoje: ${c.slots.filter((s) => s.previa).map((s) => `${esc(s.rotulo)} = <strong>${esc(s.previa)}</strong>`).join(' · ')}</p>`
+      : ''}
+  </div>`;
+}
+
+function baixarChave() {
+  const svg = document.querySelector('#svg-chave svg')?.outerHTML;
+  if (svg) ChaveSVG.baixarPng(svg, `chaveamento-${D.campeonato.slug}`);
+}
+
+// Quem entrou em cada rodada sem jogar a anterior (folga).
+function folgasDaRodada(rodada) {
+  if (!D.chave?.gerado || rodada === 1) return [];
+  return D.chave.slots.filter((s) => s.rodada === rodada)
+    .map((s) => timePorId(s.time_id)).filter(Boolean);
+}
+
 function abaChaveamento() {
-  return `<div class="card"><div class="chaveamento">
-    ${D.chaveamento.map((r) => `
+  // Sem jogos de mata ainda: o que existe e o desenho com as vagas.
+  if (!D.chaveamento.length) return desenhoDaChave() || '<div class="card"><p class="muted">O mata-mata ainda não foi gerado.</p></div>';
+
+  // Alinha cada confronto com quem o alimenta (chaves com folga ficam legiveis).
+  const layout = window.ChaveSVG && D.chave
+    ? ChaveSVG.layoutCaixas({
+      confrontos: D.chave.rodadas.flatMap((r) => r.confrontos
+        .filter((cf) => !cf.disputa_terceiro)
+        .map((cf) => ({ rodada: r.rodada, confronto: cf.confronto }))),
+    })
+    : null;
+  const alturaDe = (rodada, confronto) => layout?.rodadas
+    .find((r) => r.rodada === rodada)?.confrontos.find((c) => c.confronto === confronto)?.y ?? null;
+
+  return desenhoDaChave() + `<div class="card"><div class="chaveamento">
+    ${D.chaveamento.map((r) => {
+      const folgas = folgasDaRodada(r.rodada);
+      let ultimoFim = 0; // controla o espaco vertical acumulado na coluna
+      return `
       <div class="chave-rodada">
         <h4>${esc(r.fase)}</h4>
+        ${folgas.length ? `<p class="muted" style="text-align:center;margin:0 0 8px">Entra${folgas.length > 1 ? 'm' : ''} com folga: ${folgas.map((t) => esc(t.nome)).join(', ')}</p>` : ''}
         ${r.confrontos.map((cf) => {
+          // Espaco antes da caixa, em "unidades de caixa", para ela ficar na
+          // altura do confronto que a alimenta.
+          const y = cf.disputa_terceiro ? null : alturaDe(r.rodada, cf.confronto);
+          let recuo = '';
+          if (y != null) {
+            recuo = ` style="margin-top:${Math.max(0, (y - ultimoFim) * 104)}px"`;
+            ultimoFim = y + 1;
+          }
           const jogos = cf.jogos.map((id) => D.jogos.find((j) => j.id === id));
           const j1 = jogos[0];
           const casa = timePorId(j1.time_casa_id);
@@ -269,14 +334,16 @@ function abaChaveamento() {
             ? ` <span class="badge repescado" title="Vaga pelo ranking dos melhores ${D.vagas.posicao_disputa}ºs">${D.vagas.posicao_disputa}º</span>` : '');
           const reencontro = na1aFase && D.vagas?.reencontros?.includes(cf.confronto)
             ? '<div class="linha muted"><span>⚠️ Times do mesmo grupo (reencontro inevitável)</span></div>' : '';
-          return `<div class="confronto-box">
+          return `<div class="confronto-box"${recuo}>
+            ${cf.disputa_terceiro ? '<div class="linha muted"><span>🥉 Disputa de 3º lugar</span></div>' : ''}
             <div class="linha ${cf.vencedor === j1.time_casa_id ? 'vencedor' : ''}"><span>${agg(aggCasa)}${escudoHtml(casa)} ${esc(casa?.nome ?? 'A definir')}${repescado(j1.time_casa_id)}</span></div>
             <div class="linha ${cf.vencedor === j1.time_fora_id ? 'vencedor' : ''}"><span>${agg(aggFora)}${escudoHtml(fora)} ${esc(fora?.nome ?? 'A definir')}${repescado(j1.time_fora_id)}</span></div>
             <div class="linha muted"><span>${placares}</span></div>
             ${reencontro}
           </div>`;
         }).join('')}
-      </div>`).join('')}
+      </div>`;
+    }).join('')}
   </div></div>`;
 }
 
@@ -326,9 +393,14 @@ function abaJogos() {
       ${grupos.filter((j) => j.rodada === r).map(linhaJogo).join('')}`).join('')}</div>`;
   }
   if (mata.length) {
-    html += `<div class="card"><h3>Mata-mata</h3>${D.chaveamento.map((r) => `
-      <div class="rotulo-rodada">${esc(r.fase)}</div>
-      ${mata.filter((j) => j.rodada === r.rodada).map(linhaJogo).join('')}`).join('')}</div>`;
+    html += `<div class="card"><h3>Mata-mata</h3>${D.chaveamento.map((r) => {
+      // A disputa de 3o divide a rodada com a final: fica identificada na lista.
+      const idsDisputa = new Set(r.confrontos.filter((cf) => cf.disputa_terceiro).flatMap((cf) => cf.jogos));
+      return `<div class="rotulo-rodada">${esc(r.fase)}</div>
+      ${mata.filter((j) => j.rodada === r.rodada).map((j) =>
+        (idsDisputa.has(j.id) ? '<div class="muted" style="font-size:.75rem;padding:0 2px">🥉 Disputa de 3º lugar</div>' : '')
+        + linhaJogo(j)).join('')}`;
+    }).join('')}</div>`;
   }
   return html || '<div class="card"><p class="muted">Nenhum jogo cadastrado ainda.</p></div>';
 }
