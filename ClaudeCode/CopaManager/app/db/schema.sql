@@ -127,6 +127,10 @@ CREATE TABLE IF NOT EXISTS campeonatos (
   -- JSON do modelo manual (RN-MM-04): { desenho: '6A', vagas: 6 }. A estrutura
   -- em si e derivavel dos jogos; isto guarda QUAL desenho foi escolhido.
   mata_chave TEXT,
+  -- Tamanho da logo na pagina publica (EF Tamanho da Logo, RN-LG-01):
+  -- 'pequena' (padrao, caixa 84x84 atual), 'media' ou 'grande' — os dois
+  -- ultimos so tem efeito em contas Premium/Premium+ (RN-LG-06).
+  logo_tamanho TEXT NOT NULL DEFAULT 'pequena',
   criado_em TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

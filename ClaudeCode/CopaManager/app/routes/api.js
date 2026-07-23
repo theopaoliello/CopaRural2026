@@ -29,7 +29,7 @@ import { registrarResultado, apagarResultado } from '../src/jogos.js';
 import { matrizEntrosamento, sortearTimes } from '../src/sorteio.js';
 import { inserirLoteJogadores, parsearLoteJogadores } from '../src/jogadores.js';
 import {
-  TIPOS_CONTA, limitesDaConta,
+  TIPOS_CONTA, limitesDaConta, TAMANHOS_LOGO, logoTamanhosLiberados,
   conferirLimiteTimes, conferirLimiteJogadoresTime, conferirLimiteJogadoresPelada,
 } from '../src/limites.js';
 import { parsearResultadoTexto } from '../src/resultado-texto.js';
@@ -615,6 +615,8 @@ export function montarRotas(db, { limites = {} } = {}) {
       // Colaborador nao gere banners: recebe lista vazia (RN-CO-05).
       banners: ehDono ? db.prepare('SELECT * FROM banners WHERE campeonato_id = ? ORDER BY ordem, id').all(c.id) : [],
       banners_liberados: bannersLiberados,
+      // RN-LG-04/05: o painel usa isto para (des)habilitar Média e Grande.
+      logo_tamanhos_liberados: req.contaReal.papel === 'master' || logoTamanhosLiberados(db, c.conta_id) ? 1 : 0,
       meu_acesso: meuAcesso,
       // Badge da aba Atletas (fase B): pendentes so interessam ao dono.
       n_conexoes_pendentes: ehDono ? contarPendentes(db, c.id) : 0,
@@ -653,11 +655,23 @@ export function montarRotas(db, { limites = {} } = {}) {
     if (obterEsporte(c.esporte)?.ranking === 'individual') {
       premios = validarPremiacaoRebaixamento(b, premios);
     }
+    // Tamanho da logo (RN-LG-03/04/12): valor entre os tres aceitos e, para
+    // media/grande, conta dona Premium (o master passa por cima, RN-LG-05).
+    let logoTamanho = c.logo_tamanho;
+    if (b.logo_tamanho !== undefined) {
+      if (!TAMANHOS_LOGO.includes(b.logo_tamanho)) throw erroValidacao('Tamanho de logo invalido.');
+      if ((b.logo_tamanho === 'media' || b.logo_tamanho === 'grande')
+        && req.contaReal.papel !== 'master'
+        && !logoTamanhosLiberados(db, c.conta_id)) {
+        throw erroProibido('Os tamanhos Média e Grande da logo fazem parte dos planos Premium e Premium+.');
+      }
+      logoTamanho = b.logo_tamanho;
+    }
     db.prepare(
       `UPDATE campeonatos SET nome = ?, temporada = ?, modalidade = ?, descricao = ?, cor_tema = ?,
        slug = ?, criterios_desempate = ?, regras = ?, publicado = ?, status = ?,
        premiacao = ?, premia_artilheiro = ?, rebaixamento_modo = ?, rebaixamento_qtd = ?,
-       aceita_conexoes = ? WHERE id = ?`,
+       aceita_conexoes = ?, logo_tamanho = ? WHERE id = ?`,
     ).run(
       nome,
       b.temporada !== undefined ? textoLimitado(b.temporada, 40, 'Temporada') : c.temporada,
@@ -675,6 +689,7 @@ export function montarRotas(db, { limites = {} } = {}) {
       premios.rebaixamento_qtd,
       // RN-AT-19: dono liga/desliga as conexoes de atleta na copa dele.
       b.aceita_conexoes !== undefined ? (b.aceita_conexoes ? 1 : 0) : c.aceita_conexoes,
+      logoTamanho,
       c.id,
     );
     res.json(db.prepare('SELECT * FROM campeonatos WHERE id = ?').get(c.id));

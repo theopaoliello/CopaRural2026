@@ -15,6 +15,12 @@
   .cabecalho-camp { text-align: center; padding: 22px 16px 8px; }
   .cabecalho-camp h1 { margin: 8px 0 2px; color: var(--verde); }
   .cabecalho-camp img.logo { width: 84px; height: 84px; object-fit: contain; }
+  /* Tamanho da logo (EF Tamanho da Logo): media/grande usam caixa retangular.
+     A largura vira automatica e a altura manda; o freio proporcional (min/vh)
+     impede o cabecalho de passar de 55% da tela (RN-LG-07). O valor px vem
+     antes como fallback para navegadores sem min(). */
+  .cabecalho-camp img.logo.media  { width: auto; height: 132px; height: min(132px, 18vh); max-width: 360px; max-width: min(360px, 82vw); }
+  .cabecalho-camp img.logo.grande { width: auto; height: 200px; height: min(200px, 24vh); max-width: 520px; max-width: min(520px, 90vw); }
   #btn-seguir.ativo { background: var(--verde); color: #fff; border-color: var(--verde); }
   #btn-eu-jogo.jogando { background: var(--verde); color: #fff; border-color: var(--verde); }
   /* Podio do campeonato encerrado (EF Perfil do Atleta, fase A) */
@@ -120,7 +126,7 @@ function render() {
 
   $('#app').innerHTML = `
     <div class="cabecalho-camp">
-      ${c.logo ? `<img class="logo" src="${esc(c.logo)}" alt="">` : ''}
+      ${c.logo ? `<img class="logo ${c.logo_tamanho && c.logo_tamanho !== 'pequena' ? esc(c.logo_tamanho) : ''}" src="${esc(c.logo)}" alt="">` : ''}
       <h1>${esc(c.nome)}</h1>
       <div class="muted">${esc(subtitulo)}</div>
       ${c.descricao ? `<p class="muted">${esc(c.descricao)}</p>` : ''}

@@ -2255,6 +2255,7 @@ async function abaConfig() {
         <div><label>Logo do campeonato</label><input type="file" id="arq-logo" accept="image/*">
           <button class="botao mini" style="margin-top:4px" onclick="enviarLogo()">Enviar logo</button></div>
       </div>
+      ${seletorTamanhoLogo(c)}
       <label>Descrição</label><textarea id="cfg-descricao">${esc(c.descricao ?? '')}</textarea>
       <p><button class="botao" onclick="salvarConfig()">Salvar alterações</button></p>
     </div>
@@ -2317,7 +2318,64 @@ async function abaConfig() {
       $('#cfg-campo-rebaixamento-qtd').style.display = selReb.value ? '' : 'none';
     };
   }
+  atualizarPreviaLogo();
 }
+
+// ---------- tamanho da logo (EF Tamanho da Logo) ----------
+
+// Seletor Pequena/Média/Grande. Média e Grande so ficam ativas em conta Premium
+// (DET.logo_tamanhos_liberados, RN-LG-04) e so quando ha logo enviada (RN-LG-09).
+function seletorTamanhoLogo(c) {
+  const liberado = DET.logo_tamanhos_liberados;
+  const atual = c.logo_tamanho || 'pequena';
+  const temLogo = !!c.logo;
+  const opcao = (val, rotulo) => {
+    const bloqueado = (val === 'media' || val === 'grande') && !liberado;
+    const inativo = bloqueado || !temLogo;
+    return `<label style="font-weight:400;display:inline-flex;gap:5px;align-items:center;margin:0${inativo ? ';opacity:.55' : ''}">
+      <input type="radio" name="cfg-logo-tam" value="${val}" style="width:auto"
+        ${val === atual ? 'checked' : ''} ${inativo ? 'disabled' : ''} onchange="atualizarPreviaLogo()">${rotulo}${bloqueado ? ' 🔒' : ''}</label>`;
+  };
+  return `<div style="margin-top:12px">
+    <label>Tamanho da logo na página pública</label>
+    <div class="linha-flex" style="gap:16px;flex-wrap:wrap">
+      ${opcao('pequena', 'Pequena')}${opcao('media', 'Média')}${opcao('grande', 'Grande')}
+    </div>
+    ${!liberado ? '<p class="muted" style="margin:4px 0 0">🔒 Os tamanhos Média e Grande fazem parte dos planos Premium e Premium+.</p>' : ''}
+    ${!temLogo ? '<p class="muted" style="margin:4px 0 0">Envie uma logo para escolher o tamanho.</p>' : ''}
+    <div id="logo-previa" style="margin-top:8px"></div>
+    <p class="muted" id="logo-aviso-res" style="margin:4px 0 0;color:#92400e"></p>
+  </div>`;
+}
+
+// Prévia ao vivo com a caixa do tamanho selecionado + aviso de ampliação (RN-LG-08).
+const LOGO_ALTURA = { pequena: 84, media: 132, grande: 200 };
+const LOGO_LARGURA = { pequena: 84, media: 360, grande: 520 };
+function atualizarPreviaLogo() {
+  const box = document.getElementById('logo-previa');
+  if (!box) return;
+  const c = DET.campeonato;
+  const av = document.getElementById('logo-aviso-res');
+  if (!c.logo) { box.innerHTML = ''; if (av) av.textContent = ''; return; }
+  const sel = document.querySelector('input[name=cfg-logo-tam]:checked')?.value || c.logo_tamanho || 'pequena';
+  const alt = LOGO_ALTURA[sel]; const larg = LOGO_LARGURA[sel];
+  const estilo = sel === 'pequena'
+    ? 'width:84px;height:84px;object-fit:contain'
+    : `height:${alt}px;width:auto;object-fit:contain;max-width:min(${larg}px,100%)`;
+  box.innerHTML = `<div style="border:1px dashed var(--borda);border-radius:8px;padding:12px;text-align:center;background:#fafafa">
+    <div class="muted" style="font-size:.7rem;margin-bottom:6px">Prévia — como aparece no topo da página pública</div>
+    <img src="${esc(c.logo)}" alt="" style="${estilo}">
+  </div>`;
+  const img = new Image();
+  img.onload = () => {
+    if (img.naturalHeight && img.naturalHeight < alt - 4) {
+      av.textContent = `Esta logo tem ${img.naturalHeight}px de altura e será ampliada para ${alt}px — pode ficar borrada. `
+        + `Recomendamos enviar uma imagem com pelo menos ${alt * 2}px de altura.`;
+    } else { av.textContent = ''; }
+  };
+  img.src = c.logo;
+}
+
 async function salvarConfig() {
   const dados = {
     nome: $('#cfg-nome').value, temporada: $('#cfg-temporada').value || null,
@@ -2325,6 +2383,11 @@ async function salvarConfig() {
     publicado: $('#cfg-publicado').checked,
     aceita_conexoes: $('#cfg-aceita-conexoes').checked,
   };
+  // So envia se a opcao marcada estiver habilitada: uma conta rebaixada mantem
+  // 'grande' marcado porém desabilitado (RN-LG-06) e nao deve reenviar o valor
+  // bloqueado — isso travaria o salvamento dos demais campos (RN-LG-04).
+  const rt = document.querySelector('input[name=cfg-logo-tam]:checked');
+  if (rt && !rt.disabled) dados.logo_tamanho = rt.value;
   // Disputa de 3o (RN-MM-24): so existe nos formatos com mata-mata.
   if ($('#cfg-disputa3')) dados.disputa_terceiro = $('#cfg-disputa3').checked;
   if ($('#cfg-premiacao')) { // card da pelada (premiacao e rebaixamento)

@@ -90,6 +90,9 @@ function migrarColunas(db) {
   // do modelo Padrao (DEFAULT) — a montagem automatica deles nao muda.
   addSeFaltar('campeonatos', "mata_modelo TEXT NOT NULL DEFAULT 'padrao'");
   addSeFaltar('campeonatos', 'mata_chave TEXT');
+  // Tamanho da logo (EF Tamanho da Logo, RN-LG-01): campeonatos existentes
+  // nascem 'pequena' pelo DEFAULT — mesma aparencia de hoje, sem backfill.
+  addSeFaltar('campeonatos', "logo_tamanho TEXT NOT NULL DEFAULT 'pequena'");
 }
 
 // Bancos criados antes dos tipos 'gol_contra' (2026-07) ou 'pontos'/'valor'

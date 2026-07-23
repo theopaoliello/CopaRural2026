@@ -9,6 +9,26 @@ import { erroConflito } from './erros.js';
 export const TIPOS_CONTA = { padrao: 3, premium: 10, premium_plus: 30 };
 export const ROTULOS_TIPO = { padrao: 'Padrão', premium: 'Premium', premium_plus: 'Premium+' };
 
+// Tamanho da logo do campeonato (EF Tamanho da Logo). Os tamanhos maiores
+// (media/grande) sao um beneficio dos planos Premium (RN-LG-03).
+export const TAMANHOS_LOGO = ['pequena', 'media', 'grande'];
+const TIPOS_PREMIUM = new Set(['premium', 'premium_plus']);
+
+// RN-LG-03/04: a conta pode escolher media/grande? Le o tipo ATUAL da conta.
+export function logoTamanhosLiberados(db, contaId) {
+  const conta = db.prepare('SELECT tipo FROM contas WHERE id = ?').get(contaId);
+  return TIPOS_PREMIUM.has(conta?.tipo);
+}
+
+// RN-LG-06: tamanho que a pagina publica desenha — o escolhido se a conta dona
+// e Premium; pequena caso contrario. O valor gravado nunca e alterado aqui.
+export function tamanhoLogoEfetivo(tamanho, tipoConta) {
+  if ((tamanho === 'media' || tamanho === 'grande') && TIPOS_PREMIUM.has(tipoConta)) {
+    return tamanho;
+  }
+  return 'pequena';
+}
+
 // Limites globais de estrutura (RN-GC-05), iguais para todos os tipos.
 export const MAX_TIMES_PADRAO = 48;
 export const MAX_JOGADORES_TIME_PADRAO = 30;

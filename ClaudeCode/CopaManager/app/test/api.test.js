@@ -289,6 +289,53 @@ test('banners gated (RN-BA): conta nova bloqueada, master libera, revogar preser
   await master('POST', '/api/master/voltar');
 });
 
+test('tamanho da logo (RN-LG): default pequena, gate Premium, resolucao na publica', async () => {
+  const c = cliente();
+  const conta = await registrarEntrar(c, { nome: 'Logo', email: 'logo@teste.com', senha: 'segredo1' });
+  const criado = await c('POST', '/api/campeonatos', { nome: 'Logo FC', formato: 'pontos', times: ['A', 'B'] });
+  const campId = criado.corpo.id;
+  const slug = (await c('GET', `/api/campeonatos/${campId}`)).corpo.campeonato.slug;
+  await c('POST', `/api/campeonatos/${campId}/logo`, { imagem: PNG_1PX });
+
+  // 1) nasce em 'pequena' e a conta Padrao ve as opcoes maiores travadas
+  const det0 = await c('GET', `/api/campeonatos/${campId}`);
+  assert.equal(det0.corpo.campeonato.logo_tamanho, 'pequena');
+  assert.equal(det0.corpo.logo_tamanhos_liberados, 0);
+
+  // 2) Padrao gravando 'media'/'grande' e recusado (403) e o valor nao muda (RN-LG-04)
+  assert.equal((await c('PATCH', `/api/campeonatos/${campId}`, { logo_tamanho: 'media' })).status, 403);
+  assert.equal((await c('PATCH', `/api/campeonatos/${campId}`, { logo_tamanho: 'grande' })).status, 403);
+  assert.equal((await c('GET', `/api/campeonatos/${campId}`)).corpo.campeonato.logo_tamanho, 'pequena');
+
+  // 3) Padrao grava 'pequena' normalmente (a opcao liberada nao e bloqueada por engano)
+  assert.equal((await c('PATCH', `/api/campeonatos/${campId}`, { logo_tamanho: 'pequena' })).status, 200);
+
+  // 4) valor invalido e recusado na validacao (400) — RN-LG-12
+  assert.equal((await c('PATCH', `/api/campeonatos/${campId}`, { logo_tamanho: 'gigante' })).status, 400);
+
+  // 5) master enxerga o seletor liberado (RN-LG-05)
+  const master = cliente();
+  await registrarEntrar(master, { nome: 'M Logo', email: 'mlogo@teste.com', senha: 'segredo1' });
+  bancoTeste.prepare("UPDATE contas SET papel = 'master' WHERE email = 'mlogo@teste.com'").run();
+  await master('POST', '/api/master/entrar', { conta_id: conta.id });
+  assert.equal((await master('GET', `/api/campeonatos/${campId}`)).corpo.logo_tamanhos_liberados, 1);
+  await master('POST', '/api/master/voltar');
+
+  // 6) promovida a Premium: flag libera e 'grande' grava, voltando no GET
+  bancoTeste.prepare("UPDATE contas SET tipo = 'premium' WHERE id = ?").run(conta.id);
+  assert.equal((await c('GET', `/api/campeonatos/${campId}`)).corpo.logo_tamanhos_liberados, 1);
+  assert.equal((await c('PATCH', `/api/campeonatos/${campId}`, { logo_tamanho: 'grande' })).status, 200);
+  assert.equal((await c('GET', `/api/campeonatos/${campId}`)).corpo.campeonato.logo_tamanho, 'grande');
+
+  // 7) a publica de uma copa Premium com 'grande' devolve 'grande'
+  assert.equal((await c('GET', `/api/publico/${slug}`)).corpo.campeonato.logo_tamanho, 'grande');
+
+  // 8) rebaixada para Padrao: a publica passa a devolver 'pequena', valor intacto no banco (RN-LG-06)
+  bancoTeste.prepare("UPDATE contas SET tipo = 'padrao' WHERE id = ?").run(conta.id);
+  assert.equal((await c('GET', `/api/publico/${slug}`)).corpo.campeonato.logo_tamanho, 'pequena');
+  assert.equal(bancoTeste.prepare('SELECT logo_tamanho FROM campeonatos WHERE id = ?').get(campId).logo_tamanho, 'grande');
+});
+
 test('banner especial (RN-BE): master gerencia ate 3 globais; so aparecem em contas Padrao', async () => {
   const org = cliente();
   const contaOrg = await registrarEntrar(org, { nome: 'Org BE', email: 'orgbe@teste.com', senha: 'segredo1' });

@@ -7,6 +7,7 @@ import {
   nomeRodadaMata, vencedorConfronto, ultimaRodadaMata, CONFRONTO_TERCEIRO,
 } from './tabela.js';
 import { podioComNomes } from './encerramento.js';
+import { tamanhoLogoEfetivo } from './limites.js';
 import { obterEsporte, ESPORTE_PADRAO } from './esportes.js';
 
 export function dadosPublicos(db, slug) {
@@ -161,6 +162,9 @@ export function dadosPublicos(db, slug) {
       descricao: campeonato.descricao,
       cor_tema: campeonato.cor_tema,
       logo: campeonato.logo,
+      // RN-LG-06/11: tamanho JA RESOLVIDO pelo tipo atual da conta dona — a
+      // pagina do torcedor nao conhece plano; recebe pequena se caiu de Premium.
+      logo_tamanho: tamanhoLogoEfetivo(campeonato.logo_tamanho, contaDona?.tipo),
       slug: campeonato.slug,
       formato: campeonato.formato,
       status: campeonato.status,
