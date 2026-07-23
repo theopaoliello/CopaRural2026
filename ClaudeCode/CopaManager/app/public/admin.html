@@ -480,9 +480,9 @@ function renderPainel() {
   const temPendente = conexoes.some((cx) => cx.status === 'pendente');
   // rotulo, contador e sino (novidade) de cada aba
   const abas = [
-    ['organizo', '🏆 Organizo', lista.length, false],
-    ['acompanho', '👀 Acompanho', seguindo.length, false],
-    ['atleta', '🎽 Sou Atleta', conexoes.length, temPendente],
+    ['organizo', '🏆 Meus Campeonatos', lista.length, false],
+    ['acompanho', '👀 Seguindo', seguindo.length, false],
+    ['atleta', '🎽 Perfil de Atleta', conexoes.length, temPendente],
   ];
   if (!abas.some(([k]) => k === ABA_PAINEL)) ABA_PAINEL = 'organizo';
   const ajuda = {
