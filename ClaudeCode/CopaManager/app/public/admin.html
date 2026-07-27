@@ -1836,6 +1836,9 @@ function modalResultadoGols(jogoId) {
 function blocoLancGol(lado, time, elenco) {
   return `<div style="margin-top:10px">
     <strong style="display:block;font-size:.9rem;margin-bottom:2px">${esc(time.nome)}</strong>
+    <div class="grade-gol cabecalho" id="cab-gol-${lado}" style="display:none">
+      <span></span><span title="Gols">⚽</span><span title="Amarelo">🟨</span><span title="Dois amarelos">🟨🟨</span><span title="Vermelho">🟥</span><span></span>
+    </div>
     <div id="linhas-gol-${lado}"></div>
     ${selJogadoresGol(lado, elenco)}
     <p class="muted" id="contador-gol-${lado}" style="margin:4px 0 0;font-size:.8rem"></p>
@@ -1854,15 +1857,19 @@ function selJogadoresGol(lado, elenco) {
 
 // Uma linha de lancamento. GC mostra so o campo de gols (sem cartoes).
 function linhaGolHtml(lado, chave, nome, ehGC) {
-  const flags = ehGC ? '' : `
-    <label class="muted" style="width:auto" title="Cartão amarelo"><input type="checkbox" class="lg-amarelo" onchange="lgAmarelo(this)" style="width:auto"> 🟨</label>
-    <label class="muted" style="width:auto" title="Dois amarelos (2º amarelo → expulsão)"><input type="checkbox" class="lg-2amarelos" onchange="lg2Amarelos(this)" disabled style="width:auto"> 🟨🟨</label>
-    <label class="muted" style="width:auto" title="Cartão vermelho"><input type="checkbox" class="lg-vermelho" style="width:auto"> 🟥</label>`;
-  return `<div class="linha-flex linha-gol" data-lado="${lado}" data-chave="${esc(chave)}" data-nome="${esc(nome)}" data-gc="${ehGC ? 1 : 0}" style="margin:4px 0;gap:6px;flex-wrap:wrap">
-    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nome)}${ehGC ? ' <span class="muted">(contra)</span>' : ''}</span>
-    <input type="number" min="0" class="lg-gols" placeholder="gols" oninput="atualizarContadorGols('${lado}')" style="width:60px">
-    ${flags}
-    <button type="button" class="botao secundario mini" onclick="removerLinhaGol(this)" title="Remover">✕</button>
+  const cel = (inner) => `<span class="cel">${inner}</span>`;
+  // Colunas de cartao: checkboxes (jogador) ou tracos (Gol Contra), alinhados
+  // sob os emojis 🟨 | 🟨🟨 | 🟥 do cabecalho.
+  const cartoes = ehGC
+    ? cel('<span class="muted">—</span>') + cel('<span class="muted">—</span>') + cel('<span class="muted">—</span>')
+    : cel('<input type="checkbox" class="lg-amarelo" onchange="lgAmarelo(this)">')
+      + cel('<input type="checkbox" class="lg-2amarelos" onchange="lg2Amarelos(this)" disabled>')
+      + cel('<input type="checkbox" class="lg-vermelho">');
+  return `<div class="grade-gol linha-gol" data-lado="${lado}" data-chave="${esc(chave)}" data-nome="${esc(nome)}" data-gc="${ehGC ? 1 : 0}" style="margin:3px 0">
+    <span class="nome">${esc(nome)}${ehGC ? ' <span class="muted">(contra)</span>' : ''}</span>
+    <input type="number" min="0" class="lg-gols" placeholder="0" oninput="atualizarContadorGols('${lado}')">
+    ${cartoes}
+    <button type="button" class="botao secundario mini" onclick="removerLinhaGol(this)" title="Remover" style="padding:4px 0;width:100%;font-size:.9rem">✕</button>
   </div>`;
 }
 
@@ -1915,6 +1922,9 @@ function atualizarContadorGols(lado) {
   const sr = Math.max(0, placar - atribuidos);
   el.textContent = `${atribuidos} de ${placar} gols atribuídos${sr ? ` (${sr} sem autor)` : ''}`;
   el.style.color = atribuidos > placar ? '#c0392b' : '';
+  // Cabecalho de emojis so aparece quando ha ao menos uma linha.
+  const cab = document.getElementById(`cab-gol-${lado}`);
+  if (cab) cab.style.display = cont.querySelector('.linha-gol') ? 'grid' : 'none';
 }
 
 // Reconstroi as linhas a partir dos eventos ja gravados (RN-LR-10).
