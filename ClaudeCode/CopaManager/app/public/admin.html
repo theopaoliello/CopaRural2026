@@ -1788,10 +1788,22 @@ function modalResultadoGols(jogoId) {
     </div>
     <div id="res-simples" hidden>
       <div class="grid-2">
-        <div><label>Gols ${esc(casa.nome)}</label><input type="number" id="gols-casa" min="0" value="${j.gols_casa ?? ''}"></div>
-        <div><label>Gols ${esc(fora.nome)}</label><input type="number" id="gols-fora" min="0" value="${j.gols_fora ?? ''}"></div>
+        <div>
+          <label>Gols ${esc(casa.nome)}</label>
+          <input type="number" id="gols-casa" min="0" value="${j.gols_casa ?? ''}" oninput="atualizarContadorGols('casa')">
+          <div id="linhas-gol-casa"></div>
+          ${selJogadoresGol('casa', DET.jogadores.filter((x) => x.time_id === j.time_casa_id))}
+          <p class="muted" id="contador-gol-casa" style="margin:4px 0 0;font-size:.8rem"></p>
+        </div>
+        <div>
+          <label>Gols ${esc(fora.nome)}</label>
+          <input type="number" id="gols-fora" min="0" value="${j.gols_fora ?? ''}" oninput="atualizarContadorGols('fora')">
+          <div id="linhas-gol-fora"></div>
+          ${selJogadoresGol('fora', DET.jogadores.filter((x) => x.time_id === j.time_fora_id))}
+          <p class="muted" id="contador-gol-fora" style="margin:4px 0 0;font-size:.8rem"></p>
+        </div>
       </div>
-      <p class="muted">Só o placar da partida: os gols ficam na súmula como <strong>SR (Sem registro)</strong>, sem autor.</p>
+      <p class="muted">Atribua gols e cartões por jogador. Gols sem autor entram na súmula como <strong>SR (Sem registro)</strong>. O item <strong>“Gol Contra”</strong> registra gols contra a favor deste time (só o número).</p>
     </div>
     <div id="res-detalhado" hidden>
       <p class="muted" style="margin:4px 0">
@@ -1819,7 +1831,127 @@ function modalResultadoGols(jogoId) {
   };
   $('#res-texto').oninput = atualizarPlacar;
   atualizarPlacar();
-  modoResultado(temDetalhe ? 'detalhado' : 'simples');
+  // A lista de jogadores (na aba Placar simples) reflete os eventos ja gravados.
+  prefillLinhasGol(j);
+  // Abre na Placar simples: a lista agora e o editor detalhado principal; a
+  // Sumula detalhada (texto) segue disponivel e sincronizada pelos mesmos eventos.
+  modoResultado('simples');
+  void temDetalhe;
+}
+
+// ---------- lista de jogadores no Placar simples (gols + cartoes) ----------
+
+// Seletor "+ Adicionar jogador" com o elenco do time e, ao fim, "Gol Contra".
+function selJogadoresGol(lado, elenco) {
+  if (!elenco.length) return '<p class="muted" style="font-size:.8rem;margin:4px 0 0">Sem elenco cadastrado.</p>';
+  return `<select class="add-jogador-gol" data-lado="${lado}" onchange="adicionarLinhaGol(this)" style="width:100%;margin-top:6px">
+    <option value="" selected>+ Adicionar jogador…</option>
+    ${elenco.map((x) => `<option value="j:${x.id}">${esc(x.nome)}</option>`).join('')}
+    <option value="gc">Gol Contra</option>
+  </select>`;
+}
+
+// Uma linha de lancamento. GC mostra so o campo de gols (sem cartoes).
+function linhaGolHtml(lado, chave, nome, ehGC) {
+  const flags = ehGC ? '' : `
+    <label class="muted" style="width:auto" title="Cartão amarelo"><input type="checkbox" class="lg-amarelo" onchange="lgAmarelo(this)" style="width:auto"> 🟨</label>
+    <label class="muted" style="width:auto" title="Dois amarelos (2º amarelo → expulsão)"><input type="checkbox" class="lg-2amarelos" onchange="lg2Amarelos(this)" disabled style="width:auto"> 🟨🟨</label>
+    <label class="muted" style="width:auto" title="Cartão vermelho"><input type="checkbox" class="lg-vermelho" style="width:auto"> 🟥</label>`;
+  return `<div class="linha-flex linha-gol" data-lado="${lado}" data-chave="${esc(chave)}" data-nome="${esc(nome)}" data-gc="${ehGC ? 1 : 0}" style="margin:4px 0;gap:6px;flex-wrap:wrap">
+    <span style="flex:1;min-width:90px">${esc(nome)}${ehGC ? ' <span class="muted">(contra)</span>' : ''}</span>
+    <input type="number" min="0" class="lg-gols" placeholder="gols" oninput="atualizarContadorGols('${lado}')" style="width:60px">
+    ${flags}
+    <button type="button" class="botao secundario mini" onclick="removerLinhaGol(this)" title="Remover">✕</button>
+  </div>`;
+}
+
+function adicionarLinhaGol(sel) {
+  const val = sel.value;
+  if (!val) return;
+  const lado = sel.dataset.lado;
+  const ehGC = val === 'gc';
+  const nome = ehGC ? 'Gol Contra' : sel.selectedOptions[0].textContent;
+  document.getElementById(`linhas-gol-${lado}`).insertAdjacentHTML('beforeend', linhaGolHtml(lado, val, nome, ehGC));
+  if (ehGC) sel.selectedOptions[0].disabled = true; // GC entra so uma vez
+  else sel.selectedOptions[0].remove();             // jogador sai das opcoes
+  sel.value = '';
+  atualizarContadorGols(lado);
+}
+
+function removerLinhaGol(btn) {
+  const linha = btn.closest('.linha-gol');
+  const { lado, chave, nome, gc } = linha.dataset;
+  linha.remove();
+  const sel = document.querySelector(`.add-jogador-gol[data-lado="${lado}"]`);
+  if (sel) {
+    if (gc === '1') { const o = [...sel.options].find((o) => o.value === 'gc'); if (o) o.disabled = false; }
+    else { const o = document.createElement('option'); o.value = chave; o.textContent = nome; sel.add(o); }
+  }
+  atualizarContadorGols(lado);
+}
+
+// Amarelo controla a habilitacao de "dois amarelos" (RN-LR-03/05).
+function lgAmarelo(cb) {
+  const dois = cb.closest('.linha-gol').querySelector('.lg-2amarelos');
+  if (cb.checked) { dois.disabled = false; }
+  else { dois.checked = false; dois.disabled = true; lg2Amarelos(dois); }
+}
+
+// Dois amarelos marca e trava o vermelho (RN-LR-04).
+function lg2Amarelos(cb) {
+  const verm = cb.closest('.linha-gol').querySelector('.lg-vermelho');
+  if (cb.checked) { verm.checked = true; verm.disabled = true; }
+  else { verm.checked = false; verm.disabled = false; }
+}
+
+function atualizarContadorGols(lado) {
+  const cont = document.getElementById(`linhas-gol-${lado}`);
+  const el = document.getElementById(`contador-gol-${lado}`);
+  if (!cont || !el) return;
+  let atribuidos = 0;
+  cont.querySelectorAll('.linha-gol .lg-gols').forEach((i) => { atribuidos += Number(i.value || 0); });
+  const placar = Number((lado === 'casa' ? $('#gols-casa') : $('#gols-fora')).value || 0);
+  const sr = Math.max(0, placar - atribuidos);
+  el.textContent = `${atribuidos} de ${placar} gols atribuídos${sr ? ` (${sr} sem autor)` : ''}`;
+  el.style.color = atribuidos > placar ? '#c0392b' : '';
+}
+
+// Reconstroi as linhas a partir dos eventos ja gravados (RN-LR-10).
+function prefillLinhasGol(j) {
+  const evs = DET.eventos.filter((e) => e.jogo_id === j.id);
+  for (const [lado, timeId] of [['casa', j.time_casa_id], ['fora', j.time_fora_id]]) {
+    const sel = document.querySelector(`.add-jogador-gol[data-lado="${lado}"]`);
+    const cont = document.getElementById(`linhas-gol-${lado}`);
+    const conta = (tipo) => {
+      const m = new Map();
+      evs.filter((e) => e.tipo === tipo && e.time_id === timeId && e.jogador_id != null)
+        .forEach((e) => m.set(e.jogador_id, (m.get(e.jogador_id) ?? 0) + 1));
+      return m;
+    };
+    const gols = conta('gol'), amarelos = conta('amarelo'), vermelhos = conta('vermelho');
+    const ids = new Set([...gols.keys(), ...amarelos.keys(), ...vermelhos.keys()]);
+    for (const jid of ids) {
+      const nome = DET.jogadores.find((x) => x.id === jid)?.nome ?? 'Jogador';
+      cont.insertAdjacentHTML('beforeend', linhaGolHtml(lado, `j:${jid}`, nome, false));
+      const linha = cont.lastElementChild;
+      if (sel) { const o = [...sel.options].find((o) => o.value === `j:${jid}`); if (o) o.remove(); }
+      const g = gols.get(jid) ?? 0; if (g) linha.querySelector('.lg-gols').value = g;
+      const am = amarelos.get(jid) ?? 0, vm = vermelhos.get(jid) ?? 0;
+      const cbA = linha.querySelector('.lg-amarelo');
+      const cb2 = linha.querySelector('.lg-2amarelos');
+      const cbV = linha.querySelector('.lg-vermelho');
+      if (am >= 1) { cbA.checked = true; cb2.disabled = false; }
+      if (am >= 2) { cb2.checked = true; cbV.checked = true; cbV.disabled = true; }
+      else if (vm >= 1) { cbV.checked = true; }
+    }
+    const gc = evs.filter((e) => e.tipo === 'gol_contra' && e.time_id === timeId).length;
+    if (gc) {
+      cont.insertAdjacentHTML('beforeend', linhaGolHtml(lado, 'gc', 'Gol Contra', true));
+      cont.lastElementChild.querySelector('.lg-gols').value = gc;
+      if (sel) { const o = [...sel.options].find((o) => o.value === 'gc'); if (o) o.disabled = true; }
+    }
+    atualizarContadorGols(lado);
+  }
 }
 
 async function salvarResultado(jogoId) {
@@ -1832,11 +1964,41 @@ async function salvarResultado(jogoId) {
       return;
     }
     const j = DET.jogos.find((x) => x.id === jogoId);
-    // Um evento SR (sem registro de autor) por gol, para constarem na súmula.
+    const golsCasa = Number(vCasa), golsFora = Number(vFora);
+    const timeIdDe = { casa: j.time_casa_id, fora: j.time_fora_id };
+    const atribuidos = { casa: 0, fora: 0 };
     const eventos = [];
-    for (let k = 0; k < Number(vCasa); k++) eventos.push({ tipo: 'gol', time_id: j.time_casa_id, jogador_id: null });
-    for (let k = 0; k < Number(vFora); k++) eventos.push({ tipo: 'gol', time_id: j.time_fora_id, jogador_id: null });
-    rota = 'resultado'; corpo = { gols_casa: Number(vCasa), gols_fora: Number(vFora), eventos };
+    // Cada linha da lista vira eventos reais (gols com autor, gol contra, cartoes).
+    for (const linha of document.querySelectorAll('#res-simples .linha-gol')) {
+      const lado = linha.dataset.lado;
+      const timeId = timeIdDe[lado];
+      const gols = Number(linha.querySelector('.lg-gols').value || 0);
+      if (linha.dataset.gc === '1') {
+        for (let k = 0; k < gols; k++) eventos.push({ tipo: 'gol_contra', time_id: timeId, jogador_id: null });
+        atribuidos[lado] += gols;
+        continue;
+      }
+      const jid = Number(linha.dataset.chave.slice(2)); // "j:ID"
+      for (let k = 0; k < gols; k++) eventos.push({ tipo: 'gol', time_id: timeId, jogador_id: jid });
+      atribuidos[lado] += gols;
+      const dois = linha.querySelector('.lg-2amarelos').checked;
+      if (dois) {
+        eventos.push({ tipo: 'amarelo', time_id: timeId, jogador_id: jid });
+        eventos.push({ tipo: 'amarelo', time_id: timeId, jogador_id: jid });
+        eventos.push({ tipo: 'vermelho', time_id: timeId, jogador_id: jid });
+      } else {
+        if (linha.querySelector('.lg-amarelo').checked) eventos.push({ tipo: 'amarelo', time_id: timeId, jogador_id: jid });
+        if (linha.querySelector('.lg-vermelho').checked) eventos.push({ tipo: 'vermelho', time_id: timeId, jogador_id: jid });
+      }
+    }
+    if (atribuidos.casa > golsCasa || atribuidos.fora > golsFora) {
+      av.textContent = 'Há mais gols atribuídos a jogadores do que o placar do time.'; av.className = 'aviso erro';
+      return;
+    }
+    // O restante do placar (sem autor) entra como gols SR.
+    for (let k = 0; k < golsCasa - atribuidos.casa; k++) eventos.push({ tipo: 'gol', time_id: j.time_casa_id, jogador_id: null });
+    for (let k = 0; k < golsFora - atribuidos.fora; k++) eventos.push({ tipo: 'gol', time_id: j.time_fora_id, jogador_id: null });
+    rota = 'resultado'; corpo = { gols_casa: golsCasa, gols_fora: golsFora, eventos };
   } else {
     rota = 'resultado-texto'; corpo = { texto: $('#res-texto').value };
   }
