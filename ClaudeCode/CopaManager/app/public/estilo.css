@@ -273,3 +273,13 @@ table.tabela { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
 .grade-gol input[type=number] { width: 100%; padding: 6px 4px; text-align: center; }
 .grade-gol .cel { display: flex; justify-content: center; }
 .grade-gol .cel input[type=checkbox] { width: auto; margin: 0; }
+
+/* Lancamento da Pelada Epica: grade com cabecalho de escalacao.
+   Colunas: nome (flexivel) | ⚽ gols | Time A | Time B | Fora. */
+.grade-pelada { display: grid; grid-template-columns: minmax(0, 1.4fr) 48px minmax(0, 1fr) minmax(0, 1fr) 46px; gap: 4px; align-items: center; }
+.grade-pelada.cabecalho { font-size: .78rem; line-height: 1.1; margin: 4px 0 2px; color: var(--cinza); }
+.grade-pelada.cabecalho > span { text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grade-pelada .nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grade-pelada input[type=number] { width: 100%; padding: 6px 4px; text-align: center; }
+.grade-pelada .cel { display: flex; justify-content: center; }
+.grade-pelada .cel input[type=radio] { width: auto; margin: 0; }

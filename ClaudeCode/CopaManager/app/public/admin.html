@@ -1312,14 +1312,20 @@ function modalResultadoPelada(jogoId) {
   const timeDe = (jid) => escalacoes.find((e) => e.jogador_id === jid)?.time_id ?? null;
   const golsDe = (jid) => DET.eventos.filter((e) => e.jogo_id === jogoId && e.tipo === 'gol' && e.jogador_id === jid).length;
   // Escalaveis: ativos + quem ja esta na escalacao deste jogo (mesmo se inativado depois).
-  const jogadores = DET.jogadores.filter((x) => x.ativo || timeDe(x.id) != null);
+  // Ordem (topo->base): goleiros fixos, fixos de linha, goleiros suplentes, suplentes de linha.
+  // sort() e estavel, entao a ordem interna (ranking dos fixos) e preservada como desempate.
+  const ordem = (x) => (x.tipo === 'fixo' ? 0 : 2) + (x.goleiro ? 0 : 1);
+  const jogadores = DET.jogadores
+    .filter((x) => x.ativo || timeDe(x.id) != null)
+    .slice()
+    .sort((a, b) => ordem(a) - ordem(b));
   const linha = (x) => `
-    <div class="linha-flex" style="margin:3px 0">
-      <span style="flex:1">${esc(x.nome)}${x.goleiro ? ' <span class="badge">G</span>' : ''}${x.tipo === 'suplente' ? ' <span class="muted">(sup.)</span>' : ''}</span>
-      <label style="width:auto"><input type="radio" name="esc-${x.id}" class="esc" data-jogador="${x.id}" value="${j.time_casa_id}" ${timeDe(x.id) === j.time_casa_id ? 'checked' : ''} style="width:auto"> ${esc(casa.nome)}</label>
-      <label style="width:auto"><input type="radio" name="esc-${x.id}" class="esc" data-jogador="${x.id}" value="${j.time_fora_id}" ${timeDe(x.id) === j.time_fora_id ? 'checked' : ''} style="width:auto"> ${esc(fora.nome)}</label>
-      <label style="width:auto"><input type="radio" name="esc-${x.id}" value="" ${timeDe(x.id) == null ? 'checked' : ''} style="width:auto"> Fora</label>
-      <input type="number" min="0" class="gols-jogador" data-jogador="${x.id}" value="${golsDe(x.id) || ''}" placeholder="gols" style="width:64px">
+    <div class="grade-pelada" style="margin:3px 0">
+      <span class="nome">${esc(x.nome)}${x.goleiro ? ' <span class="badge">G</span>' : ''}${x.tipo === 'suplente' ? ' <span class="muted">(sup.)</span>' : ''}</span>
+      <input type="number" min="0" class="gols-jogador" data-jogador="${x.id}" value="${golsDe(x.id) || ''}" placeholder="0">
+      <span class="cel"><input type="radio" name="esc-${x.id}" class="esc" data-jogador="${x.id}" value="${j.time_casa_id}" ${timeDe(x.id) === j.time_casa_id ? 'checked' : ''}></span>
+      <span class="cel"><input type="radio" name="esc-${x.id}" class="esc" data-jogador="${x.id}" value="${j.time_fora_id}" ${timeDe(x.id) === j.time_fora_id ? 'checked' : ''}></span>
+      <span class="cel"><input type="radio" name="esc-${x.id}" value="" ${timeDe(x.id) == null ? 'checked' : ''}></span>
     </div>`;
   abrirModal(`
     <h3>Resultado: ${esc(casa.nome)} x ${esc(fora.nome)}</h3>
@@ -1329,6 +1335,9 @@ function modalResultadoPelada(jogoId) {
     </div>
     <h4 style="margin:10px 0 4px">Quem jogou onde?</h4>
     <p class="muted" style="margin:0 0 6px">Marque o time de cada jogador presente — a pontuação individual vem daí. Gols por jogador são opcionais; a diferença fica sem autor (SR).</p>
+    <div class="grade-pelada cabecalho">
+      <span></span><span title="Gols">⚽</span><span>${esc(casa.nome)}</span><span>${esc(fora.nome)}</span><span>Fora</span>
+    </div>
     ${jogadores.map(linha).join('')}
     <div id="aviso-res" class="aviso"></div>
     <p><button class="botao" style="width:100%" onclick="salvarResultadoPelada(${jogoId})">Salvar resultado</button></p>
