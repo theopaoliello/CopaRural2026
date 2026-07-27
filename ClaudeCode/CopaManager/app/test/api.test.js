@@ -704,7 +704,7 @@ test('jogadores em lote: cadastra varios de uma vez e respeita a posse', async (
   );
 });
 
-test('limites de nome: time ate 18 e jogador ate 15 caracteres', async () => {
+test('limites de nome: time ate 18 e jogador ate 25 caracteres', async () => {
   const c = cliente();
   await registrarEntrar(c, { nome: 'Lim', email: 'limites@teste.com', senha: 'segredo1' });
 
@@ -728,10 +728,10 @@ test('limites de nome: time ate 18 e jogador ate 15 caracteres', async () => {
   assert.equal((await c('PATCH', `/api/times/${timeB.id}`, { nome: 'B'.repeat(31) })).status, 400);
   assert.equal((await c('PATCH', `/api/times/${timeB.id}`, { nome: 'B'.repeat(30) })).status, 200);
 
-  // Jogador: 16 recusa, 15 aceita.
+  // Jogador: 26 recusa, 25 aceita.
   const timeA = det.corpo.times.find((t) => t.nome === 'A'.repeat(30));
-  assert.equal((await c('POST', `/api/times/${timeA.id}/jogadores`, { nome: 'J'.repeat(16) })).status, 400);
-  assert.equal((await c('POST', `/api/times/${timeA.id}/jogadores`, { nome: 'J'.repeat(15) })).status, 201);
+  assert.equal((await c('POST', `/api/times/${timeA.id}/jogadores`, { nome: 'J'.repeat(26) })).status, 400);
+  assert.equal((await c('POST', `/api/times/${timeA.id}/jogadores`, { nome: 'J'.repeat(25) })).status, 201);
 });
 
 test('resultado por texto: placar automatico, gol contra e validacao de elenco', async () => {

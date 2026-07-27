@@ -16,10 +16,10 @@ test('lote: exemplo da especificacao (numero opcional)', () => {
   ]);
 });
 
-test('lote: rejeita nome acima de 15 caracteres', () => {
+test('lote: rejeita nome acima de 25 caracteres', () => {
   assert.throws(
-    () => parsearLoteJogadores('Theo,10\nJose Carlos da Silva,7'),
-    /Linha 2: nome muito longo \(limite: 15 caracteres\)/,
+    () => parsearLoteJogadores('Theo,10\nJose Carlos da Silva Sauro,7'),
+    /Linha 2: nome muito longo \(limite: 25 caracteres\)/,
   );
 });
 
