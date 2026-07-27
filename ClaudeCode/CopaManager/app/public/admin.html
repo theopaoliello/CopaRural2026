@@ -1788,21 +1788,11 @@ function modalResultadoGols(jogoId) {
     </div>
     <div id="res-simples" hidden>
       <div class="grid-2">
-        <div>
-          <label>Gols ${esc(casa.nome)}</label>
-          <input type="number" id="gols-casa" min="0" value="${j.gols_casa ?? ''}" oninput="atualizarContadorGols('casa')">
-          <div id="linhas-gol-casa"></div>
-          ${selJogadoresGol('casa', DET.jogadores.filter((x) => x.time_id === j.time_casa_id))}
-          <p class="muted" id="contador-gol-casa" style="margin:4px 0 0;font-size:.8rem"></p>
-        </div>
-        <div>
-          <label>Gols ${esc(fora.nome)}</label>
-          <input type="number" id="gols-fora" min="0" value="${j.gols_fora ?? ''}" oninput="atualizarContadorGols('fora')">
-          <div id="linhas-gol-fora"></div>
-          ${selJogadoresGol('fora', DET.jogadores.filter((x) => x.time_id === j.time_fora_id))}
-          <p class="muted" id="contador-gol-fora" style="margin:4px 0 0;font-size:.8rem"></p>
-        </div>
+        <div><label>Gols ${esc(casa.nome)}</label><input type="number" id="gols-casa" min="0" value="${j.gols_casa ?? ''}" oninput="atualizarContadorGols('casa')"></div>
+        <div><label>Gols ${esc(fora.nome)}</label><input type="number" id="gols-fora" min="0" value="${j.gols_fora ?? ''}" oninput="atualizarContadorGols('fora')"></div>
       </div>
+      ${blocoLancGol('casa', casa, DET.jogadores.filter((x) => x.time_id === j.time_casa_id))}
+      ${blocoLancGol('fora', fora, DET.jogadores.filter((x) => x.time_id === j.time_fora_id))}
       <p class="muted">Atribua gols e cartões por jogador. Gols sem autor entram na súmula como <strong>SR (Sem registro)</strong>. O item <strong>“Gol Contra”</strong> registra gols contra a favor deste time (só o número).</p>
     </div>
     <div id="res-detalhado" hidden>
@@ -1841,6 +1831,17 @@ function modalResultadoGols(jogoId) {
 
 // ---------- lista de jogadores no Placar simples (gols + cartoes) ----------
 
+// Bloco de lancamentos de um time, em largura total (evita que os cartoes
+// quebrem de linha nas colunas estreitas do desktop).
+function blocoLancGol(lado, time, elenco) {
+  return `<div style="margin-top:10px">
+    <strong style="display:block;font-size:.9rem;margin-bottom:2px">${esc(time.nome)}</strong>
+    <div id="linhas-gol-${lado}"></div>
+    ${selJogadoresGol(lado, elenco)}
+    <p class="muted" id="contador-gol-${lado}" style="margin:4px 0 0;font-size:.8rem"></p>
+  </div>`;
+}
+
 // Seletor "+ Adicionar jogador" com o elenco do time e, ao fim, "Gol Contra".
 function selJogadoresGol(lado, elenco) {
   if (!elenco.length) return '<p class="muted" style="font-size:.8rem;margin:4px 0 0">Sem elenco cadastrado.</p>';
@@ -1858,7 +1859,7 @@ function linhaGolHtml(lado, chave, nome, ehGC) {
     <label class="muted" style="width:auto" title="Dois amarelos (2º amarelo → expulsão)"><input type="checkbox" class="lg-2amarelos" onchange="lg2Amarelos(this)" disabled style="width:auto"> 🟨🟨</label>
     <label class="muted" style="width:auto" title="Cartão vermelho"><input type="checkbox" class="lg-vermelho" style="width:auto"> 🟥</label>`;
   return `<div class="linha-flex linha-gol" data-lado="${lado}" data-chave="${esc(chave)}" data-nome="${esc(nome)}" data-gc="${ehGC ? 1 : 0}" style="margin:4px 0;gap:6px;flex-wrap:wrap">
-    <span style="flex:1;min-width:90px">${esc(nome)}${ehGC ? ' <span class="muted">(contra)</span>' : ''}</span>
+    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nome)}${ehGC ? ' <span class="muted">(contra)</span>' : ''}</span>
     <input type="number" min="0" class="lg-gols" placeholder="gols" oninput="atualizarContadorGols('${lado}')" style="width:60px">
     ${flags}
     <button type="button" class="botao secundario mini" onclick="removerLinhaGol(this)" title="Remover">✕</button>
